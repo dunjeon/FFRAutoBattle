@@ -181,7 +181,7 @@ already confirmed still logs "working gauge stays". The first unconfirmed
 rise, poured/0.72, is unchanged. The 65% line is unchanged. That work shipped
 inside v0.1.6.
 
-Local script, not pushed, v0.1.6
+Shipped as v0.1.6
 Two general rules, for whatever party is equipped. Under 20% MP a known
 weakness whose cost still fits is cast. A free Attack is used when that cost
 does not fit. One Ether is still the spend when the weakness cannot be paid.
