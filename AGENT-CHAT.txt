@@ -7,15 +7,15 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.4."
+a Steam launch. The startup line is "loaded. planner v0.1.6."
 
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins. The
-playtest build is v0.1.4 on the testing branch. main and the v0.1.1 release
-zip are unchanged.
+testing and main both carry v0.1.6. The release zip is FFRAutoBattle.zip
+on tag v0.1.6. It has the same folders as the v0.1.1 zip.
 
 The fix list
 ------------
@@ -162,4 +162,36 @@ Two general failures were in that same session. Do not revert them.
   was spent twice on a body that was still down. The claim now lasts until
   that ally is seen standing. A retry waits until the party has acted. Heal
   claims still clear each round. The 65% line is unchanged. main and the
-  v0.1.1 release are unchanged. The startup line is "loaded. planner v0.1.4."
+  v0.1.1 release are unchanged. The startup line for that build is
+  "loaded. planner v0.1.4."
+
+Local script, not pushed, v0.1.5
+The v0.1.4 session still grew a gauge on the one-round release, and the bonus
+that arrived one or two commands later confirmed the larger size. Both Aqua
+Elementals went from a book gauge of 110 to working gauges of 208 and 174,
+and the late bonus locked those sizes. v0.1.5 remembers the size from before
+that rise. If the bonus arrives before the new gauge is filled, the size goes
+back, the enemy is marked broken again, and the log says "working gauge
+restored". A refill during that same short wait goes back too. The v0.1.5
+session crossed Aqua ElementalC to 175/174 with one chip after the release,
+and that late bonus then locked 174. While the wait is open the enemy is
+cashed with the broken bodies and is not built, so that chip does not land.
+A refill after the wait still keeps the risen size. A gauge a bonus has
+already confirmed still logs "working gauge stays". The first unconfirmed
+rise, poured/0.72, is unchanged. The 65% line is unchanged. That work shipped
+inside v0.1.6.
+
+Local script, not pushed, v0.1.6
+Two general rules, for whatever party is equipped. Under 20% MP a known
+weakness whose cost still fits is cast. A free Attack is used when that cost
+does not fit. One Ether is still the spend when the weakness cannot be paid.
+A heavy hit that is not the weakness stays blocked. A bonus confirms a gauge
+the fight has filled. A risen gauge that is still unfilled becomes the stagger
+that had been poured, and the log says "poured stagger". It does not lock the
+unfilled guess. A short late bonus still logs "working gauge restored". A
+confirmed gauge still logs "working gauge stays". The 65% line is unchanged.
+Rare items stay in the bag. The Siren playtest of this build restored a
+premature release to 550 and then held that size. Lasswell kept casting
+Thunder down to 8 MP, then took the Ether when Thunder no longer fit. Both
+branches and the release zip are this build. The startup line is
+"loaded. planner v0.1.6."

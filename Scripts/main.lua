@@ -1277,7 +1277,7 @@ Fight = {
     scanned = {}, elemRun = {}, seenAlly = {},
     resonanceSent = false, resonanceMiss = false,
     last = nil, prev = {}, active = false, number = 0,
-    poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {}, brokeOn = {}, gaugeSure = {},
+    poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {}, brokeOn = {}, gaugeSure = {}, gaugeWas = {},
     downSince = nil, phaseSeen = 0, bonusSeen = false, lastHit = nil, line = false,
     prevHit = nil, building = nil, kits = {},
     claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, debuff = false, esper = false, lb = false },
@@ -1728,9 +1728,18 @@ local function turn(uid, skills, w, phase)
     end
 
     local open, brokenPool = {}, {}
+    local waitParty = 0
+    for _ in pairs(Fight.seenAlly or {}) do waitParty = waitParty + 1 end
+    if waitParty < 2 then waitParty = 2 end
+    local actionsN = #(Fight.actions or {})
     for _, u in ipairs(w.enemies) do
         local _, remain, empty = gaugeOfEnemy(u)
-        if u.broken or empty then brokenPool[#brokenPool + 1] = u
+        local waiting = false
+        local rec = Fight.gaugeWas and Fight.gaugeWas[u.id]
+        if rec and (type(rec.size) == "number") and ((actionsN - (rec.at or 0)) <= waitParty) then
+            waiting = true
+        end
+        if u.broken or empty or waiting then brokenPool[#brokenPool + 1] = u
         else open[#open + 1] = u end
     end
 
@@ -2009,7 +2018,6 @@ local function turn(uid, skills, w, phase)
             if not pay(s) then return end
             if not cashing and debuffOwed() and (s.cost or 0) > 0 then return end
             local b = band()
-            if not cashing and b == "low" and (s.cost or 0) > 0 then return end
             local useful, pts, weak, finishes, early = 0, 0, false, false, false
             for _, u in ipairs(targets) do
                 local gauge, remain, empty = gaugeOfEnemy(u)
@@ -2019,7 +2027,7 @@ local function turn(uid, skills, w, phase)
                     local pow, br = offenseOf(s)
                     if br >= 25 then heavy = true end
                     local allowed = cashing or b == "high" or (s.cost or 0) <= 0 or f >= 3 or heavy
-                    if not cashing and b == "low" then allowed = (s.cost or 0) <= 0 end
+                    if not cashing and b == "low" then allowed = ((s.cost or 0) <= 0) or (f >= 3) end
                     if allowed then
                         useful = useful + 1
                         if cashing then pts = pts + (pow or 0) * f
@@ -2485,7 +2493,7 @@ local function ensureBattle()
     Fight.scanned, Fight.elemRun, Fight.seenAlly = {}, {}, {}
     Fight.resonanceSent = false
     Fight.resonanceMiss = false
-    Fight.poured, Fight.down, Fight.downTold, Fight.relax, Fight.gaugeScale, Fight.brokeOn, Fight.gaugeSure = {}, {}, {}, {}, {}, {}, {}
+    Fight.poured, Fight.down, Fight.downTold, Fight.relax, Fight.gaugeScale, Fight.brokeOn, Fight.gaugeSure, Fight.gaugeWas = {}, {}, {}, {}, {}, {}, {}, {}
     Fight.downSince, Fight.phaseSeen, Fight.bonusSeen, Fight.lastHit = nil, 0, false, nil
     Fight.line = false
     Fight.prevHit = nil
@@ -2541,12 +2549,48 @@ local function settleGauges()
     if phaseNow == PHASE_BONUS or phaseNow == PHASE_FINISH then
         Fight.bonusSeen = true
         Fight.gaugeSure = Fight.gaugeSure or {}
+        Fight.gaugeWas = Fight.gaugeWas or {}
+        local caught = {}
+        for id in pairs(Fight.gaugeWas) do caught[#caught + 1] = id end
+        local party = 0
+        for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
+        if party < 2 then party = 2 end
+        for _, id in ipairs(caught) do
+            local rec = Fight.gaugeWas[id]
+            local old = rec and rec.size
+            local at = (rec and rec.at) or 0
+            local fresh = (type(old) == "number") and ((#(Fight.actions or {}) - at) <= party)
+            if fresh and Fight.brokeOn[id] then
+                Fight.gaugeScale[id] = old
+                Fight.gaugeSure[id] = old
+                Fight.down[id] = true
+                Fight.downTold[id] = true
+                Fight.relax[id] = nil
+                Fight.poured[id] = 0
+                Fight.gaugeWas[id] = nil
+                log("%s bonus caught the release. working gauge restored %d", unitName(id), old)
+            elseif not fresh then
+                Fight.gaugeWas[id] = nil
+            end
+        end
         local function rememberSure(id)
             if not id or Fight.gaugeSure[id] then return end
             local scaled = Fight.gaugeScale and Fight.gaugeScale[id]
+            local poured = Fight.poured[id] or 0
             local card = mobOf({ id = id, name = unitName(id) })
             local book = card and tonumber(card.gauge) or nil
             local size = (((type(scaled) == "number") and (scaled > 0) and scaled) or book)
+            if (type(scaled) == "number") and (scaled > 0) and (poured > 0) and (poured < scaled) then
+                local proved = math.floor(poured + 0.5)
+                if (type(book) == "number") and (proved < book) then proved = book end
+                Fight.gaugeScale[id] = proved
+                Fight.down[id] = true
+                Fight.downTold[id] = true
+                Fight.relax[id] = nil
+                Fight.poured[id] = 0
+                size = proved
+                log("%s bonus proved the poured stagger. working gauge %d", unitName(id), proved)
+            end
             if (type(size) == "number") and (size > 0) then Fight.gaugeSure[id] = size end
         end
         for id, on in pairs(Fight.down) do
@@ -2602,7 +2646,11 @@ local function settleGauges()
                     local grown = math.floor(poured / 0.72 + 0.5)
                     if grown < book + 1 then grown = book + 1 end
                     local prev = Fight.gaugeScale[id] or book
-                    if grown > prev then Fight.gaugeScale[id] = grown end
+                    if grown > prev then
+                        Fight.gaugeWas = Fight.gaugeWas or {}
+                        Fight.gaugeWas[id] = { size = prev, at = #(Fight.actions or {}) }
+                        Fight.gaugeScale[id] = grown
+                    end
                     log("%s gauge estimate released, no bonus phase. working gauge %d",
                         unitName(id), Fight.gaugeScale[id] or grown)
                 end
@@ -3012,7 +3060,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.4. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.6. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     mobCount,
