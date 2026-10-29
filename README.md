@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Dunjeon is the Project Manager. Grok, by xAI, is the Lead Programmer. The battle policy is Dunjeon's. The Lua is Grok's. Released under the MIT license.
+Lead Programmer: Grok, by xAI. Released under the MIT license.
 
 ## Install
 
