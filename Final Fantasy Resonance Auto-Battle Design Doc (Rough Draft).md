@@ -1,7 +1,5 @@
 # Final Fantasy Resonance: Auto-Battle Design Doc (Rough Draft)
 
-Oct 28, 2026 · @Carey
-
 The auto-battle never assumes a build: at battle start it reads each character's actual skills, tags them by function, and then runs one priority ladder each turn that keeps the party alive, keeps MP available, and drives enemies toward stagger.
 
 ## Game facts the AI relies on
