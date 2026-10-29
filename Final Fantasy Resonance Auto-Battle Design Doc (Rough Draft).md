@@ -8,9 +8,9 @@ The AI only uses mechanics that hold in every build; anything Vision-specific is
 
 | System | What the game does | What the AI does with it |
 | --- | --- | --- |
-| Turn order | Turn-based with a visible Timeline of upcoming ally and enemy actions | Reads who acts before the next enemy to time heals and buffs |
-| Stagger gauge | Each enemy has a gauge under its HP; weaknesses drain it faster; at zero the enemy loses its action and takes more damage | Main damage goal: empty gauges, then burst |
-| Sweeping Stagger | Staggering all enemies in one turn gives a bonus phase ending in a Resonance attack | Plans turns so the last gauges empty together |
+| Turn order | Turn-based with a visible Timeline of upcoming ally and enemy actions | The Timeline is not readable. Party order and the stagger ledger stand in for it |
+| Stagger gauge | Each enemy has a gauge under its HP; weaknesses drain it faster; at zero the enemy loses its action and takes more damage | Main damage goal: empty gauges, then burst. The book's Normal gauge is the count. Reaching it marks the enemy broken. If the bonus does not arrive within about one round, the poured count is kept and the working gauge rises. The live break ratio stays full, so the ledger is the count |
+| Sweeping Stagger | Staggering all enemies in one turn gives a bonus phase ending in a Resonance attack | Plans turns so the last gauges empty together. A normal spell is not sent as the Resonance move. The wheel is left for the player when the equipped Finish Blow is not found |
 | Visions | One equipped per character; grants that Vision's skills, paid with the character's own MP | Reads the actual skill list, never assumes a Vision |
 | Roles | Sentinel, Breaker, Medic, Commando, Saboteur, Synergist | Used as a hint only; skill tags decide behavior |
 | MP | Skills cost MP; Ethers, MP-on-stagger, MP-on-kill and end-of-battle restores exist as passives or gear | MP budget drives skill choice |
@@ -41,24 +41,24 @@ If the game's data does not expose a tag directly, the AI falls back to the skil
 
 ## Party brain: one planner, not four soloists
 
-Yes, the characters must know each other's moves. The design uses one shared planner that plans the whole round across the Timeline, and the four characters are only executors of its plan. Four independent AIs would double-heal, stack the same buff twice, waste a stagger one turn early, and revive the same ally twice.
+Yes, the characters must know each other's moves. One shared planner fills the slot that is open. The characters carry that slot out. Four independent pickers would double-heal, stack the same buff twice, waste a stagger one turn early, and revive the same ally twice.
 
 **Shared state the planner keeps**
 
-- Every enemy: HP, stagger gauge remaining, known weaknesses and immunities, and what it did last turn.
-- The Timeline: who acts before whom this round, and which enemy acts next.
+- Every enemy: HP, the forecast still to pour, known weaknesses and immunities, and whether the card has a danger move.
+- Party order: the ally whose menu is open. The Timeline is not readable, so it is not who acts next.
 - Every ally: HP, MP, statuses, and the tags of every skill and item they can use.
 - **Claims:** when the planner assigns an action it reserves its effect (this heal covers Ally B, this debuff is on Enemy 2, this Ether goes to Ally C). Later actions see the claim and pick something else.
-- **Projected gauges:** each queued attack's stagger preview is subtracted from the target's gauge in the plan, so the planner knows whether the gauge will be empty before an enemy's turn.
+- **The ledger:** each connecting hit adds its stagger, times the weakness factor, to that enemy. The book's Normal gauge is the forecast. The bonus phase confirms the break.
 
-**How a round is planned**
+**How a turn is planned**
 
-1. Read the Timeline and list the party's actions in order, with the enemy actions between them.
-2. Fill the slots front to back with the ladder from the turn loop, but score each option against the projected state left by earlier slots, not the real state.
-3. Order matters: buffs and debuffs go early, heals go before the enemy action that threatens, and gauge finishers go last so the whole party's chip damage is counted first.
-4. After every real action, compare what happened with the projection (crit, miss, resist) and re-plan the rest of the round.
+1. Read the ally whose menu is open, and the living field.
+2. Walk the ladder for that one slot. Score damage against the ledger, not against a queued round.
+3. Setup, when it runs, comes before the first chip. Heals come before offense on the lines in the healing section. A finish waits until the gauges in the pool can fall together.
+4. After the action, the ledger takes the hit. The next open menu is planned from that state.
 
-The previewed stagger and damage numbers are the planner's ground truth, so it never needs to know a skill's name, only what the game says it will do.
+The live row's stagger is the count for an unnamed spell. Element comes from the catalog when the spell is named there. An unnamed Vision spell is still cast.
 
 ## Multi-enemy targeting
 
@@ -66,20 +66,16 @@ The party neither all hits one target nor splits evenly, and it does not wing it
 
 | Factor | What raises the enemy's priority |
 | --- | --- |
-| Threat | It acts before the next ally turn, or its attack is AoE, lethal, or applies a bad status |
-| Support role | It heals, buffs or shields other enemies, or summons more |
+| Threat | Its card has a danger move. Among hits with similar stagger, that body scores higher. A `call` mark scores a little higher. There is no separate support mark |
+| Support role | A card marked `call` replaces its escorts. That is the large body to hold, not an add to clear |
 | Stagger proximity | Its gauge is close to empty given what the party can deal this round |
 | Weakness fit | A party skill hits its weakness, so stagger per MP is high |
 | Kill value | Low HP: one more hit removes an action from the Timeline for good |
 | Immunity or absorb | Lowers priority for that element only, never for the whole enemy |
 
-**Adds versus boss.** The planner compares two plans and takes the one that needs fewer rounds.
+**Adds versus one plan.** Size class decides the pool. A gauge is an add only when it is at or under 60% of the largest gauge still up. Those are cleared first, and the larger gauges are held. Equal gauges, including a tie for the largest, stay on one shared plan. A `soft` or `call` mark does not pull a near-equal gauge into the adds. A danger move on the large body does not pull the smaller gauges off the adds plan. When the style is defensive, someone is critical, and the danger body's forecast is under 40%, the pool narrows to that body.
 
-- **Plan A, clear the adds.** Kill or stagger-and-kill adds first, then the boss is the only enemy left, so staggering it alone is a sweeping stagger. Best when adds are fragile, support the boss, or act often.
-- **Plan B, sync everything.** Keep every enemy alive and bring all gauges to near zero together. Best when adds have large HP or the boss is the main threat.
-- The boss is never ignored while the adds are cleared if its next action on the Timeline is lethal; the planner then heals or buffs against it instead.
-
-**Sweeping stagger timing.** The game staggers enemies for one turn and they recover at the start of the next, so emptying one gauge early wastes most of it. The planner therefore chips every gauge down to a small remainder, then finishes all of them in the same round, ordered by the Timeline. It uses AoE skills for the chip and single-target stagger skills for the finish.
+**Sweeping stagger timing.** Emptying one gauge while its partners are still high spends the bonus on one body. Inside one plan, a hit that would finish one enemy while another is still above 40% of its forecast is held, unless the hit is a weakness and nothing cheaper in that element can chip. An area spell chips the pool. A single-target weakness finishes when the set can fall together.
 
 **Focus versus split.** Focus on one enemy for HP damage when the sweep is not reachable (for example an immune boss), and split chip damage across gauges when it is. Overkill is avoided: the planner never puts a big-MP skill on a target that a cheaper one already finishes.
 
@@ -92,16 +88,16 @@ At battle start the planner scores the party against the enemies and picks a sty
 | 1. Scout | Learn weaknesses and threats | Libra-type skill if any, otherwise a cheap varied first hit; log what the previews and results show |
 | 2. Setup | Make the party safe and the enemy weaker | Shell and Haste-type buffs, Blind and defense-down debuffs, summon if the fight will last |
 | 3. Chip | Bring all gauges near zero without wasting a stagger | AoE or weakness hits, kill fragile support adds |
-| 4. Break and burst | Empty every gauge in one round, then spend the bonus phase | Highest-damage skills on staggered enemies, Resonance |
+| 4. Break and burst | Empty every gauge in one round, then spend the bonus phase | Highest-damage skills on staggered enemies. The Resonance wheel is the player's |
 | 5. Recover | Reset after the enemies recover | Heals, cures, MP restores, then back to phase 3 |
 
-**Style, chosen from the party profile.** The planner sums the party's healing per round, damage per round, stagger per round and MP pool, and compares them with the enemies' estimated damage per round.
+**Style, chosen from the field and who can still heal.** A living enemy whose card has a danger move, or a boss flag, is a hard field. A healer counts only when they can pay their heal cost.
 
-- **Aggressive:** healing is strong or enemies are weak. Shorter setup, break as soon as possible.
-- **Balanced:** the default.
-- **Defensive:** healing is thin or enemies hit hard. Buff and debuff first, keep a full MP and item reserve, break only when a stagger can be completed safely.
+- **Aggressive:** the field is not hard and a healer can pay. The opener can run. Guard, debuff, Limit Burst setup, and Esper wait.
+- **Balanced:** the field is hard and a healer can pay, or the field is not hard and nobody can pay a heal. On a hard field, one guard and one debuff go out before the first chip.
+- **Defensive:** the field is hard and nobody can pay a heal. The same one guard and one debuff, and the pool can narrow to the danger body when someone is critical and that forecast is under 40%.
 
-The style is re-evaluated every round, so a party that starts well and then loses its healer shifts to defensive on its own.
+The style is re-evaluated every turn, so a party that spends the last of a heal's MP shifts on its own. Setup still waits when someone has fallen or is under 30%. A paid chip closes the setup window. An Ether or a free Attack does not.
 
 **Proving it works for every build.** Before release, run the planner in a simulator against many random parties (every character crossed with every Vision, with and without healers, AoE, weakness coverage and items) and fight types (single enemy, groups, boss with adds). The pass conditions: never stall, never waste a revive, never spend premium items on trivial fights, and win more often than a plain "attack with the strongest skill" baseline.
 
@@ -113,20 +109,20 @@ Every character on their turn walks this ladder and takes the first rule that fi
 
 ## Healing and item rules
 
-The party's HP is one shared pool of risk: the AI picks the cheapest tool that fixes the problem, in this order: free effect, MP skill, item. Items are spent freely in danger and saved when the fight is safe.
+The party's HP is one shared pool of risk: the AI picks the cheapest tool that fixes the problem, in this order: free effect, MP skill, item. Under 30% is healed first. Under 50% is healed when MP is above half and either several allies are hurt or the bonus window just ended. While a danger move is up and that gauge is still open, the recover line for the lowest ally is 65%, and it does not wait for the bonus. Rare items stay in the bag.
 
 | Situation | Trigger | Action, first available |
 | --- | --- | --- |
 | Ally KO'd | Any ally at 0 HP | 1. REVIVE skill from a healthy ally. 2. Phoenix Down-type item. Do not revive if the fight is about to end (one weak enemy left, no threat). |
-| Critical HP | Ally under 30% HP, or enemy's next action on the Timeline can kill them | 1. HEAL\_SINGLE. 2. Strongest-fit potion (smallest item that restores the missing HP, so Elixir-class items are saved). |
-| Low HP | Ally under 50% and no one is critical | HEAL\_SINGLE if MP is healthy; otherwise a potion. |
-| Party-wide damage | 3 or more allies under 60%, or a known AoE enemy | HEAL\_ALL; otherwise Regen-type buff; otherwise two potions over two turns. |
+| Critical HP | Ally under 30% HP | 1. HEAL\_SINGLE. 2. Smallest potion that restores the missing HP. Elixir-class items stay in the bag. The ally who is the only one able to pay a weakness on the current pool keeps chipping while the hurt ally is at or above 15% and someone else can still heal. Under 15%, that chipper heals too. |
+| Low HP | Ally under 50%, no one is critical, MP is above half, and either several allies are hurt or the bonus window just ended. While a danger gauge is open, the lowest ally under 65% | HEAL\_SINGLE if MP is healthy; otherwise a potion. The danger line does not wait for the bonus. |
+| Party-wide damage | 3 or more allies under 50% | A group heal is preferred over a single heal of similar power per MP. A patch stays a last resort. |
 | Harmful status | Poison, blind, silence, sleep or similar on an ally | CURE\_STATUS skill, then matching cure item (Remedy). Silence on a caster is treated as high priority because it locks their MP skills. |
 | Healer is down or silenced | No HEAL tag usable | Any other ally uses items; the AI never waits for a healer. |
 
 **Item budget.** The AI keeps a reserve of one revive item for the party, unless the battle is flagged as a boss fight, where reserves can be spent. On normal encounters it prefers to end the fight quickly and rely on end-of-battle MP restores rather than spend premium items.
 
-**Timeline use.** If a heal is needed and a stagger is about to land on the threatening enemy, the AI may skip the heal because a staggered enemy loses its action. It only does this when the stagger is guaranteed by the previewed gauge estimate.
+**Who keeps chipping.** The ally who is the only one able to pay a weakness on the current pool skips a heal while the hurt ally is at or above 15% and someone else can still heal. Under 15%, during the bonus, and when no one else can heal, that ally heals too. Able to pay means the spell's cost fits that ally's current MP.
 
 ## MP economy
 
@@ -147,9 +143,10 @@ Damage is not the goal until enemies are staggered; the gauge is. The AI picks t
 2. **Pick the attack by preview.** Each attack shows its stagger estimate before use. The AI chooses the skill with the best stagger per MP against that enemy's known weakness, and prefers all-target skills when two or more enemies are close to staggering.
 3. **Aim for a sweeping stagger.** With several enemies, the AI avoids staggering one early if it can set up all of them in the same turn. It chips the others first, then finishes the gauges together, because a sweeping stagger grants the bonus phase and a Resonance attack.
 4. **Spend the stagger window.** While an enemy is staggered it loses its action and takes extra damage, so the AI uses its strongest damage skills and any buffs it has queued, not heals, unless an ally is critical.
-5. **Resonance.** When offered, the AI always fires it. Preview builds could fire it even if enemies died mid bonus phase, which also tops off HP, so killing during the window is not wasted.
+5. **Resonance.** The planner looks for the equipped Finish Blow and sends it when that skill is found. It does not put a normal spell on the wheel, and it does not guess a command-bar id as a Vision id. When the skill is not found, the wheel is left for the player.
 6. **No usable weakness.** If the build has no skill matching any weakness, the AI uses the highest-stagger skills it has, then plain attacks, and accepts a longer fight with more defensive play.
-7. **Boss behavior.** Use debuffs and buffs on turn one (Shell, Haste, Blind, defense down), then cycle: break the gauge, burst in the window, recover during the recovery turn.
+7. **Danger and bosses.** One guard and one debuff before the first paid chip, on any card with a danger move and on a boss, when the style is not aggressive. Not after a fall, and not while someone is under 30%. While that danger gauge is open, the lowest ally is recovered up to 65%.
+8. **The book gauge.** When the poured stagger reaches the working gauge, the enemy is marked broken and the burst can start. Hits while it is marked are not added. If the bonus phase does not arrive within about one round of ally actions, the mark is cleared, the poured count is kept, and the working gauge becomes about the poured amount divided by 0.72, at least one above the book. The log says `working gauge`. A bonus that returns to the command phase resets the poured count for the enemies that were marked and keeps the learned size. A new battle clears it.
 
 ## Edge cases, fallbacks and open questions
 
@@ -159,17 +156,19 @@ Damage is not the goal until enemies are staggered; the gauge is. The AI picks t
 | No weakness hit available | Highest stagger per MP, then free attacks (see stagger section) |
 | All MP-skilled, all out of MP | Free attacks; Ether to the character with the most valuable skill; Syphon-type skills if present |
 | Enemy immune or absorbs an element | Tag the skill as bad for that enemy and never use it again this battle |
-| Enemy counters or has a charge-up | If the Timeline shows a heavy move next, prefer a heal or stagger before it lands |
+| Enemy counters or has a charge-up | A danger move on the card is the signal. One guard and one debuff before the first paid chip, and the recover line for the lowest ally is 65% while that gauge is open |
 | Healer is KO'd | Revive the healer first if it costs one action; otherwise items |
 | Player changes gear or Vision mid-run | Re-scan tags before the next turn |
 | Unknown skill the tagger cannot classify | Treat as a normal damage skill only if the preview shows damage; otherwise skip it |
 
 **Open questions for the real game**
 
-- Can the auto-battle read skill descriptions and stagger previews through an API, or only the menu? The design assumes it can read both.
+- The Timeline is not readable. `GetTurnVM` throws. Party order and the stagger ledger stand in for it.
+- The live skill row has cost, power, stagger, target, and effect. It does not have an element. Element stays in the catalog until a spell is named there. An unnamed Vision spell is still cast, on its own stagger, with no weakness multiplier.
+- The break ratio stays full after a hit, so a weakness cannot be learned by watching the gauge move.
 - Do items have shared stacks across the party, and is there a per-battle item limit?
-- Does the player want a manual override per character (for example never use premium items)? A toggle for item aggressiveness (Conservative, Normal, Free) is recommended.
-- Exact numbers (30%, 50%, MP bands) are starting values to tune in playtests.
+- A toggle for item aggressiveness is not in this version. Rare items stay in the bag. Common shop items are spent on the heal and Ether lines above.
+- The 30% heal, the 50% recover, the 65% line while a danger gauge is open, the 15% chipper exception, the 60% adds line, and the MP bands are what these playtests ran.
 
 ## Sources
 

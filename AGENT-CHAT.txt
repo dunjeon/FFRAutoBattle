@@ -1,0 +1,134 @@
+FFR:AutoBattle agent notes
+For the next agent working in this repo. Read this before the fix list.
+
+The player is Dunjeon. Grok, by xAI, is the lead programmer. The public name is
+FFR:AutoBattle. The license is MIT. Do not commit battle_log.txt, UE4SS.log, or
+state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
+After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
+to the game-root wip/ folder when that folder exists, and parse with
+luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
+a Steam launch. The startup line is "loaded. planner."
+
+Policy files, in order: AGENTS.md, then
+"Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
+README.md "How a fight is played". This file does not replace them. It says
+what a code-only review got right, and what the running game has since ruled
+out. If this file and the design doc disagree, the design doc wins.
+
+The fix list
+------------
+The player put ffrautobattle-fix-list.txt in the game install root, next to
+FFRS.exe. It is not part of this repo. It reviews commit 4ad5e6c (the published
+v0.1.1) from the source only. Its own header says the game was not run and the
+line numbers are that commit. Do not apply it again as a patch. The playtest
+build is v0.1.2 on the testing branch. main and the v0.1.1 release zip are
+unchanged. The startup line on the testing branch is "loaded. planner v0.1.2."
+
+What the fix list got right, and what is already in the local script
+- One planner, claims, MP bands, the shop-item allowlist, and the safe fallback
+  were already right. Leave them.
+- Priority 3, tags instead of names. realCure() no longer treats the names
+  Cure, Cura, Curaga, and Curaja as a special rank. A heal is ranked by power
+  per MP. A known patch stays a last resort. When three or more allies are
+  under 50%, a group heal is preferred. This matches the design doc.
+- Priority 4.1, the minimum. styleOf() counts a healer only when they can pay
+  the heal cost. It does not estimate enemy damage per round. The cards do not
+  carry that number.
+- Priority 4.2, in part. Among similar stagger scores, a danger move adds a
+  small amount and a call mark adds a little less. The book has danger, call,
+  soft, and shift. It has no support mark, so there is no support term.
+- Priority 6, the redundant allyCritical check. The inner condition was always
+  true. It is gone.
+- Priority 4.4, update the design doc where policy and code were going to
+  differ. The player asked for that update. README.md and the design doc now
+  say: the wheel is the player's, a danger move does not raise the heal line,
+  the book's Normal gauge is a forecast, and the bonus phase confirms the break.
+
+What was tried from the fix list and then rejected by fights
+- Priority 2, raise the recover line from 50% to 65% while any danger card is
+  up, and allow that heal when the bonus has not just ended. This was put into
+  the local script. The fights rejected it. On The Hunger, potions and Cures
+  went out for allies at 48% to 62%. On a Goblin pack, gauge 50, Goblin Punch
+  was enough to potion people at 40% and 46% before the chip. Survival on the
+  boss was better. The stagger loop got slow, because anyone who was not the
+  single weakness payer stopped to top the party off. The player cannot discard
+  potions. A full bag is the normal case. v0.1.2 still has the 65% branch,
+  because that is the script the playtests ran. Do not delete it on this branch
+  to match an older note. A later change needs a new set of fights.
+- Priority 5, prefer the live gauge when it disagrees with the card. The live
+  break ratio stays full after a hit, so there is no live remainder to prefer.
+  The stand-in that was coded, Fight.gaugeScale, keeps poured stagger when a
+  latch is released and grows a working gauge to about poured/0.72. The math
+  runs. The fights showed it ratcheting: one boss went 450, then 639, then 889,
+  and a Goblin went from 50 to 104, which then split the rest of the pack. The
+  cause is that a full forecast is treated as a finished break. Hits during
+  that window are not poured, and the burst starts while the phase is still
+  Normal. v0.1.2 still latches at the book gauge and still grows by about
+  poured/0.72 when the bonus does not arrive. That is the script the playtests
+  ran. The learned size stays for the rest of the battle and a new battle
+  clears it. Do not replace that path on this branch without a new fight log.
+
+What the fix list cannot use, because the game does not expose it
+- Priority 1A, learn an element by comparing the gauge drop with the preview.
+  GetBreakPointRatio stays full. A 3x or 0.5x drop is not observable. Do not
+  add a learner that records a match from a gauge that does not move.
+- Priority 1B, read an element field off the skill row. buildSkillIndex already
+  reads the row. The row has cost, power, stagger, target, and effect. It has
+  no element column. Element stays in Scripts/known.lua. An unnamed Vision
+  spell is still cast, ranked by its own stagger, with factor 1 until the
+  catalog names the element. Libra still runs when the name is missing or the
+  card says the weakness shifts.
+- Priority 4.3, Timeline heals and "skip the heal because the stagger is
+  guaranteed." GetTurnVM throws. Party order is the stand-in. The design doc
+  used to tell the planner to read the Timeline. That instruction is removed.
+  Do not call GetTurnVM.
+- Priority 5, a difficulty field that scales the Normal gauge in mobs.lua. None
+  was found. Do not invent one from a single fight's enemies. One fight is
+  evidence for a rule. It is not a new card.
+- Priority 6, a headless simulator and a startup game-version check. Not built.
+  UE4SS 3.0.1 is the version the README already names. The 200-local cap is
+  real. luac5.4 -p is the check. A hand-rolled local counter has already
+  reported a false overflow. Do not split turn() into chunk-level functions to
+  satisfy a bad count. Declare Fight and unitKit before any function that
+  closes over them. Lua 5.4 has no continue and no goto. and/or bind tighter
+  than comparison. Parenthesize mixed conditions.
+
+Decisions the player made after the fights
+- The Resonance wheel stays with the player when the Finish Blow is not found.
+  The planner looks for that skill, sends it only when it is found, and does
+  not put a normal spell on the wheel. It does not guess a Vision id. Every
+  wheel in the logs was the same three command-bar category ids: 1,7,200 on
+  Lasswell, 1,6,7,201 on Fina, and 1,7,100 on Rain. Those are not Vision ids.
+  The finisher table already loads 26 rows, ids 13017-13130, from the attr-9
+  column. The equipped vision id is not on any field that was read. The log
+  line is "resonance phase, no finisher". Do not resume that search on this
+  branch.
+- No fight, character, or Vision branch. The same planner has to work for any
+  equipped party.
+
+What the fights added that the fix list did not list
+These are in the design doc, the README, and the v0.1.2 script.
+
+- Equal gauges stay on one plan. The published modeOf() used a strict "largest"
+  pick, so a tie dumped the other tied enemy into the adds pool with the
+  smaller body. The local modeOf() puts a gauge in the adds only when it is at
+  or under 60% of the largest. The logs confirmed it: a Ghost at 50 was the
+  only add beside 110s, and equal 50s stayed on plan sync. Keep this.
+- A danger move gets one guard and one debuff before the first chip, even when
+  the battle is not flagged a boss and the style is balanced. Aggressive style
+  skips that setup. Setup still waits when someone has fallen or is under 30%.
+  The script does this through hardField. A paid chip closes the setup window.
+  An Ether or a free Attack does not.
+- The only ally who can pay a weakness on the current pool keeps chipping while
+  the hurt ally is at or above 15%, when someone else can still heal. Under 15%
+  they heal too. Able to pay means the spell's cost fits that ally's current
+  MP. The MP band is not checked. A caster under 20% MP can still count.
+- Esuna is not in known.lua. When the live row looks like damage, it is aimed
+  at an enemy. That is what the logs showed. Do not special-case one fight.
+
+On the testing branch as v0.1.2
+This branch is the script the playtests ran, plus the docs that describe it.
+It is not the GitHub release. main stays at v0.1.1. The 65% recover line is in
+the script. A full book gauge still marks the enemy broken, and a missing bonus
+still logs "working gauge" and keeps the poured stagger. The startup line is
+"loaded. planner v0.1.2."

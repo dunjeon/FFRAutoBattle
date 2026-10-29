@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.1.1. Lead Programmer: Grok, by xAI. Released under the MIT license.
+Version 0.1.2. Lead Programmer: Grok, by xAI. Released under the MIT license.
 
 ## Install
 
@@ -91,12 +91,12 @@ The battle lessons are the policy. There is one of them.
 One planner reads the whole field and fills the next slot. The characters do not each pick a favorite enemy.
 
 1. The field is every living enemy and every ally who can act. The log line is `field:` then `plan adds` or `plan sync`.
-2. Raise the fallen. Heal under 30% HP. Under 50% only when MP is above half and either several allies are hurt or the bonus window just ended. A claimed heal is not cast again that round. Rare items stay in the bag. A Pot fight spends nothing.
+2. Raise the fallen. Heal under 30% HP. Under 50% only when MP is above half and either several allies are hurt or the bonus window just ended. While a danger move is still up, that recover line is 65% for the lowest ally, and it does not wait for the bonus. The ally who is the only one able to pay a weakness on the current pool keeps chipping while the hurt ally is at or above 15% and someone else can still heal. A claimed heal is not cast again that round. Rare items stay in the bag. A Pot fight spends nothing.
 3. Above half MP any fitting spell can be spent. From 20% to half, only a heal, a heavy stagger, or a known weakness. Under 20%, a free attack, or one Ether for the character who still has a weakness they cannot pay. One Ether per round.
 4. Scout once when a name is missing from the book, or the card says the weakness shifts.
-5. On a hard fight, before the first paid damage spell, and not after someone has fallen or is critical: an opener, one guard buff, one debuff, a setup Limit Burst, and the Esper if the weakness still fits. An Ether or a free Attack does not close that window.
-6. Adds with a small gauge are cleared first. A large gauge is held until those are down, unless that enemy is close to a killing blow. When the gauges are in the same size class, every one is chipped and none is finished while another is still high. The finishers go when the set can fall together. An area spell chips. A single-target weakness finishes. A cheaper spell wins when it already empties the gauge.
-7. The bonus window is damage on the enemies who just broke. The Resonance phase sends the equipped Vision's Finish Blow when that skill can be found.
+5. When a living enemy has a danger move, or the battle is a boss, and the style is not aggressive: before the first paid chip, and not after someone has fallen or is critical, one opener, one guard, one debuff, a setup Limit Burst, and the Esper if the weakness still fits. An Ether or a free Attack does not close that window.
+6. A gauge is an add only when it is at or under 60% of the largest gauge still up. Those are cleared first. Equal gauges stay on one shared plan, and none of them is finished while another in that plan is still above 40% of its gauge, unless the hit is a weakness and nothing cheaper in that element can chip. The book's Normal gauge is the count. When the poured stagger reaches it, that enemy is treated as broken. If the bonus phase does not arrive within about one round, the count is kept and the working gauge rises, and the log says `working gauge`.
+7. The bonus window is damage on the enemies who just broke. A normal spell is not sent as a Finish Blow. The Resonance wheel is left for you when the equipped Finish Blow cannot be found.
 
 The same planner is used for whatever party is equipped. Nothing in it is tied to one character or one fight.
 

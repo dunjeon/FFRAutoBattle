@@ -827,10 +827,6 @@ unitKit = function(uid)
                 local score = 0
                 if info and info.patch then score = 1
                 elseif copy.kind == "heal" or (info and info.use == "heal") then score = 50 + (copy.power or 0) end
-                local name = copy.name and copy.name:lower() or ""
-                if name == "cure" or name == "cura" or name == "curaga" or name == "curaja" then
-                    score = 1000 + (copy.power or 0)
-                end
                 if score > kit.healScore then kit.healScore = score end
                 if copy.kind == "heal" and score >= 50 and (copy.cost or 0) > 0 then
                     if cureCost == 0 or copy.cost < cureCost then cureCost = copy.cost end
@@ -1142,6 +1138,9 @@ local function worldOf(uid, boss, summoned)
             Fight.downTold = Fight.downTold or {}
             Fight.relax = Fight.relax or {}
             Fight.broke = Fight.broke or {}
+            Fight.gaugeScale = Fight.gaugeScale or {}
+            local scaled = Fight.gaugeScale[id]
+            if scaled and (not gauge or scaled > gauge) then gauge = scaled end
         end
         local poured = (Fight and Fight.poured and Fight.poured[id]) or 0
         local down = (Fight and Fight.down and Fight.down[id]) and true or false
@@ -1274,7 +1273,7 @@ Fight = {
     scanned = {}, elemRun = {}, seenAlly = {},
     resonanceSent = false, resonanceMiss = false,
     last = nil, prev = {}, active = false, number = 0,
-    poured = {}, down = {}, downTold = {}, relax = {},
+    poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {},
     downSince = nil, phaseSeen = 0, bonusSeen = false, lastHit = nil, line = false,
     prevHit = nil, building = nil, kits = {},
     claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, debuff = false, esper = false, lb = false },
@@ -1643,6 +1642,7 @@ local function turn(uid, skills, w, phase)
     Fight.poured = Fight.poured or {}
     Fight.down = Fight.down or {}
     Fight.relax = Fight.relax or {}
+    Fight.gaugeScale = Fight.gaugeScale or {}
 
     local function pay(s)
         return (s.cost or 0) <= (w.mp or 0)
@@ -1660,8 +1660,6 @@ local function turn(uid, skills, w, phase)
     end
     local function realCure(s)
         if s.kind ~= "heal" then return false end
-        local name = s.name and s.name:lower() or ""
-        if name == "cure" or name == "cura" or name == "curaga" or name == "curaja" then return true end
         if s.known and s.known.patch then return false end
         return (s.power or 0) > 0
     end
@@ -1685,7 +1683,8 @@ local function turn(uid, skills, w, phase)
     local function gaugeOfEnemy(enemy)
         local card = mobOf(enemy)
         local gauge = (card and tonumber(card.gauge)) or 100
-        if Fight.relax[enemy.id] then return gauge, gauge * 0.85, false, card end
+        local scaled = Fight.gaugeScale and Fight.gaugeScale[enemy.id]
+        if scaled and scaled > gauge then gauge = scaled end
         if Fight.down[enemy.id] then return gauge, 0, true, card end
         local poured = Fight.poured[enemy.id] or 0
         local remain = gauge - poured
@@ -1705,9 +1704,7 @@ local function turn(uid, skills, w, phase)
         local who = nil
         for _, a in ipairs(w.allies) do
             if not a.dead and (a.hp or 1) < 0.30 and not Fight.claim.heal[a.id] then
-                if a.acts ~= false or (a.hp or 1) < 0.30 then
-                    if not who or (a.hp or 1) < (who.hp or 1) then who = a end
-                end
+                if not who or (a.hp or 1) < (who.hp or 1) then who = a end
             end
         end
         return who
@@ -1732,33 +1729,71 @@ local function turn(uid, skills, w, phase)
         else open[#open + 1] = u end
     end
 
-    local function biggest(list)
-        local boss, big = nil, -1
-        for _, u in ipairs(list) do
-            local gauge = gaugeOfEnemy(u)
-            if gauge > big then boss, big = u, gauge end
-        end
-        return boss
-    end
-
+    local hardField = false
     local function styleOf()
-        local healers, hard = 0, false
+        local healers = 0
+        hardField = w.boss and true or false
         for _, a in ipairs(w.allies) do
             if not a.dead and a.acts ~= false then
                 local kit = unitKit(a.id)
-                if kit and (kit.healScore or 0) >= 50 then healers = healers + 1 end
+                if kit and (kit.healScore or 0) >= 50 then
+                    local mp = stat(a.id, PARAM.MP, false) or 0
+                    local cost = kit.healCost or 0
+                    if cost <= 0 or mp >= cost then healers = healers + 1 end
+                end
             end
         end
         for _, u in ipairs(w.enemies) do
             local card = mobOf(u)
-            if w.boss or (card and card.danger and card.danger[1]) then hard = true end
+            if card and card.danger and card.danger[1] then hardField = true end
         end
-        if hard and healers == 0 then return "defensive" end
-        if hard then return "balanced" end
+        if hardField and healers == 0 then return "defensive" end
+        if hardField then return "balanced" end
         if healers > 0 then return "aggressive" end
         return "balanced"
     end
     local style = styleOf()
+
+    local function modeOf(list)
+        if #list <= 1 then return "sync", list, nil end
+        local maxGauge = 0
+        for _, u in ipairs(list) do
+            local gauge = gaugeOfEnemy(u)
+            if gauge > maxGauge then maxGauge = gauge end
+        end
+        local large, small = {}, {}
+        for _, u in ipairs(list) do
+            local gauge = gaugeOfEnemy(u)
+            if maxGauge > 0 and gauge <= maxGauge * 0.6 then
+                small[#small + 1] = u
+            else
+                large[#large + 1] = u
+            end
+        end
+        if #small > 0 and #large > 0 then return "adds", small, large[1] end
+        return "sync", list, large[1] or list[1]
+    end
+    local mode, pool, bossU = modeOf(open)
+    if style == "defensive" and allyCritical() and bossU then
+        local card = mobOf(bossU)
+        if card and card.danger and card.danger[1] then
+            local _, remain, _, _ = gaugeOfEnemy(bossU)
+            local gauge = gaugeOfEnemy(bossU)
+            if remain < gauge * 0.40 then
+                pool = { bossU }
+                mode = "sync"
+            end
+        end
+    end
+    local tag = mode .. "/" .. style
+    if Fight.planTag ~= tag then
+        Fight.planTag = tag
+        local bits = {}
+        for _, u in ipairs(pool) do bits[#bits + 1] = u.name end
+        local line = string.format("plan %s. pool: %s", tag, (#bits > 0) and table.concat(bits, ", ") or "none")
+        log("%s", line)
+        appendLog("  " .. line)
+    end
 
     local dead = firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
     if dead and not Fight.claim.revive[dead.id] then
@@ -1782,18 +1817,26 @@ local function turn(uid, skills, w, phase)
         end
     end
 
-    local function healNow(hurt, why)
+    local function healNow(hurt, why, itemAt)
         if not hurt or Fight.claim.heal[hurt.id] then return nil end
         local skill, rank = nil, -1
+        local hurtN = 0
+        for _, a in ipairs(w.allies) do
+            if not a.dead and (a.hp or 1) < 0.50 then hurtN = hurtN + 1 end
+        end
         for _, s in ipairs(skills) do
             if s.kind == "heal" and pay(s) and band() ~= "low" then
-                local r = isPatch(s) and 1 or ((s.power or 0) + 5)
-                if realCure(s) then r = 1000 + (s.power or 0) end
+                local cost = s.cost or 0
+                if cost < 1 then cost = 1 end
+                local r = (s.power or 0) / cost
+                if isPatch(s) then r = 0.01 end
+                if hurtN >= 3 and aoeOf(s) and not isPatch(s) then r = r * 3 end
                 if r > rank then skill, rank = s, r end
             end
         end
         local patch = skill and isPatch(skill)
-        if not skill and (hurt.hp or 1) < 0.45 then
+        local itemLine = itemAt or 0.45
+        if not skill and (hurt.hp or 1) < itemLine then
             local item = pickRecoveryItem(uid, w, "heal")
             if item then Fight.claim.heal[hurt.id] = true return item end
         end
@@ -1825,7 +1868,35 @@ local function turn(uid, skills, w, phase)
     end
 
     local crit = allyCritical()
-    if crit and phase ~= PHASE_BONUS then
+    local function deferHeal()
+        if phase == PHASE_BONUS then return false end
+        if crit and (crit.hp or 1) < 0.15 then return false end
+        local list = (#pool > 0) and pool or open
+        local function pays(spells, mp)
+            for _, s in ipairs(spells) do
+                if s.kind ~= "heal" and s.kind ~= "buff" and s.kind ~= "debuff"
+                    and s.kind ~= "cure" and s.kind ~= "revive" and s.kind ~= "defend"
+                    and s.kind ~= "scan" and (s.cost or 0) <= mp then
+                    for _, u in ipairs(list) do
+                        if elementFactor(s, u) >= 3 then return true end
+                    end
+                end
+            end
+            return false
+        end
+        if not pays(skills, w.mp or 0) then return false end
+        local others, otherPays = 0, false
+        for _, a in ipairs(w.allies) do
+            if a.id ~= uid and not a.dead and a.acts ~= false then
+                others = others + 1
+                local kit = unitKit(a.id)
+                local mp = stat(a.id, PARAM.MP, false) or 0
+                if kit and pays(kit.spells or {}, mp) then otherPays = true end
+            end
+        end
+        return others > 0 and not otherPays
+    end
+    if crit and phase ~= PHASE_BONUS and not deferHeal() then
         local choice = healNow(crit, "critical")
         if choice then return choice end
     end
@@ -1846,10 +1917,18 @@ local function turn(uid, skills, w, phase)
         if item then Fight.claim.heal[who.id] = true return item end
     end
 
-    local function underHalf()
+    local recoverAt = 0.50
+    for _, u in ipairs(w.enemies) do
+        local card = mobOf(u)
+        if card and card.danger and card.danger[1] then
+            local _, _, empty = gaugeOfEnemy(u)
+            if not empty and not u.broken then recoverAt = 0.65 end
+        end
+    end
+    local function underMark()
         local n, who = 0, nil
         for _, a in ipairs(w.allies) do
-            if not a.dead and (a.hp or 1) < 0.50 and not Fight.claim.heal[a.id] then
+            if not a.dead and (a.hp or 1) < recoverAt and not Fight.claim.heal[a.id] then
                 if a.acts ~= false then
                     n = n + 1
                     if not who or (a.hp or 1) < (who.hp or 1) then who = a end
@@ -1858,10 +1937,11 @@ local function turn(uid, skills, w, phase)
         end
         return n, who
     end
-    local halfN, halfWho = underHalf()
-    if halfWho and band() == "high" and phase ~= PHASE_BONUS
-        and (Fight.afterBonus or (style == "defensive" and halfN >= 2)) then
-        local choice = healNow(halfWho, "recover")
+    local halfN, halfWho = underMark()
+    local recoverGate = recoverAt > 0.50 or (band() == "high"
+        and (Fight.afterBonus or (style == "defensive" and halfN >= 2)))
+    if halfWho and phase ~= PHASE_BONUS and not deferHeal() and recoverGate then
+        local choice = healNow(halfWho, "recover", recoverAt > 0.50 and recoverAt or 0.50)
         if choice then return choice end
     end
 
@@ -1924,6 +2004,13 @@ local function turn(uid, skills, w, phase)
             if finishes and not cashing and not early then score = score + 8000 - (s.cost or 0) * 20 end
             if finishes and not cashing and early then score = score - 8000 end
             if handOf(s, targets[1]) < 0.5 then score = score - 2000 end
+            local threat = 0
+            for _, u in ipairs(targets) do
+                local card = mobOf(u)
+                if card and card.danger and card.danger[1] then threat = 200 end
+                if card and card.call and threat < 100 then threat = 100 end
+            end
+            score = score + threat
             if score > bestScore then
                 bestS, bestU, bestScore, bestSpread = s, targets[1], score, spread and true or false
             end
@@ -1958,52 +2045,6 @@ local function turn(uid, skills, w, phase)
     if phase == PHASE_BONUS or (#open == 0 and #brokenPool > 0) then
         local pool = #brokenPool > 0 and brokenPool or w.enemies
         return castDamage(pool, true, "burst")
-    end
-
-    local function modeOf(list)
-        if #list <= 1 then return "sync", list, nil end
-        local boss = biggest(list)
-        local adds, small = {}, 0
-        local bossGauge = boss and gaugeOfEnemy(boss) or 0
-        for _, u in ipairs(list) do
-            if not boss or u.id ~= boss.id then
-                adds[#adds + 1] = u
-                local gauge = gaugeOfEnemy(u)
-                local card = mobOf(u)
-                if gauge <= bossGauge * 0.6 or (card and (card.soft or card.call)) then
-                    small = small + 1
-                end
-            end
-        end
-        if #adds > 0 and small >= #adds * 0.5 then
-            local bigger = false
-            for _, u in ipairs(adds) do
-                if bossGauge > gaugeOfEnemy(u) then bigger = true end
-            end
-            if bigger then return "adds", adds, boss end
-        end
-        return "sync", list, boss
-    end
-    local mode, pool, bossU = modeOf(open)
-    if style == "defensive" and allyCritical() and bossU then
-        local card = mobOf(bossU)
-        if card and card.danger and card.danger[1] then
-            local _, remain, _, _ = gaugeOfEnemy(bossU)
-            local gauge = gaugeOfEnemy(bossU)
-            if remain < gauge * 0.40 then
-                pool = { bossU }
-                mode = "sync"
-            end
-        end
-    end
-    local tag = mode .. "/" .. style
-    if Fight.planTag ~= tag then
-        Fight.planTag = tag
-        local bits = {}
-        for _, u in ipairs(pool) do bits[#bits + 1] = u.name end
-        local line = string.format("plan %s. pool: %s", tag, (#bits > 0) and table.concat(bits, ", ") or "none")
-        log("%s", line)
-        appendLog("  " .. line)
     end
 
     local function weaknessFits(extra)
@@ -2052,7 +2093,7 @@ local function turn(uid, skills, w, phase)
                 if choice then Fight.claim.hone[uid] = true return choice end
             end
         end
-        local bossFight = w.boss or style == "defensive"
+        local bossFight = hardField
         if bossFight and style ~= "aggressive" and not Fight.claim.guard then
             local s = firstSkill(function(x) return useOf(x) == "guardbuff" end)
             if s then
@@ -2366,7 +2407,7 @@ local function ensureBattle()
     Fight.scanned, Fight.elemRun, Fight.seenAlly = {}, {}, {}
     Fight.resonanceSent = false
     Fight.resonanceMiss = false
-    Fight.poured, Fight.down, Fight.downTold, Fight.relax = {}, {}, {}, {}
+    Fight.poured, Fight.down, Fight.downTold, Fight.relax, Fight.gaugeScale = {}, {}, {}, {}, {}
     Fight.downSince, Fight.phaseSeen, Fight.bonusSeen, Fight.lastHit = nil, 0, false, nil
     Fight.line = false
     Fight.prevHit = nil
@@ -2401,6 +2442,7 @@ local function settleGauges()
     Fight.down = Fight.down or {}
     Fight.downTold = Fight.downTold or {}
     Fight.relax = Fight.relax or {}
+    Fight.gaugeScale = Fight.gaugeScale or {}
     local phaseNow = currentPhase()
     local prevPhase = Fight.phaseSeen or 0
     if prevPhase ~= 0 and phaseNow == 0 then
@@ -2429,6 +2471,8 @@ local function settleGauges()
                 local poured = Fight.poured[tid] or 0
                 local card = mobOf({ id = tid, name = unitName(tid) })
                 local gauge = card and tonumber(card.gauge) or 0
+                local scaled = Fight.gaugeScale and Fight.gaugeScale[tid]
+                if scaled and scaled > gauge then gauge = scaled end
                 local score = (gauge > 0) and (poured / gauge) or 0
                 if score > bestScore then best, bestScore = tid, score end
             end
@@ -2448,8 +2492,17 @@ local function settleGauges()
             for id in pairs(Fight.down) do ids[#ids + 1] = id end
             for _, id in ipairs(ids) do
                 Fight.down[id] = nil
+                Fight.downTold[id] = nil
                 Fight.relax[id] = true
-                log("%s gauge estimate released, no bonus phase", unitName(id))
+                local poured = Fight.poured[id] or 0
+                local card = mobOf({ id = id, name = unitName(id) })
+                local book = (card and tonumber(card.gauge)) or 100
+                local grown = math.floor(poured / 0.72 + 0.5)
+                if grown < book + 1 then grown = book + 1 end
+                local prev = Fight.gaugeScale[id] or book
+                if grown > prev then Fight.gaugeScale[id] = grown end
+                log("%s gauge estimate released, no bonus phase. working gauge %d",
+                    unitName(id), Fight.gaugeScale[id] or grown)
             end
             Fight.downSince = nil
         end
@@ -2518,6 +2571,7 @@ local function act(serial)
         Fight.poured = Fight.poured or {}
         Fight.down = Fight.down or {}
         Fight.relax = Fight.relax or {}
+        Fight.gaugeScale = Fight.gaugeScale or {}
         Fight.lastHit = choice.targets
         local row = skillOf(choice.id)
         local _, br = offenseOf(row or choice)
@@ -2525,12 +2579,13 @@ local function act(serial)
             for _, tid in ipairs(choice.targets) do
                 if not Fight.down[tid] then
                     if Fight.relax[tid] then
-                        Fight.poured[tid] = 0
                         Fight.relax[tid] = nil
                     end
                     local enemy = { id = tid, name = unitName(tid) }
                     local card = mobOf(enemy)
                     local gauge = card and tonumber(card.gauge) or nil
+                    local scaled = Fight.gaugeScale[tid]
+                    if scaled and (not gauge or scaled > gauge) then gauge = scaled end
                     local factor = elementFactor(row or choice, enemy)
                     if gauge and gauge > 0 and factor > 0 then
                         Fight.poured[tid] = (Fight.poured[tid] or 0) + br * factor
@@ -2854,7 +2909,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.1. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.2. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     mobCount,
