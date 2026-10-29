@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Lead Programmer: Grok, by xAI. Released under the MIT license.
+Version 0.1.1. Lead Programmer: Grok, by xAI. Released under the MIT license.
 
 ## Install
 
