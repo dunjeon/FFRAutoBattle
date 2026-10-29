@@ -6,21 +6,13 @@ Lead Programmer: Grok, by xAI. Released under the MIT license.
 
 ## Install
 
-FFR:AutoBattle is a UE4SS Lua mod. Saves and pak files are not changed.
+Download `FFRAutoBattle.zip` from the release. Extract it into the folder where the game is stored, the one that contains `FFRS`. The zip already has the folders, so the mod lands at `FFRS/Binaries/Win64/ue4ss/Mods/FFRAutoBattle`.
 
-1. UE4SS has to be installed for this game. The copy used here loads through `dwmapi.dll` next to `FFRS-Win64-Shipping.exe`. On Proton, set the `dwmapi` override to native then builtin, or launch with `WINEDLLOVERRIDES="dwmapi=n,b" %command%`.
+UE4SS has to be installed for this game. The copy used here loads through `dwmapi.dll` next to `FFRS-Win64-Shipping.exe`. On Proton, set the `dwmapi` override to native then builtin, or launch with `WINEDLLOVERRIDES="dwmapi=n,b" %command%`.
 
-2. Copy this folder to `FFRS/Binaries/Win64/ue4ss/Mods/FFRAutoBattle`.
+`enabled.txt` in the mod folder turns it on. You do not have to edit `mods.txt`.
 
-3. In `Mods/mods.txt`, under the built-in keybinds comment, add:
-
-```
-FFRAutoBattle : 1
-```
-
-If that copy of UE4SS reads `mods.json` instead, enable `FFRAutoBattle` there.
-
-4. Fully quit and launch the game. The startup line is `loaded. planner.` F10 turns auto battle off or back on.
+Fully quit and launch the game. The startup line is `loaded. planner.` F10 turns auto battle off or back on. Saves and pak files are not changed.
 
 The party starts each fight on its own, at a faster battle speed. A line at the bottom left shows Auto and the last action. When the fight ends, a short note appears on screen, and the full account is appended to `battle_log.txt` in this folder: each command, which skills each character used, who fell, and who was staggered.
 
