@@ -2350,10 +2350,6 @@ local function finishBattle()
     appendLog("-- " .. line)
     appendLog("")
     log("battle %d done: %s", Fight.number, line)
-    showToast(string.format("Auto, %d turns. %s. %s.", turns,
-        (#Fight.broke > 0) and ("Broke " .. table.concat(Fight.broke, ", ")) or "No stagger",
-        fell))
-    showBadge(nil)
     Fight.actions, Fight.casts, Fight.castOrder = {}, {}, {}
     Fight.broke, Fight.fell, Fight.prev, Fight.last = {}, {}, {}, nil
 end
@@ -2387,7 +2383,6 @@ local function ensureBattle()
     potLogged = false
     appendLog(string.format("== battle %d%s ==", Fight.number, Fight.boss and ", boss" or ""))
     log("battle %d%s", Fight.number, Fight.boss and ", boss" or "")
-    showBadge("Auto")
 end
 
 local function rememberCast(who, skill)
@@ -2504,7 +2499,6 @@ local function act(serial)
     if not cfg.Submit then
         appendLog("  (not sent) " .. line)
         log("(not sent) %s", line)
-        showBadge("Auto  would: " .. choice.name)
         return
     end
     local ok, sent = pcall(send, uid, choice, phase)
@@ -2589,7 +2583,6 @@ local function act(serial)
     end
     appendLog("  " .. line)
     log("%s", line)
-    showBadge("Auto  " .. who .. ": " .. choice.name)
 end
 
 --------------------------------------------------------------------------------
@@ -2687,7 +2680,7 @@ Hud.toast = function(msg)
             w.widget:SetVisibility(3)
             Hud.toastSerial = Hud.toastSerial + 1
             local serial = Hud.toastSerial
-            gameDelay(4200, function()
+            gameDelay(1200, function()
                 if serial == Hud.toastSerial and w.widget:IsValid() then w.widget:SetVisibility(1) end
             end)
         end)
@@ -2814,7 +2807,6 @@ local function resonanceWatch()
     rememberCast(who, bestChoice.name)
     Fight.actions[#Fight.actions + 1] = line
     Fight.last = { who = who, skill = bestChoice.name }
-    showBadge("Auto  " .. who .. ": " .. bestChoice.name)
 end
 
 local absent = 0
@@ -2849,10 +2841,9 @@ loadConfig()
 bind("TakeOverKey", function()
     cfg.Enabled = not cfg.Enabled
     saveState()
-    local msg = cfg.Enabled and "Auto on" or "Auto off, you have the fight"
+    local msg = cfg.Enabled and "Auto on" or "Auto off"
     log(msg)
     showToast(msg)
-    if cfg.Enabled and Fight.active then showBadge("Auto") else showBadge(nil) end
 end)
 
 local okHook, errHook = pcall(function()
