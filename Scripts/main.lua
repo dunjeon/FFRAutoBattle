@@ -2841,7 +2841,7 @@ loadConfig()
 bind("TakeOverKey", function()
     cfg.Enabled = not cfg.Enabled
     saveState()
-    local msg = cfg.Enabled and "Auto on" or "Auto off"
+    local msg = cfg.Enabled and "AutoBattle On" or "AutoBattle Off"
     log(msg)
     showToast(msg)
 end)

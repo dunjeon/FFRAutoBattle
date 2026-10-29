@@ -76,7 +76,7 @@ Work down this list.
 - `UE4SS.log` does not exist. UE4SS never started. Repeat step 2.
 - `UE4SS.log` exists and does not contain `loaded. planner.` Open `FFRS\Binaries\Win64\ue4ss\Mods\mods.txt`. Under the line `; Built-in keybinds, do not move up!` and above `Keybinds : 1`, add `FFRAutoBattle : 1`. Save, quit the game fully, and start it again.
 
-The party starts each fight on its own, at a faster battle speed. The screen stays clear during the fight. F10 flashes Auto on or Auto off, and that is the only text the mod draws. The full account is still appended to `battle_log.txt` in this folder: each command, which skills each character used, who fell, and who was staggered.
+The party starts each fight on its own, at a faster battle speed. The screen stays clear during the fight. F10 flashes AutoBattle On or AutoBattle Off, and that is the only text the mod draws. The full account is still appended to `battle_log.txt` in this folder: each command, which skills each character used, who fell, and who was staggered.
 
 ## Keys
 
