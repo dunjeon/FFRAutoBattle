@@ -1,4 +1,4 @@
-# FFR Loadout contributor guide
+# FFR AutoBattle contributor guide
 
 This file is for people and agents changing the mod. The player instructions are in `README.md`. The battle policy is `Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md`.
 
@@ -46,4 +46,4 @@ The live skill row has cost, power, stagger, target, and effect. It does not hav
 
 ## How to check a change
 
-Read `UE4SS.log` for `[FFRLoadout]` and `battle_log.txt`. A fight is going right when the log shows `field:` and then `plan adds` or `plan sync`, and the spells follow the weakness on those cards. One fight's enemies are evidence for the rules. They are not a script to add.
+Read `UE4SS.log` for `[FFRAutoBattle]` and `battle_log.txt`. A fight is going right when the log shows `field:` and then `plan adds` or `plan sync`, and the spells follow the weakness on those cards. One fight's enemies are evidence for the rules. They are not a script to add.

@@ -1,4 +1,4 @@
--- FFR Loadout. One auto-battle switch. One planner for the round, from the
+-- FFR AutoBattle. One auto-battle switch. One planner for the round, from the
 -- design doc: score every enemy, chip the gauges, finish them together.
 -- The characters carry out the next slot. Claims stop a second heal, a second
 -- buff, or a second Ether in the same round.
@@ -6,7 +6,7 @@
 -- known.lua is the skill book. mobs.lua is the enemy book. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
 
-local TAG = "[FFRLoadout] "
+local TAG = "[FFRAutoBattle] "
 local function log(fmt, ...)
     if select("#", ...) == 0 then
         print(TAG .. tostring(fmt) .. "\n")
@@ -43,7 +43,7 @@ end
 local function modDir()
     local info = debug and debug.getinfo and debug.getinfo(1, "S")
     local src = ((info and info.source) or ""):gsub("^@", ""):gsub("\\", "/")
-    return src:match("^(.*)/Scripts/[^/]+$") or "ue4ss/Mods/FFRLoadout"
+    return src:match("^(.*)/Scripts/[^/]+$") or "ue4ss/Mods/FFRAutoBattle"
 end
 local DIR = modDir()
 local Known = {}
@@ -2638,7 +2638,7 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
     local gi = FindFirstOf("GameInstance")
     if not (gi and gi:IsValid()) then error("no GameInstance") end
     Hud.serial = Hud.serial + 1
-    local base = string.format("FFRLoadout_%s_%d", kind, Hud.serial)
+    local base = string.format("FFRAutoBattle_%s_%d", kind, Hud.serial)
     local widget = StaticConstructObject(findClass("/Script/UMG.UserWidget"), gi, FName(base))
     local tree = StaticConstructObject(findClass("/Script/UMG.WidgetTree"), widget, FName(base .. "_Tree"))
     widget.WidgetTree = tree

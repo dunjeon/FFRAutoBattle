@@ -1,8 +1,26 @@
-# FFR Loadout
+# FFR AutoBattle
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
 Dunjeon is the Project Manager. Grok, by xAI, is the Lead Programmer. The battle policy is Dunjeon's. The Lua is Grok's. Released under the MIT license.
+
+## Install
+
+FFR AutoBattle is a UE4SS Lua mod. Saves and pak files are not changed.
+
+1. UE4SS has to be installed for this game. The copy used here loads through `dwmapi.dll` next to `FFRS-Win64-Shipping.exe`. On Proton, set the `dwmapi` override to native then builtin, or launch with `WINEDLLOVERRIDES="dwmapi=n,b" %command%`.
+
+2. Copy this folder to `FFRS/Binaries/Win64/ue4ss/Mods/FFRAutoBattle`.
+
+3. In `Mods/mods.txt`, under the built-in keybinds comment, add:
+
+```
+FFRAutoBattle : 1
+```
+
+If that copy of UE4SS reads `mods.json` instead, enable `FFRAutoBattle` there.
+
+4. Fully quit and launch the game. The startup line is `loaded. planner.` F10 turns auto battle off or back on.
 
 The party starts each fight on its own, at a faster battle speed. A line at the bottom left shows Auto and the last action. When the fight ends, a short note appears on screen, and the full account is appended to `battle_log.txt` in this folder: each command, which skills each character used, who fell, and who was staggered.
 
@@ -43,16 +61,6 @@ If another mod also changes battle speed, set `BattleSpeed = 1`. If FFRS QoL's a
 Close the game, then delete `dwmapi.dll` and the `ue4ss` folder next to `FFRS-Win64-Shipping.exe`. Saves stay where they are.
 
 If the mod never loads, the Proton override is `dwmapi` = native then builtin. The equivalent launch option is `WINEDLLOVERRIDES="dwmapi=n,b" %command%`.
-
-## Install
-
-Copy this folder to `FFRS/Binaries/Win64/ue4ss/Mods/FFRLoadout` next to the game executable. In `Mods/mods.txt`, under the built-in keybinds comment, add:
-
-```
-FFRLoadout : 1
-```
-
-If that UE4SS build reads `mods.json` instead, set `FFRLoadout` to enabled there. Restart the game. The startup line is `loaded. planner.`
 
 The play policy for contributors is `Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md`. How to change the Lua without breaking that policy is `AGENTS.md`.
 
