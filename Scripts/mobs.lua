@@ -1,4 +1,4 @@
--- Enemy cards for FFR AutoBattle. Facts the picker can act on:
+-- Enemy cards for FFR:AutoBattle. Facts the picker can act on:
 -- weak is x3 stagger, half is x0.5, immune and absorb are a miss.
 -- danger is the move to break before. gauge is the Normal stagger gauge.
 -- evade: hits miss until it breaks. counter: do not feed that kind of hit.

@@ -1,4 +1,4 @@
-# FFR AutoBattle contributor guide
+# FFR:AutoBattle contributor guide
 
 This file is for people and agents changing the mod. The player instructions are in `README.md`. The battle policy is `Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md`.
 

@@ -1,4 +1,4 @@
--- Published skill and item facts for FFR AutoBattle.
+-- Published skill and item facts for FFR:AutoBattle.
 -- Stagger numbers are the ones printed on the Resonance wiki ability pages and
 -- the boss guides (a plain Attack is 25, Tackle 35, Dawn Frost 30, Fire 17).
 -- A weakness hit is three times that stagger. This list does not know the enemy,

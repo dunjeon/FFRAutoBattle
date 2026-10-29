@@ -1,4 +1,4 @@
-# FFR AutoBattle
+# FFR:AutoBattle
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
@@ -6,7 +6,7 @@ Dunjeon is the Project Manager. Grok, by xAI, is the Lead Programmer. The battle
 
 ## Install
 
-FFR AutoBattle is a UE4SS Lua mod. Saves and pak files are not changed.
+FFR:AutoBattle is a UE4SS Lua mod. Saves and pak files are not changed.
 
 1. UE4SS has to be installed for this game. The copy used here loads through `dwmapi.dll` next to `FFRS-Win64-Shipping.exe`. On Proton, set the `dwmapi` override to native then builtin, or launch with `WINEDLLOVERRIDES="dwmapi=n,b" %command%`.
 

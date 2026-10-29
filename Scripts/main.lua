@@ -1,4 +1,4 @@
--- FFR AutoBattle. One auto-battle switch. One planner for the round, from the
+-- FFR:AutoBattle. One auto-battle switch. One planner for the round, from the
 -- design doc: score every enemy, chip the gauges, finish them together.
 -- The characters carry out the next slot. Claims stop a second heal, a second
 -- buff, or a second Ether in the same round.
