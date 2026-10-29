@@ -7,22 +7,24 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner."
+a Steam launch. The startup line is "loaded. planner v0.1.3."
 
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
-out. If this file and the design doc disagree, the design doc wins.
+out. If this file and the design doc disagree, the design doc wins. The
+playtest build is v0.1.3 on the testing branch. main and the v0.1.1 release
+zip are unchanged.
 
 The fix list
 ------------
 The player put ffrautobattle-fix-list.txt in the game install root, next to
 FFRS.exe. It is not part of this repo. It reviews commit 4ad5e6c (the published
 v0.1.1) from the source only. Its own header says the game was not run and the
-line numbers are that commit. Do not apply it again as a patch. The playtest
-build is v0.1.2 on the testing branch. main and the v0.1.1 release zip are
-unchanged. The startup line on the testing branch is "loaded. planner v0.1.2."
+line numbers are that commit. Do not apply it again as a patch. v0.1.2 was the
+playtest script those fights ran. v0.1.3 is that same script plus the three
+fixes at the end of this file.
 
 What the fix list got right, and what is already in the local script
 - One planner, claims, MP bands, the shop-item allowlist, and the safe fallback
@@ -41,8 +43,9 @@ What the fix list got right, and what is already in the local script
   true. It is gone.
 - Priority 4.4, update the design doc where policy and code were going to
   differ. The player asked for that update. README.md and the design doc now
-  say: the wheel is the player's, a danger move does not raise the heal line,
-  the book's Normal gauge is a forecast, and the bonus phase confirms the break.
+  match the playtest script: the wheel is the player's when the Finish Blow is
+  not found, a danger gauge raises the recover line to 65%, the book gauge
+  latches the break, and a missed bonus keeps the poured stagger.
 
 What was tried from the fix list and then rejected by fights
 - Priority 2, raise the recover line from 50% to 65% while any danger card is
@@ -52,9 +55,10 @@ What was tried from the fix list and then rejected by fights
   was enough to potion people at 40% and 46% before the chip. Survival on the
   boss was better. The stagger loop got slow, because anyone who was not the
   single weakness payer stopped to top the party off. The player cannot discard
-  potions. A full bag is the normal case. v0.1.2 still has the 65% branch,
-  because that is the script the playtests ran. Do not delete it on this branch
-  to match an older note. A later change needs a new set of fights.
+  potions. A full bag is the normal case. The testing branch still has the 65%
+  branch, because that is the script the playtests ran. v0.1.3 did not remove
+  it. Do not delete it on this branch to match an older note. A later change
+  needs a new set of fights.
 - Priority 5, prefer the live gauge when it disagrees with the card. The live
   break ratio stays full after a hit, so there is no live remainder to prefer.
   The stand-in that was coded, Fight.gaugeScale, keeps poured stagger when a
@@ -63,10 +67,10 @@ What was tried from the fix list and then rejected by fights
   and a Goblin went from 50 to 104, which then split the rest of the pack. The
   cause is that a full forecast is treated as a finished break. Hits during
   that window are not poured, and the burst starts while the phase is still
-  Normal. v0.1.2 still latches at the book gauge and still grows by about
-  poured/0.72 when the bonus does not arrive. That is the script the playtests
-  ran. The learned size stays for the rest of the battle and a new battle
-  clears it. Do not replace that path on this branch without a new fight log.
+  Normal. The testing branch still latches at the book gauge and still grows
+  by about poured/0.72 when the bonus does not arrive. v0.1.3 keeps that path.
+  The learned size stays for the rest of the battle and a new battle clears it.
+  Do not replace that path on this branch without a new fight log.
 
 What the fix list cannot use, because the game does not expose it
 - Priority 1A, learn an element by comparing the gauge drop with the preview.
@@ -123,12 +127,16 @@ These are in the design doc, the README, and the v0.1.2 script.
   the hurt ally is at or above 15%, when someone else can still heal. Under 15%
   they heal too. Able to pay means the spell's cost fits that ally's current
   MP. The MP band is not checked. A caster under 20% MP can still count.
-- Esuna is not in known.lua. When the live row looks like damage, it is aimed
-  at an enemy. That is what the logs showed. Do not special-case one fight.
+- The v0.1.2 logs aimed Esuna at an enemy. It was not in known.lua, so the live
+  row was scored as damage. v0.1.3 catalogues Esuna as a cure. It goes to a
+  statused ally and it is not a hit. Do not special-case one fight.
 
-On the testing branch as v0.1.2
-This branch is the script the playtests ran, plus the docs that describe it.
-It is not the GitHub release. main stays at v0.1.1. The 65% recover line is in
-the script. A full book gauge still marks the enemy broken, and a missing bonus
-still logs "working gauge" and keeps the poured stagger. The startup line is
-"loaded. planner v0.1.2."
+On the testing branch as v0.1.3
+v0.1.2 was the playtest script. v0.1.3 keeps that script and adds three fixes
+from the Hunger log. The bonus targets the bodies that just broke, remembered
+in Fight.brokeOn, even if a new add is on the field and the down mark was
+released. A paid chip waits while an ally can still cast the one debuff. Esuna
+is catalogued as a cure and is not a damage hit. The 65% recover line is still
+in the script. A full book gauge still marks the enemy broken, and a missing
+bonus still logs "working gauge" and keeps the poured stagger. The startup line
+is "loaded. planner v0.1.3." main and the v0.1.1 release are unchanged.

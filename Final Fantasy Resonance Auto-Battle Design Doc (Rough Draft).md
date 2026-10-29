@@ -88,7 +88,7 @@ At battle start the planner scores the party against the enemies and picks a sty
 | 1. Scout | Learn weaknesses and threats | Libra-type skill if any, otherwise a cheap varied first hit; log what the previews and results show |
 | 2. Setup | Make the party safe and the enemy weaker | Shell and Haste-type buffs, Blind and defense-down debuffs, summon if the fight will last |
 | 3. Chip | Bring all gauges near zero without wasting a stagger | AoE or weakness hits, kill fragile support adds |
-| 4. Break and burst | Empty every gauge in one round, then spend the bonus phase | Highest-damage skills on staggered enemies. The Resonance wheel is the player's |
+| 4. Break and burst | Empty every gauge in one round, then spend the bonus phase | Highest-damage skills on the enemies who just broke, not on a body that walked in during the window. The Resonance wheel is the player's when the Finish Blow is not found |
 | 5. Recover | Reset after the enemies recover | Heals, cures, MP restores, then back to phase 3 |
 
 **Style, chosen from the field and who can still heal.** A living enemy whose card has a danger move, or a boss flag, is a hard field. A healer counts only when they can pay their heal cost.
@@ -97,7 +97,7 @@ At battle start the planner scores the party against the enemies and picks a sty
 - **Balanced:** the field is hard and a healer can pay, or the field is not hard and nobody can pay a heal. On a hard field, one guard and one debuff go out before the first chip.
 - **Defensive:** the field is hard and nobody can pay a heal. The same one guard and one debuff, and the pool can narrow to the danger body when someone is critical and that forecast is under 40%.
 
-The style is re-evaluated every turn, so a party that spends the last of a heal's MP shifts on its own. Setup still waits when someone has fallen or is under 30%. A paid chip closes the setup window. An Ether or a free Attack does not.
+The style is re-evaluated every turn, so a party that spends the last of a heal's MP shifts on its own. Setup does not start after someone has fallen or while someone is under 30%. A paid chip waits while an ally can still cast the one debuff, except after a fall or while someone is under 30%. An Ether or a free Attack does not close the window.
 
 **Proving it works for every build.** Before release, run the planner in a simulator against many random parties (every character crossed with every Vision, with and without healers, AoE, weakness coverage and items) and fight types (single enemy, groups, boss with adds). The pass conditions: never stall, never waste a revive, never spend premium items on trivial fights, and win more often than a plain "attack with the strongest skill" baseline.
 
@@ -142,10 +142,10 @@ Damage is not the goal until enemies are staggered; the gauge is. The AI picks t
 1. **Find weaknesses.** Use ANALYZE (Libra-type) once per new enemy type if any character has it and spare MP; otherwise read the weakness from attack previews, and remember what each enemy took extra damage from.
 2. **Pick the attack by preview.** Each attack shows its stagger estimate before use. The AI chooses the skill with the best stagger per MP against that enemy's known weakness, and prefers all-target skills when two or more enemies are close to staggering.
 3. **Aim for a sweeping stagger.** With several enemies, the AI avoids staggering one early if it can set up all of them in the same turn. It chips the others first, then finishes the gauges together, because a sweeping stagger grants the bonus phase and a Resonance attack.
-4. **Spend the stagger window.** While an enemy is staggered it loses its action and takes extra damage, so the AI uses its strongest damage skills and any buffs it has queued, not heals, unless an ally is critical.
+4. **Spend the stagger window.** While an enemy is staggered it loses its action and takes extra damage, so the AI uses its strongest damage skills on the bodies that just broke. A body that walks in during the window does not take that bonus. Heals wait unless an ally is critical.
 5. **Resonance.** The planner looks for the equipped Finish Blow and sends it when that skill is found. It does not put a normal spell on the wheel, and it does not guess a command-bar id as a Vision id. When the skill is not found, the wheel is left for the player.
 6. **No usable weakness.** If the build has no skill matching any weakness, the AI uses the highest-stagger skills it has, then plain attacks, and accepts a longer fight with more defensive play.
-7. **Danger and bosses.** One guard and one debuff before the first paid chip, on any card with a danger move and on a boss, when the style is not aggressive. Not after a fall, and not while someone is under 30%. While that danger gauge is open, the lowest ally is recovered up to 65%.
+7. **Danger and bosses.** One guard and one debuff before the first paid chip, on any card with a danger move and on a boss, when the style is not aggressive. Not after a fall, and not while someone is under 30%. A paid chip waits while an ally can still cast that debuff. While that danger gauge is open, the lowest ally is recovered up to 65%. A status cure is never aimed at an enemy.
 8. **The book gauge.** When the poured stagger reaches the working gauge, the enemy is marked broken and the burst can start. Hits while it is marked are not added. If the bonus phase does not arrive within about one round of ally actions, the mark is cleared, the poured count is kept, and the working gauge becomes about the poured amount divided by 0.72, at least one above the book. The log says `working gauge`. A bonus that returns to the command phase resets the poured count for the enemies that were marked and keeps the learned size. A new battle clears it.
 
 ## Edge cases, fallbacks and open questions

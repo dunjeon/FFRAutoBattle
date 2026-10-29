@@ -39,6 +39,7 @@ return {
         ["guard"] = { use = "guard" },
         ["blind"] = { use = "debuff" },
         ["cure"] = { use = "heal" },
+        ["esuna"] = { use = "cure" },
         ["first aid"] = { use = "heal", patch = true },
         ["libra"] = { use = "scan" },
         -- Vision Resonances. The wheel offers whichever of these the equipped Vision can activate.

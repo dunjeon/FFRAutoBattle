@@ -794,6 +794,7 @@ local function tagSkill(uid, id, borrowed)
         elseif info.use == "opener" or info.use == "guardbuff" or info.use == "buff" or info.use == "lb-setup" then
             copy.kind = "buff"
         elseif info.use == "heal" then copy.kind = "heal"
+        elseif info.use == "cure" then copy.kind = "cure"
         elseif info.use == "debuff" then copy.kind = "debuff"
         elseif info.use == "scan" then copy.kind = "scan"
         elseif info.use == "finish" then
@@ -1139,6 +1140,7 @@ local function worldOf(uid, boss, summoned)
             Fight.relax = Fight.relax or {}
             Fight.broke = Fight.broke or {}
             Fight.gaugeScale = Fight.gaugeScale or {}
+            Fight.brokeOn = Fight.brokeOn or {}
             local scaled = Fight.gaugeScale[id]
             if scaled and (not gauge or scaled > gauge) then gauge = scaled end
         end
@@ -1147,6 +1149,8 @@ local function worldOf(uid, boss, summoned)
         local relaxed = Fight and Fight.relax and Fight.relax[id]
         if Fight and gauge and gauge > 0 and poured >= gauge and not relaxed then
             Fight.down[id] = true
+            Fight.brokeOn = Fight.brokeOn or {}
+            Fight.brokeOn[id] = true
             down = true
             if not Fight.downSince then Fight.downSince = #(Fight.actions or {}) end
         end
@@ -1273,7 +1277,7 @@ Fight = {
     scanned = {}, elemRun = {}, seenAlly = {},
     resonanceSent = false, resonanceMiss = false,
     last = nil, prev = {}, active = false, number = 0,
-    poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {},
+    poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {}, brokeOn = {},
     downSince = nil, phaseSeen = 0, bonusSeen = false, lastHit = nil, line = false,
     prevHit = nil, building = nil, kits = {},
     claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, debuff = false, esper = false, lb = false },
@@ -1643,6 +1647,7 @@ local function turn(uid, skills, w, phase)
     Fight.down = Fight.down or {}
     Fight.relax = Fight.relax or {}
     Fight.gaugeScale = Fight.gaugeScale or {}
+    Fight.brokeOn = Fight.brokeOn or {}
 
     local function pay(s)
         return (s.cost or 0) <= (w.mp or 0)
@@ -1673,7 +1678,7 @@ local function turn(uid, skills, w, phase)
         end
         if s.attr == ATTR.SUMMON or s.attr == ATTR.FINISH or s.attr == ATTR.ITEM then return false end
         local use = useOf(s)
-        if use == "opener" or use == "guardbuff" or use == "guard" or use == "scan" or use == "heal" then
+        if use == "opener" or use == "guardbuff" or use == "guard" or use == "scan" or use == "heal" or use == "cure" then
             return false
         end
         if use == "lb-setup" then return false end
@@ -1945,11 +1950,53 @@ local function turn(uid, skills, w, phase)
         if choice then return choice end
     end
 
+    local function debuffOwed()
+        if phase ~= 0 or not hardField or style == "aggressive" or Fight.claim.debuff then return false end
+        if Fight.fell and #Fight.fell > 0 then return false end
+        if allyCritical() then return false end
+        for _, a in ipairs(w.allies) do
+            if a.dead then return false end
+        end
+        for _, a in ipairs(w.allies) do
+            if not a.dead and a.acts ~= false then
+                local kit = unitKit(a.id)
+                local mp = stat(a.id, PARAM.MP, false) or 0
+                if kit then
+                    for _, s in ipairs(kit.spells or {}) do
+                        if (useOf(s) == "debuff" or s.kind == "debuff") and (s.cost or 0) <= mp then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+    local function burstTargets()
+        local held = {}
+        local mark = Fight.brokeOn or {}
+        for _, u in ipairs(w.enemies) do
+            if mark[u.id] or Fight.down[u.id] or u.broken then
+                held[#held + 1] = u
+            end
+        end
+        if #held > 0 then return held end
+        if #brokenPool > 0 then return brokenPool end
+        local best, bestScore = nil, -1
+        for _, u in ipairs(w.enemies) do
+            local gauge, remain = gaugeOfEnemy(u)
+            local score = (gauge > 0) and ((gauge - remain) / gauge) or 0
+            if score > bestScore then best, bestScore = u, score end
+        end
+        if best then return { best } end
+        return w.enemies
+    end
     local function castDamage(pool, cashing, why)
         if not pool or #pool == 0 then return nil end
         local bestS, bestU, bestScore, bestSpread = nil, nil, -1e9, false
         local function considerSkill(s, targets, spread)
             if not pay(s) then return end
+            if not cashing and debuffOwed() and (s.cost or 0) > 0 then return end
             local b = band()
             if not cashing and b == "low" and (s.cost or 0) > 0 then return end
             local useful, pts, weak, finishes, early = 0, 0, false, false, false
@@ -2039,12 +2086,17 @@ local function turn(uid, skills, w, phase)
         local name = bestSpread and (#pool .. " foes") or bestU.name
         local reason = why .. " " .. name
         if el ~= "" and elementFactor(bestS, bestU) >= 3 then reason = reason .. " " .. el end
+        if not cashing and (bestS.cost or 0) <= 0 and debuffOwed() then
+            reason = reason .. ", debuff still open"
+        end
         return finishChoice(uid, bestS, reason, targets, bestSpread)
     end
 
-    if phase == PHASE_BONUS or (#open == 0 and #brokenPool > 0) then
-        local pool = #brokenPool > 0 and brokenPool or w.enemies
-        return castDamage(pool, true, "burst")
+    if phase == PHASE_BONUS then
+        return castDamage(burstTargets(), true, "burst")
+    end
+    if #open == 0 and #brokenPool > 0 then
+        return castDamage(brokenPool, true, "burst")
     end
 
     local function weaknessFits(extra)
@@ -2171,10 +2223,13 @@ local function turn(uid, skills, w, phase)
     local chip = castDamage(#pool > 0 and pool or open, false, mode)
     if chip then return chip end
     if mode == "adds" and bossU then
-        local bossHit = castDamage({ bossU }, false, "boss")
-        if bossHit then return bossHit end
+        chip = castDamage({ bossU }, false, "boss")
+        if chip then return chip end
     end
-    return castDamage(w.enemies, false, "field")
+    chip = castDamage(w.enemies, false, "field")
+    if chip then return chip end
+    if debuffOwed() then Fight.deferChip = true end
+    return nil
 end
 
 local function livingSnapshot()
@@ -2224,7 +2279,9 @@ local function kitFallback(uid)
             local cost = 0
             pcall(function() cost = skillCost(uid, id, false) or 0 end)
             copy.cost = cost
-            if cost <= mp then usable[#usable + 1] = copy end
+            if cost <= mp and not (Fight.deferChip and ((cost or 0) > 0)) then
+                usable[#usable + 1] = copy
+            end
         end
     end
     local best, bestR = nil, -1
@@ -2338,7 +2395,8 @@ local function consider(uid)
         for _, s in ipairs(usable) do
             local damage = s.kind == "damage" or s.attr == ATTR.FIGHT
             if damage and s.kind ~= "heal" and s.kind ~= "buff" and s.attr ~= ATTR.FINISH
-                and (s.cost or 0) <= (w.mp or 0) then
+                and (s.cost or 0) <= (w.mp or 0)
+                and not (Fight.deferChip and ((s.cost or 0) > 0)) then
                 local _, br = offenseOf(s)
                 local score = (br or 0) * 1000 + (s.power or 0)
                 if score > swingR then swing, swingR = s, score end
@@ -2347,6 +2405,15 @@ local function consider(uid)
         if swing then
             return finishChoice(uid, swing, "kit " .. foe.name, { foe.id }, false)
         end
+    end
+    if Fight.deferChip then
+        for _, s in ipairs(usable) do
+            if s.kind == "defend" and (s.cost or 0) <= (w.mp or 0) then
+                return finishChoice(uid, s, "hold for debuff", { uid }, false)
+            end
+        end
+        log("%s: holding the chip until the debuff lands", unitName(uid))
+        return nil
     end
     local hurt = lowestAlly(w, function(u) return u.acts ~= false end)
     if (not foe) and hurt and (hurt.hp or 1) < 0.30 then
@@ -2407,7 +2474,7 @@ local function ensureBattle()
     Fight.scanned, Fight.elemRun, Fight.seenAlly = {}, {}, {}
     Fight.resonanceSent = false
     Fight.resonanceMiss = false
-    Fight.poured, Fight.down, Fight.downTold, Fight.relax, Fight.gaugeScale = {}, {}, {}, {}, {}
+    Fight.poured, Fight.down, Fight.downTold, Fight.relax, Fight.gaugeScale, Fight.brokeOn = {}, {}, {}, {}, {}, {}
     Fight.downSince, Fight.phaseSeen, Fight.bonusSeen, Fight.lastHit = nil, 0, false, nil
     Fight.line = false
     Fight.prevHit = nil
@@ -2443,6 +2510,7 @@ local function settleGauges()
     Fight.downTold = Fight.downTold or {}
     Fight.relax = Fight.relax or {}
     Fight.gaugeScale = Fight.gaugeScale or {}
+    Fight.brokeOn = Fight.brokeOn or {}
     local phaseNow = currentPhase()
     local prevPhase = Fight.phaseSeen or 0
     if prevPhase ~= 0 and phaseNow == 0 then
@@ -2457,6 +2525,7 @@ local function settleGauges()
         Fight.bonusSeen = false
         Fight.downSince = nil
         Fight.afterBonus = true
+        Fight.brokeOn = {}
     end
     if phaseNow == PHASE_BONUS or phaseNow == PHASE_FINISH then
         Fight.bonusSeen = true
@@ -2478,6 +2547,8 @@ local function settleGauges()
             end
             if best and bestScore >= 1 then
                 Fight.down[best] = true
+                Fight.brokeOn = Fight.brokeOn or {}
+                Fight.brokeOn[best] = true
                 if not Fight.downSince then Fight.downSince = #Fight.actions end
             end
         end
@@ -2521,6 +2592,7 @@ local function act(serial)
     if finishingEarly and Fight.resonanceSent then return end
     pcall(function() noteChanges(livingSnapshot()) end)
     pcall(settleGauges)
+    Fight.deferChip = false
     local okPlan, choice = pcall(consider, uid)
     if not okPlan then
         log("plan failed: %s", tostring(choice))
@@ -2909,7 +2981,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.2. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.3. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     mobCount,
