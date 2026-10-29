@@ -1277,7 +1277,7 @@ Fight = {
     scanned = {}, elemRun = {}, seenAlly = {},
     resonanceSent = false, resonanceMiss = false,
     last = nil, prev = {}, active = false, number = 0,
-    poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {}, brokeOn = {},
+    poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {}, brokeOn = {}, gaugeSure = {},
     downSince = nil, phaseSeen = 0, bonusSeen = false, lastHit = nil, line = false,
     prevHit = nil, building = nil, kits = {},
     claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, debuff = false, esper = false, lb = false },
@@ -1800,7 +1800,18 @@ local function turn(uid, skills, w, phase)
         appendLog("  " .. line)
     end
 
+    for _, a in ipairs(w.allies) do
+        if not a.dead then Fight.claim.revive[a.id] = nil end
+    end
     local dead = firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
+    if dead and Fight.claim.revive[dead.id] then
+        local at = Fight.claim.revive[dead.id]
+        local waitN = #w.allies
+        if waitN < 2 then waitN = 2 end
+        if (type(at) == "number") and ((#(Fight.actions or {}) - at) >= waitN) then
+            Fight.claim.revive[dead.id] = nil
+        end
+    end
     if dead and not Fight.claim.revive[dead.id] then
         local oneLeft, calm = #w.enemies <= 1, true
         for _, u in ipairs(w.enemies) do
@@ -1814,11 +1825,11 @@ local function turn(uid, skills, w, phase)
             for _, s in ipairs(skills) do
                 if s.kind == "revive" and pay(s) then
                     local choice = finishChoice(uid, s, "raise " .. dead.name, { dead.id }, false)
-                    if choice then Fight.claim.revive[dead.id] = true return choice end
+                    if choice then Fight.claim.revive[dead.id] = #(Fight.actions or {}) return choice end
                 end
             end
             local item = pickRecoveryItem(uid, w, "revive")
-            if item then Fight.claim.revive[dead.id] = true return item end
+            if item then Fight.claim.revive[dead.id] = #(Fight.actions or {}) return item end
         end
     end
 
@@ -2474,7 +2485,7 @@ local function ensureBattle()
     Fight.scanned, Fight.elemRun, Fight.seenAlly = {}, {}, {}
     Fight.resonanceSent = false
     Fight.resonanceMiss = false
-    Fight.poured, Fight.down, Fight.downTold, Fight.relax, Fight.gaugeScale, Fight.brokeOn = {}, {}, {}, {}, {}, {}
+    Fight.poured, Fight.down, Fight.downTold, Fight.relax, Fight.gaugeScale, Fight.brokeOn, Fight.gaugeSure = {}, {}, {}, {}, {}, {}, {}
     Fight.downSince, Fight.phaseSeen, Fight.bonusSeen, Fight.lastHit = nil, 0, false, nil
     Fight.line = false
     Fight.prevHit = nil
@@ -2529,6 +2540,21 @@ local function settleGauges()
     end
     if phaseNow == PHASE_BONUS or phaseNow == PHASE_FINISH then
         Fight.bonusSeen = true
+        Fight.gaugeSure = Fight.gaugeSure or {}
+        local function rememberSure(id)
+            if not id or Fight.gaugeSure[id] then return end
+            local scaled = Fight.gaugeScale and Fight.gaugeScale[id]
+            local card = mobOf({ id = id, name = unitName(id) })
+            local book = card and tonumber(card.gauge) or nil
+            local size = (((type(scaled) == "number") and (scaled > 0) and scaled) or book)
+            if (type(size) == "number") and (size > 0) then Fight.gaugeSure[id] = size end
+        end
+        for id, on in pairs(Fight.down) do
+            if on then rememberSure(id) end
+        end
+        for id, on in pairs(Fight.brokeOn) do
+            if on then rememberSure(id) end
+        end
         local any = false
         for _, on in pairs(Fight.down) do
             if on then any = true break end
@@ -2565,15 +2591,21 @@ local function settleGauges()
                 Fight.down[id] = nil
                 Fight.downTold[id] = nil
                 Fight.relax[id] = true
-                local poured = Fight.poured[id] or 0
-                local card = mobOf({ id = id, name = unitName(id) })
-                local book = (card and tonumber(card.gauge)) or 100
-                local grown = math.floor(poured / 0.72 + 0.5)
-                if grown < book + 1 then grown = book + 1 end
-                local prev = Fight.gaugeScale[id] or book
-                if grown > prev then Fight.gaugeScale[id] = grown end
-                log("%s gauge estimate released, no bonus phase. working gauge %d",
-                    unitName(id), Fight.gaugeScale[id] or grown)
+                local sure = Fight.gaugeSure and Fight.gaugeSure[id]
+                if (type(sure) == "number") then
+                    Fight.poured[id] = 0
+                    log("%s break held. working gauge stays %d", unitName(id), sure)
+                else
+                    local poured = Fight.poured[id] or 0
+                    local card = mobOf({ id = id, name = unitName(id) })
+                    local book = (card and tonumber(card.gauge)) or 100
+                    local grown = math.floor(poured / 0.72 + 0.5)
+                    if grown < book + 1 then grown = book + 1 end
+                    local prev = Fight.gaugeScale[id] or book
+                    if grown > prev then Fight.gaugeScale[id] = grown end
+                    log("%s gauge estimate released, no bonus phase. working gauge %d",
+                        unitName(id), Fight.gaugeScale[id] or grown)
+                end
             end
             Fight.downSince = nil
         end
@@ -2702,7 +2734,6 @@ local function act(serial)
         Fight.rounds = (Fight.rounds or 0) + 1
         if Fight.claim then
             Fight.claim.heal = {}
-            Fight.claim.revive = {}
             Fight.claim.ether = {}
             Fight.claim.etherRound = false
         end
@@ -2981,7 +3012,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.3. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.4. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     mobCount,

@@ -7,14 +7,14 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.3."
+a Steam launch. The startup line is "loaded. planner v0.1.4."
 
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins. The
-playtest build is v0.1.3 on the testing branch. main and the v0.1.1 release
+playtest build is v0.1.4 on the testing branch. main and the v0.1.1 release
 zip are unchanged.
 
 The fix list
@@ -131,12 +131,35 @@ These are in the design doc, the README, and the v0.1.2 script.
   row was scored as damage. v0.1.3 catalogues Esuna as a cure. It goes to a
   statused ally and it is not a hit. Do not special-case one fight.
 
-On the testing branch as v0.1.3
-v0.1.2 was the playtest script. v0.1.3 keeps that script and adds three fixes
-from the Hunger log. The bonus targets the bodies that just broke, remembered
-in Fight.brokeOn, even if a new add is on the field and the down mark was
-released. A paid chip waits while an ally can still cast the one debuff. Esuna
-is catalogued as a cure and is not a damage hit. The 65% recover line is still
-in the script. A full book gauge still marks the enemy broken, and a missing
-bonus still logs "working gauge" and keeps the poured stagger. The startup line
-is "loaded. planner v0.1.3." main and the v0.1.1 release are unchanged.
+v0.1.3, from the Hunger log
+v0.1.2 was the playtest script. v0.1.3 keeps that script and adds three fixes.
+The bonus targets the bodies that just broke, remembered in Fight.brokeOn,
+even if a new add is on the field and the down mark was released. A paid chip
+waits while an ally can still cast the one debuff. Esuna is catalogued as a
+cure and is not a damage hit. The 65% recover line stayed. A full book gauge
+still marks the enemy broken.
+
+On the testing branch as v0.1.4
+The v0.1.3 session (14 fights, startup "loaded. planner v0.1.3") confirmed
+those three fixes. Esuna went to allies. Blind went out before the paid chip,
+and the log said "debuff still open" on the free Attack that waited. Bursts
+named the body that had just staggered.
+
+Two general failures were in that same session. Do not revert them.
+
+- A gauge that a bonus phase has confirmed must not keep growing. Siren's book
+  gauge was 550. The first miss raised the working gauge to 771, and the next
+  break got a real bonus phase and a Resonance, so 771 was confirmed. Later
+  misses still ran poured/0.72 and the gauge went 1125, then 1569, then 2194.
+  The same one-round timer released Green Slime to 174 and an Aqua Elemental
+  to 208. v0.1.4 still grows an unconfirmed gauge once the bonus is missing,
+  and the log still says "working gauge". After a bonus phase has seen that
+  enemy down, a later miss clears the poured count and the log says "working
+  gauge stays". Fight.gaugeSure remembers the confirmed size. A new battle
+  clears it. Do not go back to growing a confirmed gauge.
+- A raise claim was cleared every time the living actors had each acted. With
+  one ally standing, every command was a new round, so the same Phoenix Down
+  was spent twice on a body that was still down. The claim now lasts until
+  that ally is seen standing. A retry waits until the party has acted. Heal
+  claims still clear each round. The 65% line is unchanged. main and the
+  v0.1.1 release are unchanged. The startup line is "loaded. planner v0.1.4."
