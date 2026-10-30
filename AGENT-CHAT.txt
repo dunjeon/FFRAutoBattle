@@ -14,9 +14,8 @@ Policy files, in order: AGENTS.md, then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins. The
-testing branch carries v0.1.8. main and the release zip stay on v0.1.7.
-The release zip is FFRAutoBattle.zip on tag v0.1.7. It has the same
-folders as the v0.1.6 zip.
+Both branches carry v0.1.8. The release zip is FFRAutoBattle.zip on tag
+v0.1.8. It has the same folders as the v0.1.6 and v0.1.7 zips.
 
 The fix list
 ------------
@@ -217,12 +216,12 @@ chips ignore the poured count until a break shows. Both branches and the
 v0.1.7 zip are this build. The startup line is "loaded. planner v0.1.7." and
 it names basic attacks on or off.
 
-On testing as v0.1.8
+Shipped as v0.1.8
 known.lua names the published elemental attacks. Lightning is stored as
 thunder, to match the book. A missing name still gets no weakness
 multiplier. Shellga and Protectga are guard buffs, with Shell and Protect.
 A published stagger number is the whole skill. offenseOf does not multiply
 that number by the hit count. On a hard field a paid chip waits while an
 ally can still cast the one guard or the one debuff. A free Attack does
-not close that window. The log says "setup still open". main and the
-v0.1.7 zip are unchanged. The startup line is "loaded. planner v0.1.8."
+not close that window. The log says "setup still open". Both branches and the
+v0.1.8 zip are this build. The startup line is "loaded. planner v0.1.8."
