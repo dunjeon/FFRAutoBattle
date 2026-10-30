@@ -665,7 +665,8 @@ local function offenseOf(skill)
     if power <= 0 and skill.attr == ATTR.FIGHT then power = 18 end
     local br = skill.breakPower or 0
     local info = skill.known or knownOf(skill)
-    if info and info.stagger then br = info.stagger end
+    -- The published number is the whole skill's stagger, not the stagger of one hit.
+    if info and info.stagger then return power * h, info.stagger end
     return power * h, br * h
 end
 
@@ -2022,6 +2023,28 @@ local function turn(uid, skills, w, phase)
         end
         return false
     end
+    local function guardOwed()
+        if phase ~= 0 or not hardField or style == "aggressive" or Fight.claim.guard then return false end
+        if Fight.fell and #Fight.fell > 0 then return false end
+        if allyCritical() then return false end
+        for _, a in ipairs(w.allies) do
+            if a.dead then return false end
+        end
+        for _, a in ipairs(w.allies) do
+            if not a.dead and a.acts ~= false then
+                local kit = unitKit(a.id)
+                local mp = stat(a.id, PARAM.MP, false) or 0
+                if kit then
+                    for _, s in ipairs(kit.spells or {}) do
+                        if useOf(s) == "guardbuff" and (s.cost or 0) <= mp then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
     local function burstTargets()
         local held = {}
         local mark = Fight.brokeOn or {}
@@ -2046,7 +2069,7 @@ local function turn(uid, skills, w, phase)
         local bestS, bestU, bestScore, bestSpread = nil, nil, -1e9, false
         local function considerSkill(s, targets, spread)
             if not pay(s) then return end
-            if not cashing and debuffOwed() and (s.cost or 0) > 0 then return end
+            if not cashing and (debuffOwed() or guardOwed()) and (s.cost or 0) > 0 then return end
             local b = band()
             local useful, pts, weak, finishes, early = 0, 0, false, false, false
             for _, u in ipairs(targets) do
@@ -2135,8 +2158,8 @@ local function turn(uid, skills, w, phase)
         local name = bestSpread and (#pool .. " foes") or bestU.name
         local reason = why .. " " .. name
         if el ~= "" and elementFactor(bestS, bestU) >= 3 then reason = reason .. " " .. el end
-        if not cashing and (bestS.cost or 0) <= 0 and debuffOwed() then
-            reason = reason .. ", debuff still open"
+        if not cashing and (bestS.cost or 0) <= 0 and (debuffOwed() or guardOwed()) then
+            reason = reason .. ", setup still open"
         end
         return finishChoice(uid, bestS, reason, targets, bestSpread)
     end
@@ -2277,7 +2300,7 @@ local function turn(uid, skills, w, phase)
     end
     chip = castDamage(w.enemies, false, "field")
     if chip then return chip end
-    if debuffOwed() then Fight.deferChip = true end
+    if debuffOwed() or guardOwed() then Fight.deferChip = true end
     return nil
 end
 
@@ -3391,7 +3414,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.7. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.8. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
