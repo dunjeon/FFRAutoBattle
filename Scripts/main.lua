@@ -2,6 +2,12 @@
 -- design doc: score every enemy, chip the gauges, finish them together.
 -- The characters carry out the next slot. Claims stop a second heal, a second
 -- buff, or a second Ether in the same round.
+-- F10 is on/off and flashes AutoBattle On or Off.
+-- F9 is on/off. On flashes AutoBattle: Take it Easy! Off flashes
+-- AutoBattle: No Mercy! On is Attack only:
+-- no MP and no items. Off is the default. Both choices are remembered.
+-- On the field and in battle, the right trigger fires the F10 action and
+-- the left trigger fires the F9 action. A menu is not required.
 --
 -- known.lua is the skill book. mobs.lua is the enemy book. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
@@ -114,7 +120,10 @@ local LOCK = { [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] =
 local PHASE_BONUS, PHASE_FINISH = 1, 2
 local DECIDE_MS = 420
 
-local Defaults = { Enabled = true, BattleSpeed = 2, Submit = true, TakeOverKey = "F10" }
+local Defaults = {
+    Enabled = true, BattleSpeed = 2, Submit = true, AttacksOnly = false,
+    TakeOverKey = "F10", MenuKey = "F9",
+}
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
 
@@ -153,12 +162,14 @@ local function loadConfig()
     if cfg.BattleSpeed > 4 then cfg.BattleSpeed = 4 end
     local state = loadIni(STATE_PATH)
     if state.enabled then cfg.Enabled = parseBool(state.enabled) end
+    if state.attacks then cfg.AttacksOnly = parseBool(state.attacks) end
 end
 
 local function saveState()
     local f = io.open(STATE_PATH, "w")
     if not f then return end
     f:write("enabled=" .. (cfg.Enabled and "true" or "false") .. "\n")
+    f:write("attacks=" .. (cfg.AttacksOnly and "true" or "false") .. "\n")
     f:close()
 end
 
@@ -1147,7 +1158,13 @@ local function worldOf(uid, boss, summoned)
         local poured = (Fight and Fight.poured and Fight.poured[id]) or 0
         local down = (Fight and Fight.down and Fight.down[id]) and true or false
         local relaxed = Fight and Fight.relax and Fight.relax[id]
-        if Fight and gauge and gauge > 0 and poured >= gauge and not relaxed then
+        local unmarked = Fight and Fight.unmarked and (not down)
+        if unmarked and Fight and (not Fight.unmarkedTold) then
+            Fight.unmarkedTold = true
+            log("stagger counts unmarked. chipping from the book until a break shows")
+            appendLog("  stagger counts unmarked")
+        end
+        if (not unmarked) and Fight and gauge and (gauge > 0) and (poured >= gauge) and (not relaxed) then
             Fight.down[id] = true
             Fight.brokeOn = Fight.brokeOn or {}
             Fight.brokeOn[id] = true
@@ -1165,7 +1182,9 @@ local function worldOf(uid, boss, summoned)
         local left = apiLeft
         if down then
             left = 0
-        elseif gauge and gauge > 0 then
+        elseif unmarked then
+            left = apiLeft
+        elseif gauge and (gauge > 0) then
             local est = 1 - (poured / gauge)
             if est < 0 then est = 0 end
             if est > 1 then est = 1 end
@@ -1269,7 +1288,10 @@ end
 -- Sending a command the way a menu choice does.
 --------------------------------------------------------------------------------
 
-local Menu = { open = false, serial = 0, actor = -1, decided = true, sub = false }
+local Menu = {
+    open = false, serial = 0, actor = -1, decided = true, sub = false,
+    byMod = false,
+}
 local Template = {}
 Fight = {
     boss = false, summoned = false,
@@ -1398,7 +1420,15 @@ local function send(uid, choice, phase)
         obj.actionKeys[i].Category = k[1]
         obj.actionKeys[i].ID = k[2]
     end
-    disp:ExecuteEvent({ TagName = FName("Delegate.Battle.Cmd.Decide") }, obj)
+    Menu.byMod = true
+    local sentOk, sentErr = pcall(function()
+        disp:ExecuteEvent({ TagName = FName("Delegate.Battle.Cmd.Decide") }, obj)
+    end)
+    if not sentOk then
+        Menu.byMod = false
+        log("send failed: %s", tostring(sentErr))
+        return false
+    end
     return true
 end
 
@@ -2283,7 +2313,35 @@ local function noteChanges(now)
     Fight.prev = now
 end
 
+local function basicAttack(uid, skills, w)
+    local attack = nil
+    for _, s in ipairs(skills) do
+        local cost = s.cost or 0
+        local basic = (s.attr == ATTR.FIGHT) and (cost <= 0) and (s.kind ~= "defend") and (not s.isItem)
+        if basic then
+            local named = s.name and (s.name:lower() == "attack")
+            if (not attack) or named then attack = s end
+            if named then break end
+        end
+    end
+    if not attack then return nil end
+    local foe, best = nil, -1
+    for _, e in ipairs(w.enemies or {}) do
+        if not e.broken then
+            local left = e.breakLeft or 0
+            if left > best then
+                foe = e
+                best = left
+            end
+        end
+    end
+    if not foe then foe = w.enemies and w.enemies[1] end
+    if not foe then return nil end
+    return finishChoice(uid, attack, "attack " .. foe.name, { foe.id }, false)
+end
+
 local function kitFallback(uid)
+    if cfg.AttacksOnly then return nil end
     local mp = stat(uid, PARAM.MP, false) or 0
     local usable = {}
     local ids = {}
@@ -2402,6 +2460,10 @@ local function consider(uid)
     end
     local phase = currentPhase()
     if phase ~= PHASE_FINISH and inFinishPhase() then phase = PHASE_FINISH end
+    if cfg.AttacksOnly then
+        if phase == PHASE_FINISH then return nil end
+        return basicAttack(uid, usable, w)
+    end
     local okChoice, choice = pcall(turn, uid, usable, w, phase)
     if not okChoice then
         log("choice failed: %s", tostring(choice))
@@ -2504,6 +2566,8 @@ local function ensureBattle()
     Fight.planTag, Fight.afterBonus = nil, false
     Fight.fieldTold = false
     Fight.chipped = false
+    Fight.unmarked = false
+    Fight.unmarkedTold = false
     Fight.finishNote = {}
     Fight.finishScan = nil
     itemsLogged = false
@@ -2548,6 +2612,7 @@ local function settleGauges()
     end
     if phaseNow == PHASE_BONUS or phaseNow == PHASE_FINISH then
         Fight.bonusSeen = true
+        Fight.unmarked = false
         Fight.gaugeSure = Fight.gaugeSure or {}
         Fight.gaugeWas = Fight.gaugeWas or {}
         local caught = {}
@@ -2660,9 +2725,35 @@ local function settleGauges()
     end
 end
 
+local function noteRound(uid)
+    Fight.went = Fight.went or {}
+    if uid and (uid >= 0) then Fight.went[uid] = true end
+    local actors, went = 0, 0
+    for _, id in ipairs(friendIds()) do
+        local ratio = hpRatio(id)
+        if (ratio == nil) or (ratio > 0) then
+            local kit = unitKit(id)
+            if kit and kit.spells and (#kit.spells > 0) then
+                actors = actors + 1
+                if Fight.went[id] then went = went + 1 end
+            end
+        end
+    end
+    if (actors > 0) and (went >= actors) then
+        Fight.went = {}
+        Fight.rounds = (Fight.rounds or 0) + 1
+        if Fight.claim then
+            Fight.claim.heal = {}
+            Fight.claim.ether = {}
+            Fight.claim.etherRound = false
+        end
+        Fight.afterBonus = false
+    end
+end
+
 local function act(serial)
     if not cfg.Enabled then return end
-    if not Menu.open or Menu.serial ~= serial or Menu.sub then return end
+    if (not Menu.open) or (Menu.serial ~= serial) or Menu.sub or Menu.decided then return end
     local uid = currentActor()
     if uid < 0 then uid = Menu.actor end
     if uid < 0 then return end
@@ -2764,31 +2855,190 @@ local function act(serial)
     if choice.kind == "damage" and Fight.prevHit.id then
         Fight.building = Fight.prevHit.id
     end
-    Fight.went = Fight.went or {}
-    Fight.went[uid] = true
-    local actors, went = 0, 0
-    for _, id in ipairs(friendIds()) do
-        local ratio = hpRatio(id)
-        if ratio == nil or ratio > 0 then
-            local kit = unitKit(id)
-            if kit and kit.spells and #kit.spells > 0 then
-                actors = actors + 1
-                if Fight.went[id] then went = went + 1 end
-            end
-        end
-    end
-    if actors > 0 and went >= actors then
-        Fight.went = {}
-        Fight.rounds = (Fight.rounds or 0) + 1
-        if Fight.claim then
-            Fight.claim.heal = {}
-            Fight.claim.ether = {}
-            Fight.claim.etherRound = false
-        end
-        Fight.afterBonus = false
-    end
+    noteRound(uid)
     appendLog("  " .. line)
     log("%s", line)
+end
+
+--------------------------------------------------------------------------------
+-- A command the player chose. The same ledger the mod writes for its own sends.
+--------------------------------------------------------------------------------
+
+local function noteHand(v)
+    if not (Fight and v) then return end
+    pcall(ensureBattle)
+    if not Fight.active then return end
+    pcall(function() noteChanges(livingSnapshot()) end)
+    pcall(settleGauges)
+    local uid = Menu.actor
+    if (not uid) or (uid < 0) then uid = currentActor() end
+    local actionId, isItem, targets, rowObj = nil, false, {}, nil
+    local function readIds(list)
+        local out = {}
+        if not (list and list.ForEach) then return out end
+        pcall(function()
+            list:ForEach(function(_, x)
+                local n = num(unwrap(x))
+                if n and (n >= 0) then out[#out + 1] = n end
+            end)
+        end)
+        return out
+    end
+    local list = v.cmdDecideDataList
+    if list and list.ForEach then
+        list:ForEach(function(_, e)
+            if actionId then return end
+            local d = unwrap(e)
+            if not d then return end
+            rowObj = d
+            actionId = num(d.actionId)
+            isItem = d.isUseItem and true or false
+            for _, key in ipairs({ "targetUnitUniqueIdList", "TargetUnitUniqueIdList", "targetUniqueIdList" }) do
+                if #targets == 0 then
+                    local raw = nil
+                    pcall(function() raw = d[key] end)
+                    targets = readIds(raw)
+                end
+            end
+        end)
+    end
+    if not actionId then return end
+    local skill = (not isItem) and skillOf(actionId) or nil
+    local name = (skill and skill.name) or ("command " .. tostring(actionId))
+    if isItem then
+        local row = ItemIdx and ItemIdx[actionId] or nil
+        name = (row and row.name) or ("item " .. tostring(actionId))
+    end
+    local info = skill and knownOf(skill) or nil
+    local use = info and info.use or nil
+    local kind = nil
+    if skill then
+        local okKind, got = pcall(classify, skill)
+        if okKind then kind = got end
+    end
+    if isItem then
+        local listed = Known.items and Known.items[name:lower()]
+        if listed == "hp" then kind = "heal" end
+        if listed == "mp" then kind = "ether" end
+        if listed == "revive" then kind = "revive" end
+        if listed == "cure" then kind = "cure" end
+    end
+    if (use == "heal") or (use == "patch") then kind = "heal" end
+    if use == "cure" then kind = "cure" end
+    if use == "debuff" then kind = "debuff" end
+    if (not kind) and ((use == "break") or (use == "cash")) then kind = "damage" end
+    local phase = currentPhase()
+    local who = (uid and (uid >= 0)) and unitName(uid) or "you"
+    local line = string.format("player %s p%d: %s", who, phase, name)
+    if #targets > 0 then
+        local bits = {}
+        for _, tid in ipairs(targets) do bits[#bits + 1] = unitName(tid) end
+        line = line .. " -> " .. table.concat(bits, ", ")
+    end
+    log("%s", line)
+    appendLog("  " .. line)
+    rememberCast(who, name)
+    Fight.actions[#Fight.actions + 1] = line
+    Fight.last = { who = who, skill = name }
+    Fight.prevHit = { who = who, skill = name, kind = kind, id = targets[1] }
+    if (kind == "damage") and targets[1] then Fight.building = targets[1] end
+    Fight.claim = Fight.claim or {}
+    Fight.claim.heal = Fight.claim.heal or {}
+    Fight.claim.revive = Fight.claim.revive or {}
+    Fight.claim.ether = Fight.claim.ether or {}
+    Fight.claim.hone = Fight.claim.hone or {}
+    local function eachAlly(pred)
+        local ids = {}
+        for _, id in ipairs(friendIds()) do
+            local ratio = hpRatio(id)
+            local dead = (ratio ~= nil) and (ratio <= 0)
+            if pred(id, dead) then ids[#ids + 1] = id end
+        end
+        if (#ids == 0) and uid and (uid >= 0) then ids[1] = uid end
+        return ids
+    end
+    if (kind == "heal") or (kind == "cure") then
+        local ids = (#targets > 0) and targets or eachAlly(function(_, dead) return not dead end)
+        for _, id in ipairs(ids) do Fight.claim.heal[id] = true end
+    end
+    if kind == "revive" then
+        local ids = (#targets > 0) and targets or eachAlly(function(_, dead) return dead end)
+        for _, id in ipairs(ids) do Fight.claim.revive[id] = #Fight.actions end
+    end
+    if (kind == "ether") and uid and (uid >= 0) then
+        Fight.claim.ether[uid] = true
+        Fight.claim.etherRound = true
+    end
+    if kind == "debuff" then Fight.claim.debuff = true end
+    if use == "guardbuff" then Fight.claim.guard = true end
+    if (use == "opener") and uid and (uid >= 0) then Fight.claim.hone[uid] = true end
+    if skill and (skill.attr == ATTR.SUMMON) then
+        Fight.summoned = true
+        Fight.claim.esper = true
+    end
+    if skill and (skill.attr == ATTR.FINISH) then Fight.resonanceSent = true end
+    if phase == PHASE_FINISH then Fight.resonanceSent = true end
+    local cost = 0
+    if skill and uid and (uid >= 0) then
+        pcall(function() cost = skillCost(uid, actionId, false) or 0 end)
+    end
+    if (phase == 0) and (kind == "damage") and (not isItem) and (cost > 0) then
+        Fight.line = true
+        Fight.chipped = true
+    end
+    if (phase == 0) and (kind == "damage") and (not isItem) and skill and (#targets > 0) then
+        Fight.poured = Fight.poured or {}
+        Fight.down = Fight.down or {}
+        Fight.relax = Fight.relax or {}
+        Fight.gaugeScale = Fight.gaugeScale or {}
+        Fight.lastHit = targets
+        local _, br = offenseOf(skill)
+        if br > 0 then
+            for _, tid in ipairs(targets) do
+                if not Fight.down[tid] then
+                    Fight.relax[tid] = nil
+                    local enemy = { id = tid, name = unitName(tid) }
+                    local card = mobOf(enemy)
+                    local gauge = card and tonumber(card.gauge) or nil
+                    local scaled = Fight.gaugeScale[tid]
+                    if scaled and ((not gauge) or (scaled > gauge)) then gauge = scaled end
+                    local factor = elementFactor(skill, enemy)
+                    if gauge and (gauge > 0) and (factor > 0) then
+                        Fight.poured[tid] = (Fight.poured[tid] or 0) + (br * factor)
+                    end
+                end
+            end
+        end
+    elseif (phase == 0) and (kind == "damage") and (not isItem) and (#targets == 0) then
+        Fight.unmarked = true
+        if rowObj and (not Fight.targetTold) then
+            Fight.targetTold = true
+            log("player command had no target ids")
+        end
+        log("stagger from %s was not counted", name)
+    end
+    if skill and info and info.element and (#targets > 0) then
+        Fight.elemRun = Fight.elemRun or {}
+        local el = info.element
+        for _, tid in ipairs(targets) do
+            local run = Fight.elemRun[tid]
+            if run and (run.el == el) then run.n = run.n + 1
+            else Fight.elemRun[tid] = { el = el, n = 1 } end
+        end
+    end
+    if uid and (uid >= 0) then noteRound(uid) end
+end
+
+local function scheduleAct()
+    if Menu.sub or Menu.decided or (not Menu.open) then return end
+    if not cfg.Enabled then return end
+    Menu.due = (Menu.due or 0) + 1
+    local due = Menu.due
+    local serial = Menu.serial
+    gameDelay(DECIDE_MS, function()
+        if Menu.due ~= due then return end
+        act(serial)
+    end)
 end
 
 --------------------------------------------------------------------------------
@@ -2799,9 +3049,15 @@ local function hookDecide()
     RegisterHook("/Script/mucha.CPP_BtlDelEventCmd:OnExecuteDecideCommand", function(_, value)
         pcall(function()
             local v = value:get()
+            local fromMod = (Menu.byMod == true)
+            Menu.byMod = false
             learn(v)
             Menu.decided = true
             Menu.sub = false
+            if not fromMod then
+                local okNote, errNote = pcall(noteHand, v)
+                if not okNote then log("player command was not recorded: %s", tostring(errNote)) end
+            end
         end)
     end)
 end
@@ -2812,15 +3068,13 @@ local function hookMenu()
         if not ok then return end
         if name == "Delegate.Battle.Cmd.List.Begin" then
             local actor = currentActor()
-            Menu.sub = (actor == Menu.actor and not Menu.decided)
+            Menu.sub = (actor == Menu.actor) and (not Menu.decided)
             Menu.actor = actor
             Menu.decided = false
             Menu.open = true
             Menu.serial = Menu.serial + 1
             if Menu.sub then return end
-            if not cfg.Enabled then return end
-            local serial = Menu.serial
-            gameDelay(DECIDE_MS, function() act(serial) end)
+            scheduleAct()
         elseif name == "Delegate.Battle.Cmd.List.End" then
             Menu.open = false
         end
@@ -2857,6 +3111,8 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
     font.Size = size
     text:SetFont(font)
     text:SetColorAndOpacity({ SpecifiedColor = { R = 0.93, G = 0.86, B = 0.62, A = 1 }, ColorUseRule = 0 })
+    pcall(function() widget:SetIsFocusable(false) end)
+    pcall(function() text:SetIsFocusable(false) end)
     widget:SetVisibility(1)
     widget:AddToViewport(kind == "toast" and 1100 or 1000)
     return { widget = widget, text = text }
@@ -2949,8 +3205,18 @@ local function applySpeed()
     end
 end
 
+local function watchField()
+    if not (Fight and Fight.active) then return end
+    pcall(function() noteChanges(livingSnapshot()) end)
+    pcall(settleGauges)
+end
+
 local function resonanceWatch()
-    if not cfg.Enabled or not Fight or not Fight.active then return end
+    if not (Fight and Fight.active) then return end
+    if not cfg.Enabled then
+        watchField()
+        return
+    end
     local okPhase, phase = pcall(inFinishPhase)
     local finishing = okPhase and phase == true
     if not finishing then
@@ -2958,6 +3224,14 @@ local function resonanceWatch()
         Fight.resonanceMiss = false
         Fight.resonanceWait = false
         Fight.finishScan = nil
+        Fight.attackWheel = false
+        return
+    end
+    if cfg.AttacksOnly then
+        if not Fight.attackWheel then
+            Fight.attackWheel = true
+            log("resonance phase, your pick")
+        end
         return
     end
     if Fight.resonanceSent then return end
@@ -3042,15 +3316,65 @@ local function bind(name, fn)
     end)
 end
 
-loadConfig()
-
-bind("TakeOverKey", function()
+local function pressAuto()
     cfg.Enabled = not cfg.Enabled
     saveState()
     local msg = cfg.Enabled and "AutoBattle On" or "AutoBattle Off"
     log(msg)
     showToast(msg)
-end)
+    if cfg.Enabled then scheduleAct() end
+end
+
+local function pressBasic()
+    cfg.AttacksOnly = not cfg.AttacksOnly
+    saveState()
+    local msg = cfg.AttacksOnly and "AutoBattle: Take it Easy!" or "AutoBattle: No Mercy!"
+    log(msg)
+    showToast(msg)
+end
+
+local padTold, padLeft, padRight = false, false, false
+local function pollTriggers()
+    local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
+    if not (okPc and pc and pc.IsValid and pc:IsValid()) then return end
+    local function down(name)
+        local ok, hit = pcall(function()
+            return pc:IsInputKeyDown({ KeyName = FName(name) })
+        end)
+        if not (ok and (type(hit) == "boolean")) then
+            ok, hit = pcall(function()
+                return pc:IsInputKeyDown(FName(name))
+            end)
+        end
+        if ok and (type(hit) == "boolean") then return hit end
+        return nil
+    end
+    local left = down("Gamepad_LeftTrigger")
+    local right = down("Gamepad_RightTrigger")
+    if (left == nil) and (right == nil) then
+        if not padTold then
+            padTold = true
+            log("could not read the triggers")
+        end
+        return
+    end
+    local function rose(now, was)
+        if now == nil then return false, was end
+        return (now and not was) and true or false, now
+    end
+    local leftRose, rightRose
+    leftRose, padLeft = rose(left, padLeft)
+    rightRose, padRight = rose(right, padRight)
+    if not (leftRose or rightRose) then return end
+    if leftRose then pressBasic() end
+    if rightRose then pressAuto() end
+end
+
+loadConfig()
+
+bind("TakeOverKey", pressAuto)
+bind("MenuKey", pressBasic)
+gameLoop(16, pollTriggers)
 
 local okHook, errHook = pcall(function()
     hookDecide()
@@ -3060,8 +3384,10 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.6. %s. %s toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.7. %s. %s toggles auto battle. %s basic attacks %s. Left trigger toggles basic attacks and right trigger toggles auto battle, on the field and in battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
+    cfg.MenuKey,
+    cfg.AttacksOnly and "on" or "off",
     mobCount,
     tostring(cfg.Submit), tostring(cfg.BattleSpeed))

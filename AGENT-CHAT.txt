@@ -7,15 +7,16 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.6."
+a Steam launch. The startup line is "loaded. planner v0.1.7."
 
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins. The
-testing and main both carry v0.1.6. The release zip is FFRAutoBattle.zip
-on tag v0.1.6. It has the same folders as the v0.1.1 zip.
+testing carries v0.1.7. main and the release zip stay on v0.1.6.
+The zip is FFRAutoBattle.zip on tag v0.1.6. It has the same folders as the
+v0.1.1 zip.
 
 The fix list
 ------------
@@ -195,3 +196,22 @@ premature release to 550 and then held that size. Lasswell kept casting
 Thunder down to 8 MP, then took the Ether when Thunder no longer fit. Both
 branches and the release zip are this build. The startup line is
 "loaded. planner v0.1.6."
+
+Shipped as v0.1.7 on testing
+The planner is the v0.1.6 planner. The by-round menus and the action-button
+hold are not in this build. F10 flashes AutoBattle On or Off. F9 on flashes
+AutoBattle: Take it Easy! and sends Attack only, with no MP and no items.
+F9 off flashes AutoBattle: No Mercy! and runs the full planner. Off is the
+default. Auto battle still defaults on. Both are remembered in state.txt.
+On the field and in battle the right trigger fires the F10 action and the
+left trigger fires the F9 action. The triggers do not press those keys. A
+menu does not have to be open. There is no settings box and no number key.
+While auto is off, the same ledger keeps going. A command the player chooses
+is logged as "player" and written into the stagger ledger, claims, and round
+count. About four times a second the field is read again: who fell, who
+broke, and the gauge phase. No command is sent on that read. F10 on mid-fight
+plans from that record. An open top-level command menu is taken. A target
+submenu is left with the player. If that command has no target ids, later
+chips ignore the poured count until a break shows. main and the v0.1.6 zip
+are unchanged. The startup line is "loaded. planner v0.1.7." and it names
+basic attacks on or off.
