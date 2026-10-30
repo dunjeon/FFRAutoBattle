@@ -57,7 +57,7 @@ The same folder also contains `enabled.txt`, `config.ini`, `known.lua` is next t
 
 ### 4. Start the game and check
 
-Start FINAL FANTASY RESONANCE from Steam. Load a save and enter a battle. The party should take its own commands. F10 turns auto battle off and flashes AutoBattle Off. F10 again turns it back on and flashes AutoBattle On. F9 turns basic attacks on and flashes AutoBattle: Take it Easy! F9 again turns them off and flashes AutoBattle: No Mercy! Basic attacks means the Attack command only. The party does not spend MP or items. Off is where it starts, until you turn it on. Both choices stay remembered after you quit. In a fight, the right trigger does the same thing as F10, and the left trigger does the same thing as F9. The same notice flashes. Outside a fight the triggers stay with the game. They do not type F9 or F10.
+Start FINAL FANTASY RESONANCE from Steam. Load a save and enter a battle. The party should take its own commands. Press F10. The screen flashes AutoBattle Off. Press F9. The screen flashes AutoBattle: Take it Easy! The full list of keys and triggers is in Controls, below.
 
 To confirm the files loaded, open:
 
@@ -76,14 +76,35 @@ Work down this list.
 - `UE4SS.log` does not exist. UE4SS never started. Repeat step 2.
 - `UE4SS.log` exists and does not contain `loaded. planner.` Open `FFRS\Binaries\Win64\ue4ss\Mods\mods.txt`. Under the line `; Built-in keybinds, do not move up!` and above `Keybinds : 1`, add `FFRAutoBattle : 1`. Save, quit the game fully, and start it again.
 
-The party starts each fight on its own, at a faster battle speed. The screen stays clear during the fight. F10 flashes AutoBattle On or AutoBattle Off. F9 flashes AutoBattle: Take it Easy! or AutoBattle: No Mercy! The full account is still appended to `battle_log.txt` in this folder: each command, which skills each character used, who fell, and who was staggered. A command you choose yourself is logged as `player`, and the next auto command uses that hit, that heal, and that item. While auto battle is off, that record keeps going. Your commands, who fell, who broke, and the stagger gauges stay current. F10 on in the middle of a fight plans from that fight. If a command menu is open, the mod takes it. The turns after that are auto as well.
+## Controls
 
-## Keys
+Two switches. Each press flashes a short notice. The game remembers both choices after you quit.
 
-- **F10** turns auto battle off, or back on. It flashes AutoBattle On or AutoBattle Off. Auto battle starts on. Off does not stop the record. Your commands and the field stay in the planner, so turning it back on mid-fight uses the fight as it is. In a fight, the right trigger fires this same action.
-- **F9** turns basic attacks on, or back off. On flashes AutoBattle: Take it Easy! Off flashes AutoBattle: No Mercy! On means Attack, and the party does not spend MP or items. Off is the default, and the full planner runs. The choice is remembered. In a fight, the left trigger fires this same action. On the field the triggers stay with the game.
+### Keyboard
 
-Auto battle on or off, and basic attacks on or off, are remembered in `state.txt`. The other settings are read from `config.ini` at startup, so a change there needs a restart.
+F9 and F10 work any time: on the field, in a menu, and in a fight.
+
+| Key | What it does | Notice |
+| --- | --- | --- |
+| F10 | Turns auto battle off or back on. It starts on. | AutoBattle Off, or AutoBattle On |
+| F9 | Turns basic attacks on or off. It starts off. | AutoBattle: Take it Easy!, or AutoBattle: No Mercy! |
+
+**Take it Easy** means the party uses Attack only. No spells, no items, and no MP.
+
+**No Mercy** means the full plan. The party uses spells, items, and heals when the fight needs them.
+
+If you turn auto battle off, play some turns yourself, and turn it back on, the party continues from the fight as it is.
+
+### Gamepad
+
+The triggers do those same two things, and only during a fight. On the field, and in menus outside a fight, they keep doing what the game already uses them for.
+
+| Button | What it does | When |
+| --- | --- | --- |
+| Right trigger | Same as F10. Auto battle on or off. | During a fight |
+| Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight |
+
+The other settings are in `config.ini`. A change there needs a restart. A written account of each fight is added to `battle_log.txt` in this folder.
 
 ## How a fight is played
 
