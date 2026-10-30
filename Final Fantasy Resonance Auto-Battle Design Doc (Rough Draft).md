@@ -2,7 +2,7 @@
 
 The auto-battle never assumes a build: at battle start it reads each character's actual skills, tags them by function, and then runs one priority ladder each turn that keeps the party alive, keeps MP available, and drives enemies toward stagger.
 
-This is v0.1.9. Two switches sit on top of that ladder. They do not open a menu, and both choices are remembered.
+This is v0.1.10. Two switches sit on top of that ladder. They do not open a menu, and both choices are remembered.
 
 - F10, and the right trigger during a fight, turns auto battle on or off. The screen flashes AutoBattle On or AutoBattle Off. It starts on. While it is off, the planner still records the commands the player chooses and the state of the fight. Turning it back on in the middle of a fight plans from that fight.
 - F9, and the left trigger during a fight, chooses the plan. On flashes AutoBattle: Take it Easy! and sends the Attack command only. No MP and no items. Off flashes AutoBattle: No Mercy! and runs the ladder below. Off is the default.

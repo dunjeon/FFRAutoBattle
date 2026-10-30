@@ -483,6 +483,24 @@ local function sealed(uid, id)
     return activation(uid, id) == false
 end
 
+-- A Limit crystal is not MP. CanUnitActivateSkill stays false while the
+-- crystal is filling, and also on rows the command bar will still accept.
+local function limitSkill(skill)
+    if not skill then return false end
+    if skill.attr == ATTR.LB then return true end
+    local info = skill.known or knownOf(skill)
+    local use = info and info.use
+    return use == "lb-setup" or use == "lb-cash"
+end
+
+local function commandEnabled(uid, id)
+    local bfl = battleLib()
+    if not (bfl and bfl:IsValid()) then return true end
+    local ok, enabled = pcall(function() return bfl:IsEnableCommand(uid, id) end)
+    if ok and enabled == false then return false end
+    return true
+end
+
 local function idOf(v)
     local n = num(v)
     if n then return n end
@@ -793,15 +811,15 @@ local function tagSkill(uid, id, borrowed)
     if borrowed and activation(uid, id) ~= true then return nil end
     local s = skillOf(id)
     if not s or SKIP[s.attr] then return nil end
-    if not borrowed and sealed(uid, id) then
-        local info = knownOf(s)
-        local lb = s.attr == ATTR.LB or (info and (info.use == "lb-setup" or info.use == "lb-cash"))
-        if lb and Fight then
+    local lb = limitSkill(s)
+    if not borrowed and sealed(uid, id) and not lb then return nil end
+    if not borrowed and lb and not commandEnabled(uid, id) then
+        if Fight then
             Fight.lbSilent = Fight.lbSilent or {}
             local key = tostring(uid) .. ":" .. tostring(id)
             if not Fight.lbSilent[key] then
                 Fight.lbSilent[key] = true
-                log("%s: %s equipped, the game will not activate it", unitName(uid), s.name or tostring(id))
+                log("%s: %s equipped, the battle command is disabled", unitName(uid), s.name or tostring(id))
             end
         end
         return nil
@@ -830,6 +848,7 @@ local function tagSkill(uid, id, borrowed)
     end
     if copy.effect == EFF.ANALYZE then copy.kind = "scan" end
     copy.cost = skillCost(uid, id, aoeOf(copy))
+    if limitSkill(copy) then copy.cost = 0 end
     if not copy.kind then return nil end
     return copy
 end
@@ -3496,7 +3515,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.9. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.10. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
