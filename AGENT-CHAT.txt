@@ -14,9 +14,8 @@ Policy files, in order: AGENTS.md, then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins. The
-testing carries v0.1.7. main and the release zip stay on v0.1.6.
-The zip is FFRAutoBattle.zip on tag v0.1.6. It has the same folders as the
-v0.1.1 zip.
+testing and main both carry v0.1.7. The release zip is FFRAutoBattle.zip
+on tag v0.1.7. It has the same folders as the v0.1.6 zip.
 
 The fix list
 ------------
@@ -213,6 +212,6 @@ count. About four times a second the field is read again: who fell, who
 broke, and the gauge phase. No command is sent on that read. F10 on mid-fight
 plans from that record. An open top-level command menu is taken. A target
 submenu is left with the player. If that command has no target ids, later
-chips ignore the poured count until a break shows. main and the v0.1.6 zip
-are unchanged. The startup line is "loaded. planner v0.1.7." and it names
-basic attacks on or off.
+chips ignore the poured count until a break shows. Both branches and the
+v0.1.7 zip are this build. The startup line is "loaded. planner v0.1.7." and
+it names basic attacks on or off.

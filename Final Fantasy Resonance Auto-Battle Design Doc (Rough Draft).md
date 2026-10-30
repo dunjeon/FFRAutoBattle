@@ -2,6 +2,12 @@
 
 The auto-battle never assumes a build: at battle start it reads each character's actual skills, tags them by function, and then runs one priority ladder each turn that keeps the party alive, keeps MP available, and drives enemies toward stagger.
 
+This is v0.1.7. Two switches sit on top of that ladder. They do not open a menu, and both choices are remembered.
+
+- F10, and the right trigger during a fight, turns auto battle on or off. The screen flashes AutoBattle On or AutoBattle Off. It starts on. While it is off, the planner still records the commands the player chooses and the state of the fight. Turning it back on in the middle of a fight plans from that fight.
+- F9, and the left trigger during a fight, chooses the plan. On flashes AutoBattle: Take it Easy! and sends the Attack command only. No MP and no items. Off flashes AutoBattle: No Mercy! and runs the ladder below. Off is the default.
+- Outside a fight the triggers stay with the game. F9 and F10 work any time.
+
 ## Game facts the AI relies on
 
 The AI only uses mechanics that hold in every build; anything Vision-specific is discovered at runtime, never hard-coded.
@@ -167,7 +173,7 @@ Damage is not the goal until enemies are staggered; the gauge is. The AI picks t
 - The live skill row has cost, power, stagger, target, and effect. It does not have an element. Element stays in the catalog until a spell is named there. An unnamed Vision spell is still cast, on its own stagger, with no weakness multiplier.
 - The break ratio stays full after a hit, so a weakness cannot be learned by watching the gauge move.
 - Do items have shared stacks across the party, and is there a per-battle item limit?
-- A toggle for item aggressiveness is not in this version. Rare items stay in the bag. Common shop items are spent on the heal and Ether lines above.
+- A toggle for item aggressiveness is not in v0.1.7. Take it Easy is the basic-attack switch, and it does not change which items are allowed when No Mercy is on. Rare items stay in the bag. Common shop items are spent on the heal and Ether lines above.
 - The 30% heal, the 50% recover, the 65% line while a danger gauge is open, the 15% chipper exception, the 60% adds line, and the MP bands are what these playtests ran.
 
 ## Sources

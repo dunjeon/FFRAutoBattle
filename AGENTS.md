@@ -10,13 +10,13 @@ The license is MIT.
 
 ## What this mod is
 
-One UE4SS Lua mod. One F10 switch. One shared planner for the round. The characters carry out the next slot from the gear, skills, items, and Vision the player equipped.
+One UE4SS Lua mod. F10 turns auto battle on or off. F9 turns basic attacks on or off. In a fight the right trigger does what F10 does, and the left trigger does what F9 does. Outside a fight the triggers stay with the game. One shared planner for the round. The characters carry out the next slot from the gear, skills, items, and Vision the player equipped.
 
 It has to work for any party size, any character, and any Vision. A change that names a fight, a character, or a Vision is the wrong change.
 
 ## Where the files are
 
-The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner.`
+The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.7.`
 
 `known.lua` is published skill and item facts: element, stagger, and use. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
