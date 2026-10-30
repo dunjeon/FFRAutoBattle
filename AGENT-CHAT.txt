@@ -7,14 +7,14 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.10."
+a Steam launch. The startup line is "loaded. planner v0.1.11."
 
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins. The
-testing carries v0.1.9. main and the release zip stay on v0.1.8.
+The game folder is v0.1.11. main and the release zip stay on v0.1.8.
 The v0.1.8 zip is FFRAutoBattle.zip on tag v0.1.8. It has the same folders
 as the v0.1.6 and v0.1.7 zips.
 
@@ -235,3 +235,20 @@ break of a hard fight a cash Limit Burst outranks a normal spell, including
 when the skill row has no magnification. A soft pack does not take it.
 testing carries this build. main and the v0.1.8 release stay as they are.
 The startup line is "loaded. planner v0.1.9."
+
+Shipped as v0.1.10
+A Limit Burst is not dropped because CanUnitActivateSkill said no, and its
+cost is not treated as MP. It is offered when the battle command is enabled.
+If that command is disabled, the log says so once and the turn moves on.
+testing carries this build. main stays on v0.1.8. The startup line is
+"loaded. planner v0.1.10."
+
+Shipped as v0.1.11
+The Belmodar fight equipped Null Moon and Infinity Drive and never cast
+either. IsEnableCommand stayed false for both, so the rows never entered
+the plan. The limit gauge is read from the battle library instead. A setup
+Limit is cast once that gauge can pay it, on a hard field, and its stagger
+is counted. A cash Limit is the spend on a hard fight's break, and a soft
+pack still does not take it. The log names the points when the reading
+changes, and "limit ready" when the gauge can pay the row. The startup
+line is "loaded. planner v0.1.11."

@@ -17,6 +17,8 @@
 --   debuff    a real debuff, once
 --   lb-setup  Limit Burst whose payoff is before the break (Null Moon)
 --   lb-cash   Limit Burst whose payoff is after the break
+--   lb-revive Limit Burst that raises the party (Radiant Restoration)
+--   gauges    how many full limit gauges the row spends. 1 is 100%, 2 is 200%
 --   scan      Libra. Left alone; the result is not readable yet
 
 return {
@@ -32,8 +34,16 @@ return {
         ["flame sword"] = { stagger = 33, element = "fire", use = "break", phys = true },
         ["ice splitter"] = { stagger = 25, element = "ice", use = "break", phys = true },
         ["tranquility"] = { stagger = 40, use = "break", magic = true },
-        ["null moon"] = { stagger = 27, use = "lb-setup" },
-        ["infinity drive"] = { stagger = 25, element = "fire", use = "lb-cash" },
+        ["null moon"] = { stagger = 27, phys = true, use = "lb-setup", gauges = 1 },
+        ["infinity drive"] = { stagger = 25, element = "fire", phys = true, use = "lb-cash", gauges = 1 },
+        ["march of the machines"] = { stagger = 40, phys = true, use = "lb-cash", gauges = 1 },
+        ["enterprise airstrike"] = { stagger = 55, phys = true, use = "lb-cash", gauges = 2 },
+        ["formation: steeled advance"] = { use = "lb-setup", gauges = 1 },
+        ["mirroring prism"] = { use = "lb-cash", gauges = 2 },
+        ["eternal veil"] = { use = "lb-setup", gauges = 1 },
+        ["radiant restoration"] = { use = "lb-revive", gauges = 2 },
+        ["sakura's ultima"] = { stagger = 55, magic = true, use = "lb-cash", gauges = 2 },
+        ["glücksschmied"] = { stagger = 30, phys = true, use = "lb-cash", gauges = 2 },
         ["hone senses"] = { use = "opener" },
         ["shell"] = { use = "guardbuff" },
         ["protect"] = { use = "guardbuff" },
@@ -76,7 +86,7 @@ return {
 
         -- Published element and stagger. Lightning is thunder, to match the book.
         ["absolving hailstorm"] = { stagger = 32, element = "ice", use = "break" },
-        ["abyss graviton"] = { stagger = 40, element = "dark", use = "break" },
+        ["abyss graviton"] = { stagger = 40, element = "dark", use = "break", gauges = 2 },
         ["aero"] = { stagger = 17, element = "wind", use = "break" },
         ["aero blade"] = { stagger = 17, element = "wind", use = "break" },
         ["aero ii of the seventh dawn"] = { stagger = 19, element = "wind", use = "break" },
@@ -113,8 +123,8 @@ return {
         ["blizzard of the seventh dawn"] = { stagger = 17, element = "ice", use = "break" },
         ["blizzard surge"] = { stagger = 25, element = "ice", use = "break" },
         ["braver"] = { stagger = 19, element = "thunder", use = "break" },
-        ["chaotic convergence"] = { stagger = 25, element = "dark", use = "break" },
-        ["crimson onslaught"] = { stagger = 35, element = "fire", use = "break" },
+        ["chaotic convergence"] = { stagger = 25, element = "dark", use = "break", gauges = 1 },
+        ["crimson onslaught"] = { stagger = 35, element = "fire", use = "break", gauges = 2 },
         ["crushing blade"] = { stagger = 19, element = "wind", use = "break" },
         ["crust driver"] = { stagger = 33, element = "earth", use = "break" },
         ["d sword breaker"] = { stagger = 25, element = "earth", use = "break" },
@@ -149,7 +159,7 @@ return {
         ["fulminating strike+"] = { stagger = 30, element = "light", use = "break" },
         ["gale strike"] = { stagger = 25, element = "wind", use = "break" },
         ["heatwave"] = { stagger = 35, element = "fire", use = "break" },
-        ["holy ray"] = { stagger = 25, element = "light", use = "break" },
+        ["holy ray"] = { stagger = 25, element = "light", use = "break", gauges = 1 },
         ["lightning strike"] = { stagger = 21, element = "thunder", use = "break" },
         ["luminant cannon"] = { stagger = 35, element = "light", use = "break" },
         ["luminant glim"] = { stagger = 25, element = "light", use = "break" },
@@ -199,7 +209,7 @@ return {
         ["stonera slam"] = { stagger = 28, element = "earth", use = "break" },
         ["stonera surge"] = { stagger = 28, element = "earth", use = "break" },
         ["stygian scythe"] = { stagger = 33, element = "dark", use = "break" },
-        ["t.r.n.d."] = { stagger = 27, element = "wind", use = "break" },
+        ["t.r.n.d."] = { stagger = 27, element = "wind", use = "break", gauges = 1 },
         ["thundaga"] = { stagger = 21, element = "thunder", use = "break" },
         ["thundaga blade"] = { stagger = 21, element = "thunder", use = "break" },
         ["thundaga knife"] = { stagger = 30, element = "thunder", use = "break" },
@@ -214,7 +224,7 @@ return {
         ["thunderfall"] = { stagger = 35, element = "thunder", use = "break" },
         ["tonitus"] = { stagger = 30, element = "thunder", use = "break" },
         ["torrential hew"] = { stagger = 27, element = "water", use = "break" },
-        ["transient rite"] = { stagger = 35, element = "ice", use = "break" },
+        ["transient rite"] = { stagger = 35, element = "ice", use = "break", gauges = 2 },
         ["vanguard glaive"] = { stagger = 17, element = "light", use = "break" },
         ["vanguard glaive+"] = { stagger = 30, element = "light", use = "break" },
         ["warp-strike"] = { stagger = 19, element = "light", use = "break" },

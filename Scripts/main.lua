@@ -64,7 +64,9 @@ end
 local function knownOf(skill)
     local map = Known.skills
     if not map or not skill or not skill.name then return nil end
-    return map[skill.name:lower()]
+    local key = skill.name:lower()
+    key = key:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
+    return map[key]
 end
 local Mobs = {}
 do
@@ -111,7 +113,7 @@ local SKIP = {
 local EFF = { DAMAGE = 1, PARAM = 2, CURE = 19, REVIVE = 20, DEFEND = 26, ANALYZE = 29, COVER = 41 }
 local TGT = { SELF = 0, SINGLE = 1, GROUP = 2, SPREAD = 3, ALL = 4 }
 local REL = { FRIEND = 1, ENEMY = 2 }
-local PARAM = { HP = 1, MP = 2 }
+local PARAM = { HP = 1, MP = 2, LB = 4 }
 local VAR = { UP = 0, RATIO = 2 }
 local ST_BREAK = 89
 local GUARD_STATUS = { [34] = true, [35] = true, [36] = true }
@@ -485,12 +487,13 @@ end
 
 -- A Limit crystal is not MP. CanUnitActivateSkill stays false while the
 -- crystal is filling, and also on rows the command bar will still accept.
+-- IsEnableCommand stays false for the same rows, so the gauge is the check.
 local function limitSkill(skill)
     if not skill then return false end
     if skill.attr == ATTR.LB then return true end
     local info = skill.known or knownOf(skill)
     local use = info and info.use
-    return use == "lb-setup" or use == "lb-cash"
+    return use == "lb-setup" or use == "lb-cash" or use == "lb-revive"
 end
 
 local function commandEnabled(uid, id)
@@ -807,23 +810,80 @@ local function classify(skill)
     return nil
 end
 
+-- Filled gauges, from the live limit points. IsEnableCommand is only the
+-- fallback when the battle library does not answer. A full gauge is enough.
+local function limitReady(uid, skill)
+    local need = (skill and skill.lbCost) or 1
+    if need < 1 then need = 1 end
+    local bfl = battleLib()
+    local points, one, slots, unitGauges = nil, nil, nil, nil
+    if bfl and bfl:IsValid() then
+        local ok, v
+        ok, v = pcall(function() return bfl:GetUnitLimitBurstPoint(uid) end)
+        if ok then points = num(v) end
+        ok, v = pcall(function() return bfl:GetLimitBurstPointOneGauge() end)
+        if ok then one = num(v) end
+        if (one == nil) or (one <= 0) then
+            ok, v = pcall(function() return bfl:GetLimitBurstPointOneGauge(uid) end)
+            if ok then one = num(v) end
+        end
+        ok, v = pcall(function() return bfl:GetLimitBurstPointMaxGaugeNum() end)
+        if ok then slots = num(v) end
+        if slots == nil then
+            ok, v = pcall(function() return bfl:GetLimitBurstPointMaxGaugeNum(uid) end)
+            if ok then slots = num(v) end
+        end
+        ok, v = pcall(function() return bfl:GetUnitLimitBurstPointGaugeNum(uid) end)
+        if ok then unitGauges = num(v) end
+    end
+    local p = paramOf(uid)
+    if (points == nil) and p then
+        local ok, v = pcall(function() return p:GetLimitBurstPoint() end)
+        if ok then points = num(v) end
+    end
+    if points == nil then points = stat(uid, PARAM.LB, false) end
+    local maxv = stat(uid, PARAM.LB, true)
+    if ((one == nil) or (one <= 0)) and maxv and (maxv > 0) then
+        local n = slots
+        if (n == nil) or (n < 1) or (n > 4) then n = 1 end
+        one = maxv / n
+    end
+    local filled = nil
+    if (points ~= nil) and (one ~= nil) and (one > 0) then
+        filled = math.floor((points / one) + 1e-6)
+    end
+    -- GaugeNum is trusted only after it has read empty once. A call that
+    -- always returns 1 is the slot count, not a full crystal.
+    if (filled == nil) and (unitGauges ~= nil) and (unitGauges >= 0) and (unitGauges <= 4) and Fight then
+        Fight.lbGaugeApi = Fight.lbGaugeApi or {}
+        if unitGauges == 0 then Fight.lbGaugeApi[uid] = true end
+        if Fight.lbGaugeApi[uid] then filled = unitGauges end
+    end
+    if Fight then
+        Fight.lbRead = Fight.lbRead or {}
+        local bucket = filled
+        if (bucket == nil) and (points ~= nil) then bucket = math.floor(points) end
+        local prev = Fight.lbRead[uid]
+        if prev ~= bucket then
+            Fight.lbRead[uid] = bucket
+            log("%s limit points %s max %s one %s slots %s unit %s needs %s",
+                unitName(uid), tostring(points), tostring(maxv), tostring(one),
+                tostring(slots), tostring(unitGauges), tostring(need))
+            if (filled ~= nil) and (filled >= need) and ((type(prev) ~= "number") or (prev < need)) then
+                appendLog("  " .. unitName(uid) .. " limit ready")
+            end
+        end
+    end
+    if filled == nil then return commandEnabled(uid, skill.id) end
+    return filled >= need
+end
+
 local function tagSkill(uid, id, borrowed)
     if borrowed and activation(uid, id) ~= true then return nil end
     local s = skillOf(id)
     if not s or SKIP[s.attr] then return nil end
     local lb = limitSkill(s)
     if not borrowed and sealed(uid, id) and not lb then return nil end
-    if not borrowed and lb and not commandEnabled(uid, id) then
-        if Fight then
-            Fight.lbSilent = Fight.lbSilent or {}
-            local key = tostring(uid) .. ":" .. tostring(id)
-            if not Fight.lbSilent[key] then
-                Fight.lbSilent[key] = true
-                log("%s: %s equipped, the battle command is disabled", unitName(uid), s.name or tostring(id))
-            end
-        end
-        return nil
-    end
     local copy = {}
     for k, v in pairs(s) do copy[k] = v end
     copy.known = knownOf(copy)
@@ -835,6 +895,7 @@ local function tagSkill(uid, id, borrowed)
         if info.use == "guard" then copy.kind = "defend"
         elseif info.use == "opener" or info.use == "guardbuff" or info.use == "buff" or info.use == "lb-setup" then
             copy.kind = "buff"
+        elseif info.use == "lb-revive" then copy.kind = "revive"
         elseif info.use == "heal" then copy.kind = "heal"
         elseif info.use == "cure" then copy.kind = "cure"
         elseif info.use == "debuff" then copy.kind = "debuff"
@@ -848,7 +909,20 @@ local function tagSkill(uid, id, borrowed)
     end
     if copy.effect == EFF.ANALYZE then copy.kind = "scan" end
     copy.cost = skillCost(uid, id, aoeOf(copy))
-    if limitSkill(copy) then copy.cost = 0 end
+    if limitSkill(copy) then
+        local gauges = nil
+        if info and (type(info.gauges) == "number") and (info.gauges >= 1) then
+            gauges = info.gauges
+        end
+        if gauges == nil then
+            local raw = copy.cost or 0
+            if (raw >= 1) and (raw <= 2) then gauges = raw end
+        end
+        if gauges == nil then gauges = 1 end
+        copy.lbCost = gauges
+        copy.cost = 0
+        if (not borrowed) and (not limitReady(uid, copy)) then return nil end
+    end
     if not copy.kind then return nil end
     return copy
 end
@@ -900,6 +974,7 @@ unitKit = function(uid)
 end
 
 local function friendAction(skill)
+    if skill.rel == REL.ENEMY then return false end
     if skill.rel == REL.FRIEND then return true end
     if skill.kind == "heal" or skill.kind == "revive" or skill.kind == "buff"
         or skill.kind == "cure" or skill.kind == "defend" then
@@ -1415,8 +1490,13 @@ local function send(uid, choice, phase)
         pId = learned.item.pId or pId
         if #learned.keys > 0 then keys = learned.keys end
     else
+        local limitCast = choice.attr == ATTR.LB
+        if choice.known then
+            local use = choice.known.use
+            if (use == "lb-setup") or (use == "lb-cash") or (use == "lb-revive") then limitCast = true end
+        end
         local bfl = battleLib()
-        if bfl and bfl:IsValid() then
+        if bfl and bfl:IsValid() and (not limitCast) then
             local ok, enabled = pcall(function() return bfl:IsEnableCommand(uid, choice.id) end)
             if ok and enabled == false then commandId = -1 end
         end
@@ -1743,8 +1823,11 @@ local function turn(uid, skills, w, phase)
         if use == "opener" or use == "guardbuff" or use == "guard" or use == "scan" or use == "heal" or use == "cure" then
             return false
         end
-        if use == "lb-setup" then return false end
-        if s.attr == ATTR.LB or use == "lb-cash" then return cashing and true or false end
+        if use == "lb-setup" or use == "lb-revive" then return false end
+        if (s.attr == ATTR.LB) or (use == "lb-cash") then
+            if cashing then return true end
+            return false
+        end
         return s.kind == "damage" or s.attr == ATTR.FIGHT or s.attr == ATTR.MAGIC or s.attr == ATTR.ABILITY
     end
     local function gaugeOfEnemy(enemy)
@@ -2152,6 +2235,8 @@ local function turn(uid, skills, w, phase)
         local bestS, bestU, bestScore, bestSpread = nil, nil, -1e9, false
         local function considerSkill(s, targets, spread)
             if not pay(s) then return end
+            local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
+            if spendLb and (not hardField) then return end
             if (not cashing) and (debuffOwed() or guardOwed() or lbOwed()) and ((s.cost or 0) > 0) then return end
             local b = band()
             local useful, pts, weak, finishes, early = 0, 0, false, false, false
@@ -2216,7 +2301,6 @@ local function turn(uid, skills, w, phase)
             score = score + threat
             -- A Limit row often has no magnification. On a hard break it is the cash,
             -- so a missing power must not lose to a normal spell. Trash keeps the gauge.
-            local spendLb = useOf(s) == "lb-cash" or s.attr == ATTR.LB
             if cashing and hardField and spendLb then score = score + 100000 end
             if score > bestScore then
                 bestS, bestU, bestScore, bestSpread = s, targets[1], score, spread and true or false
@@ -2690,6 +2774,8 @@ local function ensureBattle()
     Fight.planTag, Fight.afterBonus = nil, false
     Fight.fieldTold = false
     Fight.chipped = false
+    Fight.lbRead = {}
+    Fight.lbGaugeApi = {}
     Fight.unmarked = false
     Fight.unmarkedTold = false
     Fight.finishNote = {}
@@ -2934,7 +3020,12 @@ local function act(serial)
         local reason = choice.reason or ""
         if (choice.cost or 0) > 0 and not reason:find("^setup") then Fight.chipped = true end
     end
-    if phase == 0 and choice.targets and choice.kind == "damage" and not choice.isItem then
+    local limitCast = choice.attr == ATTR.LB
+    if choice.known then
+        local use = choice.known.use
+        if (use == "lb-setup") or (use == "lb-cash") or (use == "lb-revive") then limitCast = true end
+    end
+    if phase == 0 and choice.targets and ((choice.kind == "damage") or limitCast) and not choice.isItem then
         Fight.poured = Fight.poured or {}
         Fight.down = Fight.down or {}
         Fight.relax = Fight.relax or {}
@@ -3096,6 +3187,7 @@ local function noteHand(v)
     if kind == "debuff" then Fight.claim.debuff = true end
     if use == "guardbuff" then Fight.claim.guard = true end
     if (use == "opener") and uid and (uid >= 0) then Fight.claim.hone[uid] = true end
+    if use == "lb-setup" then Fight.claim.lb = true end
     if skill and (skill.attr == ATTR.SUMMON) then
         Fight.summoned = true
         Fight.claim.esper = true
@@ -3515,7 +3607,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.10. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.11. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
