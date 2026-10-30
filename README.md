@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.1.11. Lead Programmer: Grok, by xAI. Released under the MIT license.
+Version 0.1.12. Lead Programmer: Grok, by xAI. Released under the MIT license.
 
 ## Install
 
@@ -113,7 +113,7 @@ The battle lessons are the policy. There is one of them.
 One planner reads the whole field and fills the next slot. The characters do not each pick a favorite enemy.
 
 1. The field is every living enemy and every ally who can act. The log line is `field:` then `plan adds` or `plan sync`.
-2. Raise the fallen. The same ally is not raised again until they are standing, and a retry waits until the party has acted. Heal under 30% HP. Under 50% only when MP is above half and either several allies are hurt or the bonus window just ended. While a danger move is still up, that recover line is 65% for the lowest ally, and it does not wait for the bonus. The ally who is the only one able to pay a weakness on the current pool keeps chipping while the hurt ally is at or above 15% and someone else can still heal. A claimed heal is not cast again that round. Rare items stay in the bag. A Pot fight spends nothing.
+2. Raise the fallen. The same ally is not raised again until they are standing, and a retry waits until the party has acted. Heal under 30% HP. Under 50% only when MP is above half and either several allies are hurt or the bonus window just ended. While a danger move is still up, that recover line is 65% for the lowest ally, and it does not wait for the bonus. A heal spell is cast when its cost still fits. A potion is the spend when it does not. When three or more allies are under half, a party heal is chosen over a single cure. One or two hurt allies keep the single cure. The ally who is the only one able to pay a weakness on the current pool keeps chipping while the hurt ally is at or above 15% and someone else can still heal. A claimed heal is not cast again that round. Rare items stay in the bag. A Pot fight spends nothing.
 3. Above half MP any fitting spell can be spent. From 20% to half, only a heal, a heavy stagger, or a known weakness. Under 20%, a known weakness whose cost still fits, or a free attack. One Ether when that weakness does not fit. One Ether per round.
 4. Scout once when a name is missing from the book, or the card says the weakness shifts. A status cure is never aimed at an enemy.
 5. When a living enemy has a danger move, or the battle is a boss, and the style is not aggressive: before the first paid chip, and not after someone has fallen or is critical, one opener, one guard, one debuff, a setup Limit Burst, and the Esper if the weakness still fits. A paid chip waits while an ally can still cast that guard, that debuff, or that setup Limit Burst. The wait ends after a fall or while someone is critical. An Ether or a free Attack does not close that window. A cash Limit Burst is spent on the break of a hard fight. A soft pack does not take it, so the gauge is still full when the field gets hard. An empty limit gauge is left to fill. The row is taken on the turn that gauge can pay it. The published stagger on a Limit row is not the cash score. A Limit row with no power still wins that break when the element is not absorbed.

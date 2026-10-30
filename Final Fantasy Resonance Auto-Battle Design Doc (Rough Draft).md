@@ -2,7 +2,7 @@
 
 The auto-battle never assumes a build: at battle start it reads each character's actual skills, tags them by function, and then runs one priority ladder each turn that keeps the party alive, keeps MP available, and drives enemies toward stagger.
 
-This is v0.1.11. Two switches sit on top of that ladder. They do not open a menu, and both choices are remembered.
+This is v0.1.12. Two switches sit on top of that ladder. They do not open a menu, and both choices are remembered.
 
 - F10, and the right trigger during a fight, turns auto battle on or off. The screen flashes AutoBattle On or AutoBattle Off. It starts on. While it is off, the planner still records the commands the player chooses and the state of the fight. Turning it back on in the middle of a fight plans from that fight.
 - F9, and the left trigger during a fight, chooses the plan. On flashes AutoBattle: Take it Easy! and sends the Attack command only. No MP and no items. Off flashes AutoBattle: No Mercy! and runs the ladder below. Off is the default.
@@ -115,14 +115,14 @@ Every character on their turn walks this ladder and takes the first rule that fi
 
 ## Healing and item rules
 
-The party's HP is one shared pool of risk: the AI picks the cheapest tool that fixes the problem, in this order: free effect, MP skill, item. Under 30% is healed first. Under 50% is healed when MP is above half and either several allies are hurt or the bonus window just ended. While a danger move is up and that gauge is still open, the recover line for the lowest ally is 65%, and it does not wait for the bonus. Rare items stay in the bag.
+The party's HP is one shared pool of risk: the AI picks the cheapest tool that fixes the problem, in this order: free effect, MP skill, item. A heal spell whose cost still fits is spent before a potion. Under 30% is healed first. Under 50% is healed when MP is above half and either several allies are hurt or the bonus window just ended. While a danger move is up and that gauge is still open, the recover line for the lowest ally is 65%, and it does not wait for the bonus. When three or more allies are under 50%, the heal is the party heal if this character has one, including when that row has no magnification. One or two hurt allies keep the single heal. Rare items stay in the bag.
 
 | Situation | Trigger | Action, first available |
 | --- | --- | --- |
 | Ally KO'd | Any ally at 0 HP | 1. REVIVE skill from a healthy ally. 2. Phoenix Down-type item. Do not revive if the fight is about to end (one weak enemy left, no threat). |
-| Critical HP | Ally under 30% HP | 1. HEAL\_SINGLE. 2. Smallest potion that restores the missing HP. Elixir-class items stay in the bag. The ally who is the only one able to pay a weakness on the current pool keeps chipping while the hurt ally is at or above 15% and someone else can still heal. Under 15%, that chipper heals too. |
-| Low HP | Ally under 50%, no one is critical, MP is above half, and either several allies are hurt or the bonus window just ended. While a danger gauge is open, the lowest ally under 65% | HEAL\_SINGLE if MP is healthy; otherwise a potion. The danger line does not wait for the bonus. |
-| Party-wide damage | 3 or more allies under 50% | A group heal is preferred over a single heal of similar power per MP. A patch stays a last resort. |
+| Critical HP | Ally under 30% HP | 1. A payable heal. A party heal when three or more allies are under 50%. 2. Smallest potion that restores the missing HP. Elixir-class items stay in the bag. The ally who is the only one able to pay a weakness on the current pool keeps chipping while the hurt ally is at or above 15% and someone else can still heal. Under 15%, that chipper heals too. |
+| Low HP | Ally under 50%, no one is critical, MP is above half, and either several allies are hurt or the bonus window just ended. While a danger gauge is open, the lowest ally under 65% | A heal spell whose cost fits. A party heal when three or more allies are under 50%. Otherwise a potion. The danger line does not wait for the bonus. |
+| Party-wide damage | 3 or more allies under 50% | A group heal is preferred over a single heal of similar power per MP. A row with no magnification still takes the group heal on that spread. A patch stays a last resort. |
 | Harmful status | Poison, blind, silence, sleep or similar on an ally | CURE\_STATUS skill, then matching cure item (Remedy). Silence on a caster is treated as high priority because it locks their MP skills. |
 | Healer is down or silenced | No HEAL tag usable | Any other ally uses items; the AI never waits for a healer. |
 

@@ -13,6 +13,7 @@
 --   guardbuff Shell or Protect, once, and only in a boss fight
 --   guard     Defend. Last resort, never an opener
 --   heal      restore HP
+--   party     the heal is published as hitting all allies
 --   patch     a heal too small to spend the turn on. A potion is preferred.
 --   debuff    a real debuff, once
 --   lb-setup  Limit Burst whose payoff is before the break (Null Moon)
@@ -53,21 +54,26 @@ return {
         ["guard"] = { use = "guard" },
         ["blind"] = { use = "debuff" },
         ["cure"] = { use = "heal" },
+        ["cura"] = { use = "heal" },
+        ["curaga"] = { use = "heal" },
+        ["curaja"] = { use = "heal" },
+        ["purify"] = { use = "heal", party = true },
+        ["cure iii of the seventh dawn"] = { use = "heal", party = true },
         ["esuna"] = { use = "cure" },
         ["first aid"] = { use = "heal", patch = true },
         ["libra"] = { use = "scan" },
         -- Vision Resonances. The wheel offers whichever of these the equipped Vision can activate.
         ["fatal impact"] = { element = "earth", phys = true, use = "finish" },
         ["errand's end"] = { element = "fire", magic = true, use = "finish" },
-        ["angelic embrace"] = { use = "heal" },
+        ["angelic embrace"] = { use = "heal", party = true },
         ["spellblade-dual wield-rapid fire"] = { phys = true, use = "finish" },
         ["alluvial undertow"] = { element = "water", phys = true, use = "finish" },
         ["knight of duality"] = { element = "light", phys = true, use = "finish" },
-        ["resolute bastion"] = { use = "heal" },
+        ["resolute bastion"] = { use = "heal", party = true },
         ["true ifrit-primed"] = { element = "fire", phys = true, use = "finish" },
         ["ascension"] = { element = "thunder", phys = true, use = "finish" },
         ["weaponsmaster"] = { element = "light", phys = true, use = "finish" },
-        ["healing wind"] = { use = "heal" },
+        ["healing wind"] = { use = "heal", party = true },
         ["zantetsuken"] = { element = "thunder", phys = true, use = "finish" },
         ["armiger unleashed"] = { phys = true, use = "finish" },
         ["job change attack"] = { magic = true, use = "finish" },

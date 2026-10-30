@@ -680,6 +680,13 @@ local function aoeOf(skill)
     return skill.target == TGT.GROUP or skill.target == TGT.SPREAD or skill.target == TGT.ALL
 end
 
+-- A party heal is the live group target, or a published "all allies" row.
+local function partyOf(skill)
+    if aoeOf(skill) then return true end
+    local info = skill and (skill.known or knownOf(skill))
+    return (info and info.party) and true or false
+end
+
 local function offenseOf(skill)
     local h = hitsOf(skill)
     local power = skill.power or 0
@@ -1592,8 +1599,8 @@ local function pickFinish(uid, finishes, w)
         for _, s in ipairs(list) do
             local heal = s.kind == "heal" or s.kind == "revive" or (s.known and s.known.use == "heal")
             if heal then
-                local targets = aoeOf(s) and idsOf(w.allies) or { hurt.id }
-                local choice = emit(s, "resonance heal " .. hurt.name, targets, aoeOf(s), 100000)
+                local targets = partyOf(s) and idsOf(w.allies) or { hurt.id }
+                local choice = emit(s, "resonance heal " .. hurt.name, targets, partyOf(s), 100000)
                 if choice then return choice end
             end
         end
@@ -1625,8 +1632,8 @@ local function pickFinish(uid, finishes, w)
     local targets, isAll
     if support then
         local who = hurt or (w.allies and w.allies[1])
-        targets = aoeOf(best) and idsOf(w.allies) or { who and who.id or uid }
-        isAll = aoeOf(best)
+        targets = partyOf(best) and idsOf(w.allies) or { who and who.id or uid }
+        isAll = partyOf(best)
     else
         isAll = aoeOf(best) and #(w.enemies or {}) > 1
         targets = isAll and idsOf(w.enemies) or { tid }
@@ -1808,7 +1815,7 @@ local function turn(uid, skills, w, phase)
     local function realCure(s)
         if s.kind ~= "heal" then return false end
         if s.known and s.known.patch then return false end
-        return (s.power or 0) > 0
+        return true
     end
     local function isPatch(s)
         return s.known and s.known.patch and true or false
@@ -1995,18 +2002,27 @@ local function turn(uid, skills, w, phase)
             if not a.dead and (a.hp or 1) < 0.50 then hurtN = hurtN + 1 end
         end
         for _, s in ipairs(skills) do
-            if s.kind == "heal" and pay(s) and band() ~= "low" then
+            if (s.kind == "heal") and pay(s) and (not isPatch(s)) then
                 local cost = s.cost or 0
                 if cost < 1 then cost = 1 end
-                local r = (s.power or 0) / cost
-                if isPatch(s) then r = 0.01 end
-                if hurtN >= 3 and aoeOf(s) and not isPatch(s) then r = r * 3 end
+                local power = s.power or 0
+                local party = partyOf(s)
+                local r
+                if power > 0 then
+                    r = power / cost
+                    if (hurtN >= 3) and party then r = r * 3 end
+                elseif (hurtN >= 3) and party then
+                    r = 3 + (0.01 / cost)
+                elseif party then
+                    r = 0.5 + (0.01 / cost)
+                else
+                    r = 1 + (0.01 / cost)
+                end
                 if r > rank then skill, rank = s, r end
             end
         end
-        local patch = skill and isPatch(skill)
         local itemLine = itemAt or 0.45
-        if not skill and (hurt.hp or 1) < itemLine then
+        if (not skill) and ((hurt.hp or 1) < itemLine) then
             local item = pickRecoveryItem(uid, w, "heal")
             if item then Fight.claim.heal[hurt.id] = true return item end
         end
@@ -2017,7 +2033,7 @@ local function turn(uid, skills, w, phase)
                 blocked = true
             end
         end
-        if not skill and blocked and not Fight.claim.ether[uid] and not Fight.claim.etherRound then
+        if (not skill) and blocked and (not Fight.claim.ether[uid]) and (not Fight.claim.etherRound) then
             local ether = pickRecoveryItem(uid, w, "mp")
             if ether then
                 ether.reason = "ether so a cure fits"
@@ -2026,9 +2042,19 @@ local function turn(uid, skills, w, phase)
                 return ether
             end
         end
-        if skill and not (patch and w.usedSupport[skill.id] and (hurt.hp or 1) >= 0.22) then
-            if patch then w.usedSupport[skill.id] = true end
-            local spread = aoeOf(skill)
+        if not skill then
+            for _, s in ipairs(skills) do
+                if (s.kind == "heal") and pay(s) and isPatch(s) then
+                    if not (w.usedSupport[s.id] and ((hurt.hp or 1) >= 0.22)) then
+                        w.usedSupport[s.id] = true
+                        skill = s
+                        break
+                    end
+                end
+            end
+        end
+        if skill then
+            local spread = partyOf(skill) and (not isPatch(skill))
             local pct = math.floor((hurt.hp or 0) * 100 + 0.5)
             local choice = finishChoice(uid, skill, string.format("%s %s at %d%%", why, hurt.name, pct),
                 spread and idsOf(w.allies) or { hurt.id }, spread)
@@ -3607,7 +3633,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.11. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.12. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

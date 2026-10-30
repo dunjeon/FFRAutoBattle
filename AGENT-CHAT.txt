@@ -7,14 +7,14 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.11."
+a Steam launch. The startup line is "loaded. planner v0.1.12."
 
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins. The
-The game folder is v0.1.11. main and the release zip stay on v0.1.8.
+The game folder is v0.1.12. main and the release zip stay on v0.1.8.
 The v0.1.8 zip is FFRAutoBattle.zip on tag v0.1.8. It has the same folders
 as the v0.1.6 and v0.1.7 zips.
 
@@ -252,3 +252,18 @@ is counted. A cash Limit is the spend on a hard fight's break, and a soft
 pack still does not take it. The log names the points when the reading
 changes, and "limit ready" when the gauge can pay the row. The startup
 line is "loaded. planner v0.1.11."
+
+Shipped as v0.1.12
+A heal spell is cast when its cost still fits, including under a fifth of
+the MP bar. A potion is the spend when that cost does not fit. Cure, Cura,
+Curaga, and Curaja stay single heals and are ranked by power per MP. When
+three or more allies are under half, a party heal on that character is
+chosen over the single cure. A heal row with no magnification used to tie,
+so the first heal on the bar kept winning. The party heal now wins that
+tie on a spread field, and the single cure wins it when one or two allies
+are hurt. One or two hurt allies keep the single cure when the row does
+have magnification and the single cure buys more healing per MP. Published
+all-ally heals are Purify, Cure III of the Seventh Dawn, and the Resonance
+heals Healing Wind, Angelic Embrace, and Resolute Bastion. testing carries
+this build. main stays on v0.1.8. The startup line is "loaded. planner
+v0.1.12."
