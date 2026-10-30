@@ -791,9 +791,21 @@ end
 
 local function tagSkill(uid, id, borrowed)
     if borrowed and activation(uid, id) ~= true then return nil end
-    if not borrowed and sealed(uid, id) then return nil end
     local s = skillOf(id)
     if not s or SKIP[s.attr] then return nil end
+    if not borrowed and sealed(uid, id) then
+        local info = knownOf(s)
+        local lb = s.attr == ATTR.LB or (info and (info.use == "lb-setup" or info.use == "lb-cash"))
+        if lb and Fight then
+            Fight.lbSilent = Fight.lbSilent or {}
+            local key = tostring(uid) .. ":" .. tostring(id)
+            if not Fight.lbSilent[key] then
+                Fight.lbSilent[key] = true
+                log("%s: %s equipped, the game will not activate it", unitName(uid), s.name or tostring(id))
+            end
+        end
+        return nil
+    end
     local copy = {}
     for k, v in pairs(s) do copy[k] = v end
     copy.known = knownOf(copy)
@@ -2076,7 +2088,7 @@ local function turn(uid, skills, w, phase)
     local function lbOwed()
         if lbOwedFlag ~= nil then return lbOwedFlag end
         lbOwedFlag = false
-        if phase ~= 0 or not hardField or Fight.claim.lb then return false end
+        if phase ~= 0 or not hardField or Fight.claim.lb or Fight.chipped then return false end
         if Fight.fell and #Fight.fell > 0 then return false end
         if allyCritical() then return false end
         for _, a in ipairs(w.allies) do
@@ -2127,7 +2139,8 @@ local function turn(uid, skills, w, phase)
             for _, u in ipairs(targets) do
                 local gauge, remain, empty = gaugeOfEnemy(u)
                 local gained, f = staggerOf(s, u)
-                if f > 0 and (cashing or (not empty and gained > 0)) then
+                local held = (why == "fill")
+                if f > 0 and (cashing or (((not empty) or held) and (gained > 0))) then
                     local heavy = false
                     local pow, br = offenseOf(s)
                     if br >= 25 then heavy = true end
@@ -2224,7 +2237,10 @@ local function turn(uid, skills, w, phase)
         return castDamage(burstTargets(), true, "burst")
     end
     if #open == 0 and #brokenPool > 0 then
-        return castDamage(brokenPool, true, "burst")
+        if phase == PHASE_BONUS then
+            return castDamage(brokenPool, true, "burst")
+        end
+        return castDamage(brokenPool, false, "fill")
     end
 
     local function weaknessFits(extra)
@@ -2321,6 +2337,16 @@ local function turn(uid, skills, w, phase)
                     local choice = finishChoice(uid, s, "setup esper", spread and idsOf(pool) or { foe.id }, spread)
                     if choice then Fight.claim.esper = true return choice end
                 end
+            end
+        end
+    end
+    if phase == 0 and hardField and not Fight.claim.lb then
+        local s = firstSkill(function(x) return useOf(x) == "lb-setup" end)
+        if s and (partyWeak(uid, s.cost or 0) or not partyWeak(nil, 0)) then
+            local foe = pool[1] or open[1] or w.enemies[1]
+            if foe then
+                local choice = finishChoice(uid, s, "setup lb " .. foe.name, { foe.id }, aoeOf(s))
+                if choice then Fight.claim.lb = true return choice end
             end
         end
     end
