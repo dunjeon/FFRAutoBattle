@@ -7,15 +7,16 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.8."
+a Steam launch. The startup line is "loaded. planner v0.1.9."
 
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins. The
-Both branches carry v0.1.8. The release zip is FFRAutoBattle.zip on tag
-v0.1.8. It has the same folders as the v0.1.6 and v0.1.7 zips.
+testing carries v0.1.9. main and the release zip stay on v0.1.8.
+The v0.1.8 zip is FFRAutoBattle.zip on tag v0.1.8. It has the same folders
+as the v0.1.6 and v0.1.7 zips.
 
 The fix list
 ------------
@@ -225,3 +226,12 @@ that number by the hit count. On a hard field a paid chip waits while an
 ally can still cast the one guard or the one debuff. A free Attack does
 not close that window. The log says "setup still open". Both branches and the
 v0.1.8 zip are this build. The startup line is "loaded. planner v0.1.8."
+
+Shipped as v0.1.9
+On a hard field a paid chip waits while an ally can still cast the one
+setup Limit Burst, along with the one guard and the one debuff. The
+weakness that must survive that spend can sit on another ally. On the
+break of a hard fight a cash Limit Burst outranks a normal spell, including
+when the skill row has no magnification. A soft pack does not take it.
+testing carries this build. main and the v0.1.8 release stay as they are.
+The startup line is "loaded. planner v0.1.9."

@@ -2045,6 +2045,58 @@ local function turn(uid, skills, w, phase)
         end
         return false
     end
+    -- The weakness can sit on someone else. A setup Limit on the buffer
+    -- must not be skipped because that buffer has no weakness spell.
+    local function partyWeak(skipId, skipCost)
+        local foes = (#pool > 0) and pool or open
+        if #foes == 0 then foes = w.enemies end
+        for _, a in ipairs(w.allies) do
+            if not a.dead and a.acts ~= false then
+                local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
+                if a.id == skipId then mp = mp - (skipCost or 0) end
+                if mp >= 0 then
+                    local spells = skills
+                    if a.id ~= uid then
+                        local kit = unitKit(a.id)
+                        spells = (kit and kit.spells) or {}
+                    end
+                    for _, foe in ipairs(foes) do
+                        for _, s in ipairs(spells) do
+                            if isHit(s, false) and (elementFactor(s, foe) >= 3) and ((s.cost or 0) <= mp) then
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+    local lbOwedFlag = nil
+    local function lbOwed()
+        if lbOwedFlag ~= nil then return lbOwedFlag end
+        lbOwedFlag = false
+        if phase ~= 0 or not hardField or Fight.claim.lb then return false end
+        if Fight.fell and #Fight.fell > 0 then return false end
+        if allyCritical() then return false end
+        for _, a in ipairs(w.allies) do
+            if a.dead then return false end
+        end
+        for _, a in ipairs(w.allies) do
+            if not a.dead and a.acts ~= false then
+                local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
+                local ids = equippedIds(a.id)
+                for _, id in ipairs(ids) do
+                    local s = tagSkill(a.id, id, false)
+                    if s and useOf(s) == "lb-setup" and (s.cost or 0) <= mp then
+                        local keeps = partyWeak(a.id, s.cost or 0) or not partyWeak(nil, 0)
+                        if keeps then lbOwedFlag = true return true end
+                    end
+                end
+            end
+        end
+        return false
+    end
     local function burstTargets()
         local held = {}
         local mark = Fight.brokeOn or {}
@@ -2069,7 +2121,7 @@ local function turn(uid, skills, w, phase)
         local bestS, bestU, bestScore, bestSpread = nil, nil, -1e9, false
         local function considerSkill(s, targets, spread)
             if not pay(s) then return end
-            if not cashing and (debuffOwed() or guardOwed()) and (s.cost or 0) > 0 then return end
+            if (not cashing) and (debuffOwed() or guardOwed() or lbOwed()) and ((s.cost or 0) > 0) then return end
             local b = band()
             local useful, pts, weak, finishes, early = 0, 0, false, false, false
             for _, u in ipairs(targets) do
@@ -2130,6 +2182,10 @@ local function turn(uid, skills, w, phase)
                 if card and card.call and threat < 100 then threat = 100 end
             end
             score = score + threat
+            -- A Limit row often has no magnification. On a hard break it is the cash,
+            -- so a missing power must not lose to a normal spell. Trash keeps the gauge.
+            local spendLb = useOf(s) == "lb-cash" or s.attr == ATTR.LB
+            if cashing and hardField and spendLb then score = score + 100000 end
             if score > bestScore then
                 bestS, bestU, bestScore, bestSpread = s, targets[1], score, spread and true or false
             end
@@ -2158,7 +2214,7 @@ local function turn(uid, skills, w, phase)
         local name = bestSpread and (#pool .. " foes") or bestU.name
         local reason = why .. " " .. name
         if el ~= "" and elementFactor(bestS, bestU) >= 3 then reason = reason .. " " .. el end
-        if not cashing and (bestS.cost or 0) <= 0 and (debuffOwed() or guardOwed()) then
+        if (not cashing) and ((bestS.cost or 0) <= 0) and (debuffOwed() or guardOwed() or lbOwed()) then
             reason = reason .. ", setup still open"
         end
         return finishChoice(uid, bestS, reason, targets, bestSpread)
@@ -2248,7 +2304,7 @@ local function turn(uid, skills, w, phase)
         end
         if bossFight and not Fight.claim.lb then
             local s = firstSkill(function(x) return useOf(x) == "lb-setup" end)
-            if s and weaknessFits(s.cost or 0) then
+            if s and (partyWeak(uid, s.cost or 0) or not partyWeak(nil, 0)) then
                 local foe = pool[1] or open[1]
                 if foe then
                     local choice = finishChoice(uid, s, "setup lb " .. foe.name, { foe.id }, aoeOf(s))
@@ -3414,7 +3470,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.8. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.9. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
