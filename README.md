@@ -57,7 +57,7 @@ The same folder also contains `enabled.txt`, `config.ini`, `known.lua` is next t
 
 ### 4. Start the game and check
 
-Start FINAL FANTASY RESONANCE from Steam. Load a save and enter a battle. The party should take its own commands. F10 turns auto battle off and flashes AutoBattle Off. F10 again turns it back on and flashes AutoBattle On. F9 turns basic attacks on and flashes AutoBattle: Take it Easy! F9 again turns them off and flashes AutoBattle: No Mercy! Basic attacks means the Attack command only. The party does not spend MP or items. Off is where it starts, until you turn it on. Both choices stay remembered after you quit. On the field and in a battle, the right trigger does the same thing as F10, and the left trigger does the same thing as F9. The same notice flashes. No menu has to be open. They do not type F9 or F10.
+Start FINAL FANTASY RESONANCE from Steam. Load a save and enter a battle. The party should take its own commands. F10 turns auto battle off and flashes AutoBattle Off. F10 again turns it back on and flashes AutoBattle On. F9 turns basic attacks on and flashes AutoBattle: Take it Easy! F9 again turns them off and flashes AutoBattle: No Mercy! Basic attacks means the Attack command only. The party does not spend MP or items. Off is where it starts, until you turn it on. Both choices stay remembered after you quit. In a fight, the right trigger does the same thing as F10, and the left trigger does the same thing as F9. The same notice flashes. Outside a fight the triggers stay with the game. They do not type F9 or F10.
 
 To confirm the files loaded, open:
 
@@ -80,8 +80,8 @@ The party starts each fight on its own, at a faster battle speed. The screen sta
 
 ## Keys
 
-- **F10** turns auto battle off, or back on. It flashes AutoBattle On or AutoBattle Off. Auto battle starts on. Off does not stop the record. Your commands and the field stay in the planner, so turning it back on mid-fight uses the fight as it is. On the field and in battle, the right trigger fires this same action.
-- **F9** turns basic attacks on, or back off. On flashes AutoBattle: Take it Easy! Off flashes AutoBattle: No Mercy! On means Attack, and the party does not spend MP or items. Off is the default, and the full planner runs. The choice is remembered. On the field and in battle, the left trigger fires this same action. A menu does not have to be open.
+- **F10** turns auto battle off, or back on. It flashes AutoBattle On or AutoBattle Off. Auto battle starts on. Off does not stop the record. Your commands and the field stay in the planner, so turning it back on mid-fight uses the fight as it is. In a fight, the right trigger fires this same action.
+- **F9** turns basic attacks on, or back off. On flashes AutoBattle: Take it Easy! Off flashes AutoBattle: No Mercy! On means Attack, and the party does not spend MP or items. Off is the default, and the full planner runs. The choice is remembered. In a fight, the left trigger fires this same action. On the field the triggers stay with the game.
 
 Auto battle on or off, and basic attacks on or off, are remembered in `state.txt`. The other settings are read from `config.ini` at startup, so a change there needs a restart.
 

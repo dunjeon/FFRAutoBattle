@@ -6,8 +6,8 @@
 -- F9 is on/off. On flashes AutoBattle: Take it Easy! Off flashes
 -- AutoBattle: No Mercy! On is Attack only:
 -- no MP and no items. Off is the default. Both choices are remembered.
--- On the field and in battle, the right trigger fires the F10 action and
--- the left trigger fires the F9 action. A menu is not required.
+-- In a fight, the right trigger fires the F10 action and the left trigger
+-- fires the F9 action. Outside a fight the triggers stay with the game.
 --
 -- known.lua is the skill book. mobs.lua is the enemy book. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
@@ -3333,6 +3333,12 @@ local function pressBasic()
     showToast(msg)
 end
 
+local function inFight()
+    if Fight and Fight.active then return true end
+    local ok, u = pcall(function() return FindFirstOf("CPP_BtlUnit") end)
+    return (ok and u and u.IsValid and u:IsValid()) and true or false
+end
+
 local padTold, padLeft, padRight = false, false, false
 local function pollTriggers()
     local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
@@ -3366,6 +3372,7 @@ local function pollTriggers()
     leftRose, padLeft = rose(left, padLeft)
     rightRose, padRight = rose(right, padRight)
     if not (leftRose or rightRose) then return end
+    if not inFight() then return end
     if leftRose then pressBasic() end
     if rightRose then pressAuto() end
 end
@@ -3384,7 +3391,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.7. %s. %s toggles auto battle. %s basic attacks %s. Left trigger toggles basic attacks and right trigger toggles auto battle, on the field and in battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.7. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

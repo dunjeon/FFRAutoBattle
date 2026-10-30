@@ -203,9 +203,10 @@ hold are not in this build. F10 flashes AutoBattle On or Off. F9 on flashes
 AutoBattle: Take it Easy! and sends Attack only, with no MP and no items.
 F9 off flashes AutoBattle: No Mercy! and runs the full planner. Off is the
 default. Auto battle still defaults on. Both are remembered in state.txt.
-On the field and in battle the right trigger fires the F10 action and the
-left trigger fires the F9 action. The triggers do not press those keys. A
-menu does not have to be open. There is no settings box and no number key.
+In a fight the right trigger fires the F10 action and the left trigger fires
+the F9 action, including while the command list is open. The triggers do not
+press those keys. Outside a fight they stay with the game. There is no
+settings box and no number key.
 While auto is off, the same ledger keeps going. A command the player chooses
 is logged as "player" and written into the stagger ledger, claims, and round
 count. About four times a second the field is read again: who fell, who
