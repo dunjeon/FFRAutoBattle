@@ -118,6 +118,15 @@ do
         log("gauges unavailable: %s", tostring(loaded))
     end
 end
+local Espers = {}
+do
+    local ok, loaded = pcall(dofile, DIR .. "/Scripts/espers.lua")
+    if ok and type(loaded) == "table" then
+        Espers = loaded
+    else
+        log("espers unavailable: %s", tostring(loaded))
+    end
+end
 local function foldName(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
@@ -946,6 +955,23 @@ local function tagSkill(uid, id, borrowed)
     if info and info.use == "skip" then return nil end
     local okKind, kind = pcall(classify, copy)
     copy.kind = okKind and kind or nil
+    if copy.attr == ATTR.SUMMON and Espers.lookup then
+        local fact = Espers.lookup(copy.name)
+        if fact then
+            if copy.known then
+                local merged = {}
+                for k, v in pairs(copy.known) do merged[k] = v end
+                for k, v in pairs(fact) do
+                    if merged[k] == nil then merged[k] = v end
+                end
+                if not merged.use then merged.use = "summon" end
+                copy.known = merged
+            else
+                copy.known = fact
+            end
+        end
+        if copy.known and copy.known.role == "guard" then copy.kind = "buff" end
+    end
     if info then
         if info.stagger then copy.breakPower = info.stagger end
         if info.use == "guard" then copy.kind = "defend"
@@ -1482,6 +1508,7 @@ Fight = {
     debuffOn = {}, debuffSeen = {}, debuffTold = {},
     went = {}, rounds = 0, seenFoe = {}, planTag = nil, afterBonus = false,
     fieldTold = false, chipped = false,
+    esperOut = nil, esperTold = false,
 }
 
 local function currentActor()
@@ -2597,7 +2624,134 @@ local function turn(uid, skills, w, phase)
         return castDamage(brokenPool, false, "fill")
     end
 
-    local function weaknessFits(extra)
+    local function esperParty()
+        local party = 0
+        for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
+        if party < 1 then
+            for _, a in ipairs(w.allies) do
+                if not a.dead then party = party + 1 end
+            end
+        end
+        if party < 1 then party = 2 end
+        return party
+    end
+    local function esperStill()
+        local mark = Fight.esperOut
+        if not mark or not Espers.stillOut then return false end
+        local up = Espers.stillOut(mark.at or 0, #(Fight.actions or {}), mark.turns or 3, esperParty())
+        if (not up) and (not mark.told) then
+            mark.told = true
+            local line = "esper " .. (mark.name or "summon") .. " finished"
+            log("%s", line)
+            appendLog("  " .. line)
+            Fight.claim.esper = false
+            Fight.summoned = false
+        end
+        return up
+    end
+    local weaknessFits
+    local function summonChoice(mode)
+        if not Espers.best then return nil end
+        if esperStill() then return nil end
+        if Fight.claim.esper then return nil end
+        local list = (#pool > 0) and pool or open
+        if #list == 0 then list = w.enemies end
+        if #list == 0 then return nil end
+        local preferId, preferGauge, dangerGauge = nil, -1, -1
+        local near, long = false, false
+        for _, u in ipairs(list) do
+            local card = mobOf(u)
+            local gauge, remain, empty = gaugeOfEnemy(u)
+            local ratio = 1
+            if gauge > 0 then ratio = remain / gauge end
+            if not empty then
+                if gauge > preferGauge then
+                    preferId, preferGauge = u.id, gauge
+                end
+                if card and card.danger and card.danger[1] and (gauge > dangerGauge) then
+                    dangerGauge = gauge
+                    preferId = u.id
+                end
+                if ratio <= 0.40 then near = true end
+                if ratio > 0.40 then long = true end
+            end
+        end
+        if (mode == "break") and (not near) then return nil end
+        if (mode == "again") and (not Fight.esperOut) then return nil end
+        if (mode == "later") and Fight.esperOut then return nil end
+        if ((mode == "again") or (mode == "later")) and ((not long) or (band() ~= "high")) then return nil end
+        if (mode == "break") and (band() ~= "high") and (not weaknessFits(0)) then return nil end
+        local hits = {}
+        for _, u in ipairs(list) do
+            local gauge, remain = gaugeOfEnemy(u)
+            local ratio = 1
+            if gauge > 0 then ratio = remain / gauge end
+            hits[#hits + 1] = { id = u.id, prefer = (u.id == preferId), ratio = ratio, foe = u }
+        end
+        local cands = {}
+        for _, s in ipairs(skills) do
+            if (s.attr == ATTR.SUMMON) and pay(s) and (useOf(s) ~= "skip") then
+                local fact = (Espers.lookup and Espers.lookup(s.name)) or nil
+                if not fact then fact = { turns = 3, role = "damage", use = "summon" } end
+                local scored, blocked = {}, false
+                for _, h in ipairs(hits) do
+                    local factor = elementFactor({ known = fact, name = s.name }, h.foe)
+                    if fact.element and (factor <= 0) then blocked = true end
+                    scored[#scored + 1] = { factor = factor, prefer = h.prefer, ratio = h.ratio }
+                end
+                local care = not blocked
+                if care then
+                    local kit = unitKit(uid)
+                    local need = 0
+                    if kit and (kit.healScore >= 50) then need = kit.healCost or 0 end
+                    if (need > 0) and (((w.mp or 0) - (s.cost or 0)) < need) then care = false end
+                end
+                if care and (mode == "setup") then
+                    local room = weaknessFits(s.cost or 0) or (#w.enemies >= 3) or (not weaknessFits(0))
+                    if not room then care = false end
+                end
+                if care then
+                    cands[#cands + 1] = { ref = s, fact = fact, hits = scored }
+                end
+            end
+        end
+        if #cands == 0 then return nil end
+        if not Fight.esperTold then
+            Fight.esperTold = true
+            local names = {}
+            for _, c in ipairs(cands) do
+                local el = c.fact.element or c.fact.role or "summon"
+                names[#names + 1] = (c.ref.name or "summon") .. " " .. el
+            end
+            log("esper equipped: %s", table.concat(names, ", "))
+        end
+        local picked = Espers.best(cands, mode)
+        if not picked then return nil end
+        local s, fact = picked.ref, picked.fact
+        local foe = nil
+        for _, h in ipairs(hits) do
+            if h.prefer then foe = h.foe end
+        end
+        if not foe then foe = list[1] end
+        local spread = aoeOf(s)
+        local why = "setup esper"
+        if mode == "break" then why = "esper before the break" end
+        if mode == "again" then why = "esper again" end
+        if mode == "later" then why = "esper" end
+        why = why .. " " .. (s.name or "summon")
+        if fact.element then
+            why = why .. " " .. fact.element
+        elseif fact.role == "guard" then
+            why = why .. " support"
+        end
+        local choice = finishChoice(uid, s, why, spread and idsOf(list) or { foe.id }, spread)
+        if choice then
+            choice.esperTurns = fact.turns or 3
+            Fight.claim.esper = true
+        end
+        return choice
+    end
+    weaknessFits = function(extra)
         local mp = (w.mp or 0) - (extra or 0)
         if mp < 0 then return false end
         for _, foe in ipairs(#pool > 0 and pool or open) do
@@ -2707,16 +2861,21 @@ local function turn(uid, skills, w, phase)
                 end
             end
         end
-        if bossFight and style ~= "aggressive" and not Fight.claim.esper and not Fight.summoned then
-            local s = firstSkill(function(x) return x.attr == ATTR.SUMMON end)
-            if s and (weaknessFits(s.cost or 0) or #w.enemies >= 3) then
-                local foe = pool[1] or open[1]
-                if foe then
-                    local spread = aoeOf(s)
-                    local choice = finishChoice(uid, s, "setup esper", spread and idsOf(pool) or { foe.id }, spread)
-                    if choice then Fight.claim.esper = true return choice end
-                end
-            end
+        if bossFight and style ~= "aggressive" then
+            local choice = summonChoice("setup")
+            if choice then return choice end
+        end
+    end
+    if (phase == 0) and hardField and (style ~= "aggressive") and (not allyCritical()) then
+        local someoneDown = false
+        for _, a in ipairs(w.allies) do
+            if a.dead then someoneDown = true end
+        end
+        if not someoneDown then
+            local choice = summonChoice("break")
+            if (not choice) and Fight.esperOut then choice = summonChoice("again") end
+            if (not choice) and (not Fight.esperOut) then choice = summonChoice("later") end
+            if choice then return choice end
         end
     end
     if phase == 0 and hardField and not Fight.claim.lb then
@@ -3083,6 +3242,8 @@ local function ensureBattle()
     Fight.planTag, Fight.afterBonus = nil, false
     Fight.fieldTold = false
     Fight.chipped = false
+    Fight.esperOut = nil
+    Fight.esperTold = false
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
     Fight.unmarked = false
@@ -3272,6 +3433,21 @@ local function noteRound(uid)
     end
 end
 
+local function markSummon(skill, turns)
+    if not (skill and skill.attr == ATTR.SUMMON) then return end
+    local fact = (Espers.lookup and Espers.lookup(skill.name)) or nil
+    local stay = turns or (fact and fact.turns) or 3
+    Fight.esperOut = {
+        at = #(Fight.actions or {}),
+        turns = stay,
+        name = skill.name or "summon",
+        told = false,
+    }
+    Fight.summoned = true
+    Fight.claim = Fight.claim or {}
+    Fight.claim.esper = true
+end
+
 local function act(serial)
     if not cfg.Enabled then return end
     if (not Menu.open) or (Menu.serial ~= serial) or Menu.sub or Menu.decided then return end
@@ -3279,6 +3455,13 @@ local function act(serial)
     if uid < 0 then uid = Menu.actor end
     if uid < 0 then return end
     pcall(ensureBattle)
+    local actorName = unitName(uid)
+    if Espers.lookup and Espers.lookup(actorName) then
+        local line = actorName .. " acts on its own"
+        log("%s", line)
+        appendLog("  " .. line)
+        return
+    end
     local finishingEarly = false
     pcall(function() finishingEarly = inFinishPhase() end)
     if finishingEarly and Fight.resonanceSent then return end
@@ -3324,19 +3507,21 @@ local function act(serial)
         return
     end
     if not sent then return end
-    if choice.attr == ATTR.SUMMON then Fight.summoned = true end
     if choice.attr == ATTR.FINISH then Fight.resonanceSent = true end
     if phase == 0 and choice.kind == "damage" and not choice.isItem then
         Fight.line = true
         local reason = choice.reason or ""
-        if (choice.cost or 0) > 0 and not reason:find("^setup") then Fight.chipped = true end
+        if (choice.cost or 0) > 0 and (not reason:find("^setup")) and (choice.attr ~= ATTR.SUMMON) then
+            Fight.chipped = true
+        end
     end
     local limitCast = choice.attr == ATTR.LB
     if choice.known then
         local use = choice.known.use
         if (use == "lb-setup") or (use == "lb-cash") or (use == "lb-revive") then limitCast = true end
     end
-    if phase == 0 and choice.targets and ((choice.kind == "damage") or limitCast) and not choice.isItem then
+    if phase == 0 and choice.targets and ((choice.kind == "damage") or limitCast) and not choice.isItem
+        and (choice.attr ~= ATTR.SUMMON) then
         Fight.poured = Fight.poured or {}
         Fight.down = Fight.down or {}
         Fight.relax = Fight.relax or {}
@@ -3363,7 +3548,8 @@ local function act(serial)
             end
         end
     end
-    if Fight.elemRun and choice.targets and choice.known and choice.known.element then
+    if Fight.elemRun and choice.targets and choice.known and choice.known.element
+        and (choice.attr ~= ATTR.SUMMON) then
         local el = choice.known.element
         for _, tid in ipairs(choice.targets) do
             local run = Fight.elemRun[tid]
@@ -3372,6 +3558,7 @@ local function act(serial)
         end
     end
     Fight.actions[#Fight.actions + 1] = line
+    if choice.attr == ATTR.SUMMON then markSummon(choice, choice.esperTurns) end
     rememberCast(who, choice.name)
     Fight.last = { who = who, skill = choice.name }
     Fight.prevHit = {
@@ -3503,10 +3690,7 @@ local function noteHand(v)
     if use == "guardbuff" then Fight.claim.guard = true end
     if (use == "opener") and uid and (uid >= 0) then Fight.claim.hone[uid] = true end
     if use == "lb-setup" then Fight.claim.lb = true end
-    if skill and (skill.attr == ATTR.SUMMON) then
-        Fight.summoned = true
-        Fight.claim.esper = true
-    end
+    if skill and (skill.attr == ATTR.SUMMON) then markSummon(skill) end
     if skill and (skill.attr == ATTR.FINISH) then Fight.resonanceSent = true end
     if phase == PHASE_FINISH then Fight.resonanceSent = true end
     local cost = 0

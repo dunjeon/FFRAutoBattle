@@ -43,6 +43,15 @@ not pulled onto the adds plan. A confirmed gauge still logs "working
 gauge stays". The design doc still says poured/0.72. Do not put the
 uncapped rise back. The version line stays v0.1.12.
 
+2026-10-31 espers. Scripts/espers.lua. Each Esper is a skill row: element,
+role, and a three-turn stay. A weakness match is the call. A support
+Esper is the call when no element matches. An element the field absorbs
+stays off. The cost has to leave a heal. A trivial fight waits. After
+the stay, a long hard fight can call it again, and a gauge that is about
+to break can call it early. The Esper's own turn is not given a party
+command. The design doc still says one Esper before the first paid chip.
+Do not put that single cast back. The version line stays v0.1.12.
+
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
