@@ -34,6 +34,15 @@ still says one debuff. Do not put that single cast back. Distress
 and Misfortune are random ailments and stay untagged. The version
 line stays v0.1.12.
 
+2026-10-31 gauge cap. Scripts/gauges.lua. A missed bonus still raises the
+working gauge, and a late bonus still restores it. One release no longer
+uses poured/0.72 uncapped. It stops at a quarter over the book. If the
+hits already poured are past that, the gauge is that stagger plus one.
+A 50 that used to become 104 stays near the book, so an equal gauge is
+not pulled onto the adds plan. A confirmed gauge still logs "working
+gauge stays". The design doc still says poured/0.72. Do not put the
+uncapped rise back. The version line stays v0.1.12.
+
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says

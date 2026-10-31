@@ -109,6 +109,15 @@ do
         log("debuffs unavailable: %s", tostring(loaded))
     end
 end
+local Gauges = {}
+do
+    local ok, loaded = pcall(dofile, DIR .. "/Scripts/gauges.lua")
+    if ok and type(loaded) == "table" then
+        Gauges = loaded
+    else
+        log("gauges unavailable: %s", tostring(loaded))
+    end
+end
 local function foldName(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
@@ -3219,8 +3228,9 @@ local function settleGauges()
                     local poured = Fight.poured[id] or 0
                     local card = mobOf({ id = id, name = unitName(id) })
                     local book = (card and tonumber(card.gauge)) or 100
-                    local grown = math.floor(poured / 0.72 + 0.5)
-                    if grown < book + 1 then grown = book + 1 end
+                    local grown = math.floor((poured / 0.72) + 0.5)
+                    if grown < (book + 1) then grown = book + 1 end
+                    if Gauges.rise then grown = Gauges.rise(book, poured) end
                     local prev = Fight.gaugeScale[id] or book
                     if grown > prev then
                         Fight.gaugeWas = Fight.gaugeWas or {}
