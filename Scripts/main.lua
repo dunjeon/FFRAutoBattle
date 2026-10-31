@@ -894,9 +894,11 @@ local function tagSkill(uid, id, borrowed)
     local copy = {}
     for k, v in pairs(s) do copy[k] = v end
     copy.known = knownOf(copy)
+    local info = copy.known
+    -- A player-only row stays off the kit. The damage picker never sees it.
+    if info and info.use == "skip" then return nil end
     local okKind, kind = pcall(classify, copy)
     copy.kind = okKind and kind or nil
-    local info = copy.known
     if info then
         if info.stagger then copy.breakPower = info.stagger end
         if info.use == "guard" then copy.kind = "defend"
@@ -1827,7 +1829,7 @@ local function turn(uid, skills, w, phase)
         end
         if s.attr == ATTR.SUMMON or s.attr == ATTR.FINISH or s.attr == ATTR.ITEM then return false end
         local use = useOf(s)
-        if use == "opener" or use == "guardbuff" or use == "guard" or use == "scan" or use == "heal" or use == "cure" then
+        if use == "skip" or use == "opener" or use == "guardbuff" or use == "guard" or use == "scan" or use == "heal" or use == "cure" then
             return false
         end
         if use == "lb-setup" or use == "lb-revive" then return false end
@@ -2386,7 +2388,7 @@ local function turn(uid, skills, w, phase)
     end
     local function firstSkill(pred)
         for _, s in ipairs(skills) do
-            if pred(s) and pay(s) then return s end
+            if useOf(s) ~= "skip" and pred(s) and pay(s) then return s end
         end
         return nil
     end
@@ -2585,22 +2587,48 @@ local function kitFallback(uid)
         if ok and s and not SKIP[s.attr] and s.attr ~= ATTR.FINISH and s.attr ~= ATTR.SUMMON and s.attr ~= ATTR.ITEM then
             local copy = {}
             for k, v in pairs(s) do copy[k] = v end
-            copy.kind = "damage"
             copy.known = knownOf(copy)
+            local use = copy.known and copy.known.use
             local cost = 0
             pcall(function() cost = skillCost(uid, id, false) or 0 end)
             copy.cost = cost
-            if cost <= mp and not (Fight.deferChip and ((cost or 0) > 0)) then
+            local okKind, kind = pcall(classify, copy)
+            local name = copy.name and copy.name:lower() or ""
+            local plain = (name == "attack") or ((copy.attr == ATTR.FIGHT) and (cost <= 0) and (kind ~= "defend"))
+            local tagged = (use == "break") or (use == "cash")
+            local damage = tagged or plain or (okKind and kind == "damage")
+            local held = (use == "skip") or (use == "opener") or (use == "guardbuff") or (use == "guard")
+                or (use == "scan") or (use == "heal") or (use == "cure") or (use == "debuff")
+                or (use == "buff") or (use == "lb-setup") or (use == "lb-revive") or (use == "lb-cash")
+                or (copy.attr == ATTR.LB)
+            if damage and not held and (cost <= mp) and not (Fight.deferChip and (cost > 0)) then
+                copy.kind = "damage"
                 usable[#usable + 1] = copy
             end
         end
     end
     local best, bestR = nil, -1
     for _, s in ipairs(usable) do
-        local ok, pow, br = pcall(offenseOf, s)
+        local okOff, pow, br = pcall(offenseOf, s)
         local score = 0
-        if ok then score = (br or 0) * 1000 + (pow or 0) end
+        if okOff then score = (br or 0) * 1000 + (pow or 0) end
+        local name = s.name and s.name:lower() or ""
+        local use = s.known and s.known.use
+        local plain = (name == "attack") or ((s.attr == ATTR.FIGHT) and ((s.cost or 0) <= 0))
+        local tagged = (use == "break") or (use == "cash")
+        -- Plain Attack and a published damage row beat an unlabeled skill.
+        if plain or tagged then score = score + 1000000 end
         if score > bestR then best, bestR = s, score end
+    end
+    if not best and SkillIdx then
+        for id, s in pairs(SkillIdx) do
+            if (not best) and (s.attr == ATTR.FIGHT) and (activation(uid, id) == true) then
+                local copy = tagSkill(uid, id, true)
+                if copy and ((not copy.known) or (copy.known.use ~= "skip")) and ((copy.cost or 0) <= mp) then
+                    best = copy
+                end
+            end
+        end
     end
     if not best then return nil end
     local tid = nil
@@ -2708,7 +2736,8 @@ local function consider(uid)
     if foe then
         local swing, swingR = nil, -1
         for _, s in ipairs(usable) do
-            local damage = s.kind == "damage" or s.attr == ATTR.FIGHT
+            local playerOnly = s.known and s.known.use == "skip"
+            local damage = (s.kind == "damage" or s.attr == ATTR.FIGHT) and not playerOnly
             if damage and s.kind ~= "heal" and s.kind ~= "buff" and s.attr ~= ATTR.FINISH
                 and (s.cost or 0) <= (w.mp or 0)
                 and not (Fight.deferChip and ((s.cost or 0) > 0)) then

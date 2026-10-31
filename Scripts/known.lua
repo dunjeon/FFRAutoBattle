@@ -21,6 +21,7 @@
 --   lb-revive Limit Burst that raises the party (Radiant Restoration)
 --   gauges    how many full limit gauges the row spends. 1 is 100%, 2 is 200%
 --   scan      Libra. Left alone; the result is not readable yet
+--   skip      left to the player. Steal, Mug, and the same kind of skill.
 
 return {
     skills = {
@@ -62,6 +63,8 @@ return {
         ["esuna"] = { use = "cure" },
         ["first aid"] = { use = "heal", patch = true },
         ["libra"] = { use = "scan" },
+        ["steal"] = { use = "skip" },
+        ["mug"] = { use = "skip" },
         -- Vision Resonances. The wheel offers whichever of these the equipped Vision can activate.
         ["fatal impact"] = { element = "earth", phys = true, use = "finish" },
         ["errand's end"] = { element = "fire", magic = true, use = "finish" },
