@@ -1550,6 +1550,7 @@ Fight = {
     esperOut = nil, esperTold = false, esperSkip = {},
     limitUntagged = {}, limitSkip = {},
     cureHeld = false,
+    healLeft = {},
 }
 
 local function currentActor()
@@ -2173,6 +2174,30 @@ local function turn(uid, skills, w, phase)
 
     local function healNow(hurt, why, itemAt)
         if not hurt or Fight.claim.heal[hurt.id] then return nil end
+        if Health.healerWaiting then
+            local danger = false
+            for _, u in ipairs(w.enemies) do
+                local card = mobOf(u)
+                if card and card.danger and card.danger[1] then
+                    local _, _, empty = gaugeOfEnemy(u)
+                    if (not empty) and (not u.broken) then danger = true end
+                end
+            end
+            local mpOf = function(id)
+                if id == uid then return w.mp or 0 end
+                return stat(id, PARAM.MP, false) or 0
+            end
+            if Health.healerWaiting(uid, why, hurt.hp, danger, w.allies, unitKit, mpOf, Fight.went) then
+                Fight.healLeft = Fight.healLeft or {}
+                if not Fight.healLeft[uid] then
+                    Fight.healLeft[uid] = true
+                    local line = string.format("heal left, %s waits", unitName(uid))
+                    log("%s", line)
+                    appendLog("  " .. line)
+                end
+                return nil
+            end
+        end
         local skill, rank = nil, -1
         local hurtN = 0
         for _, a in ipairs(w.allies) do
@@ -3377,6 +3402,7 @@ local function ensureBattle()
     Fight.limitUntagged = {}
     Fight.limitSkip = {}
     Fight.cureHeld = false
+    Fight.healLeft = {}
     Fight.downNow = {}
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
@@ -3557,6 +3583,7 @@ local function noteRound(uid)
     end
     if (actors > 0) and (went >= actors) then
         Fight.went = {}
+        Fight.healLeft = {}
         Fight.rounds = (Fight.rounds or 0) + 1
         if Fight.claim then
             Fight.claim.heal = {}
@@ -4240,7 +4267,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.12. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.13. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

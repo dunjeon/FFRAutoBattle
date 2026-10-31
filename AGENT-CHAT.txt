@@ -7,7 +7,7 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.12."
+a Steam launch. The startup line is "loaded. planner v0.1.13."
 
 2026-10-31 party health. The 65% recover line is only a boss fight, or a
 danger gauge the book lists at 500 or more, while that gauge is still open.
@@ -94,10 +94,10 @@ Policy files, in order: AGENTS.md, then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins.
-The game folder is v0.1.12. main and the release zip are this build.
-The zip is FFRAutoBattle.zip on tag v0.1.12. It uses the same
-FFRS\Binaries\Win64\... folders as the v0.1.8 zip, and it includes the
-script files the planner loads.
+The game folder is v0.1.13. testing carries this build. main and the
+public zip stay on v0.1.12. The zip is FFRAutoBattle.zip on tag v0.1.12.
+It uses the same FFRS\Binaries\Win64\... folders as the v0.1.8 zip, and
+it includes the script files the planner loads.
 
 The fix list
 ------------
@@ -346,6 +346,16 @@ are hurt. One or two hurt allies keep the single cure when the row does
 have magnification and the single cure buys more healing per MP. Published
 all-ally heals are Purify, Cure III of the Seventh Dawn, and the Resonance
 heals Healing Wind, Angelic Embrace, and Resolute Bastion. main and the
-public zip are this build. The startup line is "loaded. planner
-v0.1.12." Spending a support skill is still open. A buff is not swung
-as an attack, and the opening still spends only the one guard.
+public zip are v0.1.12. The startup line for that release is "loaded.
+planner v0.1.12." Spending a support skill is still open. A buff is not
+swung as an attack, and the opening still spends only the one guard.
+
+Shipped as v0.1.13
+A non-healer leaves a heal while the stronger payable healer can still
+pay. On a critical ally they step in under 15%, or under 20% while a
+danger gauge is open, when that healer has not acted yet this round.
+On the 50% and 65% lines they leave the heal for the round. With no
+payable healer, the old heal and potion lines stay. The log says
+"heal left, <name> waits" once per ally per round. testing carries this
+build. main and the public zip stay on v0.1.12. The startup line is
+"loaded. planner v0.1.13." Support spending is still open.

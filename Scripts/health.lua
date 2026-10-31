@@ -163,6 +163,63 @@ function M.itemClears(name, statuses)
     return false
 end
 
+-- The healer is the living ally who can act and whose kit has the highest
+-- heal score. A tied score goes to the kit with more real heals. A weaker
+-- heal, such as one Cure beside a fuller kit, waits with the damage dealers.
+-- On a critical ally the others wait while that healer has not acted, unless
+-- the ally is under 15%, or under 20% while a danger gauge is open. On the
+-- recover line the others do not spend a heal or a potion while that healer
+-- can still pay. A healer who is out of MP still spends a potion on their
+-- own turn.
+function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf, went)
+    local function weight(a)
+        if (not a) or a.dead or (a.acts == false) then return nil end
+        local kit = kitOf and kitOf(a.id) or nil
+        if (not kit) or ((kit.healScore or 0) < 50) then return nil end
+        local n = 0
+        for _, s in ipairs(kit.spells or {}) do
+            local patch = s.known and s.known.patch
+            if (s.kind == "heal") and (not patch) then n = n + 1 end
+        end
+        return kit.healScore, n
+    end
+    local function pays(a)
+        local kit = kitOf and kitOf(a.id) or nil
+        local cost = (kit and kit.healCost) or 0
+        local mp = (mpOf and mpOf(a.id)) or 0
+        return (cost <= 0) or (mp >= cost)
+    end
+    local bestScore, bestN, best = -1, -1, {}
+    for _, a in ipairs(allies or {}) do
+        local score, n = weight(a)
+        if score then
+            if (score > bestScore) or ((score == bestScore) and (n > bestN)) then
+                bestScore, bestN, best = score, n, { a }
+            elseif (score == bestScore) and (n == bestN) then
+                best[#best + 1] = a
+            end
+        end
+    end
+    if #best == 0 then return false end
+    for _, a in ipairs(best) do
+        if a.id == actorId then return false end
+    end
+    local payable, waiting = false, false
+    for _, a in ipairs(best) do
+        if pays(a) then
+            payable = true
+            if not (went and went[a.id]) then waiting = true end
+        end
+    end
+    if not payable then return false end
+    if why == "recover" then return true end
+    if not waiting then return false end
+    local dire = 0.15
+    if danger then dire = 0.20 end
+    if (ratio or 1) < dire then return false end
+    return true
+end
+
 function M.locked(allies)
     local acting, body = nil, nil
     for _, u in ipairs(allies or {}) do
