@@ -373,3 +373,13 @@ battle_log.txt keeps the last five fights. Siren logged "esper Siren
 skipped, wind null" and was called later, once that null was off the
 field. testing carries this build. main and the public zip stay on
 v0.1.12. The startup line is "loaded. planner v0.1.14."
+
+Same version, after the 16:31 session
+The healer wait held. Dire potions stayed under 20% with Aether's
+danger gauge open. Null Moon still went out once, before anyone fell.
+Rain's Infinity Drive cashed Aether while the minion was the break the
+ledger had just marked. The cash now stays on that marked break. A
+body the game still calls broken from an older wave does not take it.
+Battle 1 put the party back on its opening MP and left Aether's working
+gauge at 938. That restore now clears the stagger ledger and the
+one-time setup. The startup line stays "loaded. planner v0.1.14."

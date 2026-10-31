@@ -261,19 +261,41 @@ end
 local function appendLog(line)
     if type(line) == "string" and line:match("^== battle ") then
         local read = io.open(LOG_PATH, "r")
-        local text = ""
+        local text, size = "", 0
         if read then
-            text = read:read("a") or ""
+            size = read:seek("end") or 0
+            read:seek("set", 0)
+            local function slurp()
+                local ok, got = pcall(function() return read:read("*a") end)
+                if ok and type(got) == "string" and got ~= "" then return got end
+                read:seek("set", 0)
+                ok, got = pcall(function() return read:read("a") end)
+                if ok and type(got) == "string" and got ~= "" then return got end
+                read:seek("set", 0)
+                local parts = {}
+                while true do
+                    local block = read:read(8192)
+                    if (not block) or (block == "") then break end
+                    parts[#parts + 1] = block
+                end
+                return table.concat(parts)
+            end
+            local okRead, got = pcall(slurp)
+            if okRead and type(got) == "string" then text = got end
             read:close()
         end
-        local kept = keepFights(text, 4)
-        local out = io.open(LOG_PATH, "w")
-        if out then
-            if kept ~= "" then
-                out:write(kept)
-                if kept:sub(-1) ~= "\n" then out:write("\n") end
+        -- A failed read must not replace a log that still has bytes.
+        if text == "" and size > 0 then text = nil end
+        local kept = text and keepFights(text, 4) or nil
+        if kept then
+            local out = io.open(LOG_PATH, "w")
+            if out then
+                if kept ~= "" then
+                    out:write(kept)
+                    if kept:sub(-1) ~= "\n" then out:write("\n") end
+                end
+                out:close()
             end
-            out:close()
         end
     end
     local f = io.open(LOG_PATH, "a")
@@ -2617,12 +2639,19 @@ local function turn(uid, skills, w, phase)
         end
         return false
     end
+    -- The cash belongs to the break the ledger just marked. A body the
+    -- game still calls broken from an older wave does not take that hit.
     local function burstTargets()
         local held = {}
         local mark = Fight.brokeOn or {}
         for _, u in ipairs(w.enemies) do
-            if mark[u.id] or Fight.down[u.id] or u.broken then
+            if mark[u.id] or Fight.down[u.id] then
                 held[#held + 1] = u
+            end
+        end
+        if #held == 0 then
+            for _, u in ipairs(w.enemies) do
+                if u.broken then held[#held + 1] = u end
             end
         end
         if #held > 0 then return held end
@@ -3655,6 +3684,53 @@ local function act(serial)
     if uid < 0 then uid = Menu.actor end
     if uid < 0 then return end
     pcall(ensureBattle)
+    -- A wipe puts the party back on its opening MP without a raise we sent.
+    -- The stagger book and the one-time setup belong to the attempt that fell.
+    local function noteMp(who)
+        local mp = stat(who, PARAM.MP, false)
+        if (not mp) or (mp <= 0) or (not Fight) or (not Fight.active) then return end
+        Fight.mpAnchor = Fight.mpAnchor or {}
+        Fight.mpLow = Fight.mpLow or {}
+        Fight.mpBack = Fight.mpBack or {}
+        local anchor = Fight.mpAnchor[who]
+        if (not anchor) or (mp > anchor) then
+            Fight.mpAnchor[who] = mp
+            anchor = mp
+        end
+        if mp < (anchor * 0.8) then
+            Fight.mpLow[who] = true
+            Fight.mpBack[who] = nil
+        elseif Fight.mpLow[who] and (mp >= (anchor * 0.95)) then
+            Fight.mpBack[who] = true
+        end
+        local n, party = 0, 0
+        for _, on in pairs(Fight.mpBack) do
+            if on then n = n + 1 end
+        end
+        for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
+        local need = 3
+        if party == 2 then need = 2 end
+        if n < need then return end
+        Fight.mpBack = {}
+        Fight.mpLow = {}
+        Fight.poured, Fight.down, Fight.downTold = {}, {}, {}
+        Fight.relax, Fight.gaugeScale, Fight.brokeOn = {}, {}, {}
+        Fight.gaugeSure, Fight.gaugeWas = {}, {}
+        Fight.broke, Fight.fell = {}, {}
+        Fight.downSince, Fight.bonusSeen, Fight.planTag = nil, false, nil
+        Fight.chipped = false
+        Fight.claim = Fight.claim or {}
+        Fight.claim.lb = false
+        Fight.claim.guard = false
+        Fight.claim.hone = {}
+        Fight.claim.esper = false
+        Fight.esperOut = nil
+        Fight.debuffOn, Fight.debuffSeen = {}, {}
+        local line = "party restored. ledger cleared"
+        log("%s", line)
+        appendLog("  " .. line)
+    end
+    pcall(noteMp, uid)
     local actorName = unitName(uid)
     if Espers.lookup and Espers.lookup(actorName) then
         local line = actorName .. " acts on its own"
