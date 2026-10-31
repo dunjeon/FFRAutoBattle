@@ -239,7 +239,43 @@ local function saveState()
     f:close()
 end
 
+-- The on-disk log keeps this many fights. A new header drops the oldest.
+local function keepFights(text, keep)
+    local fights, buf = {}, {}
+    local function push()
+        if #buf == 0 then return end
+        local body = table.concat(buf, "\n")
+        if body:match("%S") then fights[#fights + 1] = body end
+        buf = {}
+    end
+    text = (text or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
+    for row in (text .. "\n"):gmatch("([^\n]*)\n") do
+        if row:match("^== battle ") then push() end
+        buf[#buf + 1] = row
+    end
+    push()
+    while #fights > keep do table.remove(fights, 1) end
+    return table.concat(fights, "\n")
+end
+
 local function appendLog(line)
+    if type(line) == "string" and line:match("^== battle ") then
+        local read = io.open(LOG_PATH, "r")
+        local text = ""
+        if read then
+            text = read:read("a") or ""
+            read:close()
+        end
+        local kept = keepFights(text, 4)
+        local out = io.open(LOG_PATH, "w")
+        if out then
+            if kept ~= "" then
+                out:write(kept)
+                if kept:sub(-1) ~= "\n" then out:write("\n") end
+            end
+            out:close()
+        end
+    end
     local f = io.open(LOG_PATH, "a")
     if not f then return end
     f:write(line .. "\n")
@@ -2187,7 +2223,7 @@ local function turn(uid, skills, w, phase)
                 if id == uid then return w.mp or 0 end
                 return stat(id, PARAM.MP, false) or 0
             end
-            if Health.healerWaiting(uid, why, hurt.hp, danger, w.allies, unitKit, mpOf, Fight.went) then
+            if Health.healerWaiting(uid, why, hurt.hp, danger, w.allies, unitKit, mpOf) then
                 Fight.healLeft = Fight.healLeft or {}
                 if not Fight.healLeft[uid] then
                     Fight.healLeft[uid] = true
@@ -3038,7 +3074,10 @@ local function turn(uid, skills, w, phase)
             if choice then return choice end
         end
     end
-    if phase == 0 and hardField and not Fight.claim.lb then
+    -- The gauge may fill after the first chip. That one setup still goes
+    -- out then. It does not go out after a fall, or while someone is critical.
+    if phase == 0 and hardField and not Fight.claim.lb
+        and not alreadyFell and not allyCritical() and not dead then
         local choice = setupLimit()
         if choice then return choice end
     end
@@ -4267,7 +4306,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.13. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.14. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

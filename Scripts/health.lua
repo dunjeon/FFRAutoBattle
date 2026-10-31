@@ -166,12 +166,12 @@ end
 -- The healer is the living ally who can act and whose kit has the highest
 -- heal score. A tied score goes to the kit with more real heals. A weaker
 -- heal, such as one Cure beside a fuller kit, waits with the damage dealers.
--- On a critical ally the others wait while that healer has not acted, unless
--- the ally is under 15%, or under 20% while a danger gauge is open. On the
--- recover line the others do not spend a heal or a potion while that healer
--- can still pay. A healer who is out of MP still spends a potion on their
--- own turn.
-function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf, went)
+-- On a critical ally the others step in under 15%, or under 20% while a
+-- danger gauge is open. Above that they leave the heal for the whole round
+-- while that healer can pay. On the recover line they do not spend a heal
+-- or a potion while that healer can pay. A healer who is out of MP still
+-- spends a potion on their own turn.
+function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf)
     local function weight(a)
         if (not a) or a.dead or (a.acts == false) then return nil end
         local kit = kitOf and kitOf(a.id) or nil
@@ -204,16 +204,12 @@ function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf, went)
     for _, a in ipairs(best) do
         if a.id == actorId then return false end
     end
-    local payable, waiting = false, false
+    local payable = false
     for _, a in ipairs(best) do
-        if pays(a) then
-            payable = true
-            if not (went and went[a.id]) then waiting = true end
-        end
+        if pays(a) then payable = true end
     end
     if not payable then return false end
-    if why == "recover" then return true end
-    if not waiting then return false end
+    if why ~= "critical" then return true end
     local dire = 0.15
     if danger then dire = 0.20 end
     if (ratio or 1) < dire then return false end
