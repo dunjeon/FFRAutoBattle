@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.1.14. Lead Programmer: Grok, by xAI. Released under the MIT license.
+Version 0.1.15. Lead Programmer: Grok, by xAI. Released under the MIT license.
 
 ## Install
 
@@ -63,7 +63,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.1.14.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
+Search for `loaded. planner v0.1.15.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
 
 ### If it does not load
 
@@ -105,6 +105,8 @@ The triggers do those same two things, and only during a fight. On the field, an
 | Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight |
 
 The other settings are in `config.ini`. A change there needs a restart. A written account of each fight is added to `battle_log.txt` in this folder.
+
+`BattleSpeed` in that file is how fast the battle plays. Use a whole number. `2` is twice normal speed, and that is the default. A higher number is faster. A lower number is slower. A number above `8` is used as `8`. A number below `1` is used as `1`. Any number other than `1` sets every battle-speed step to that rate, so the battle stays at the speed you wrote. `1` leaves the game's own speed button alone. There is no hotkey for this.
 
 ## How a fight is played
 

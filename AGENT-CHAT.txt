@@ -7,7 +7,7 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.14."
+a Steam launch. The startup line is "loaded. planner v0.1.15."
 
 2026-10-31 party health. The 65% recover line is only a boss fight, or a
 danger gauge the book lists at 500 or more, while that gauge is still open.
@@ -94,8 +94,8 @@ Policy files, in order: AGENTS.md, then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins.
-The game folder is v0.1.14. main and the public zip are v0.1.14.
-The zip is FFRAutoBattle.zip on tag v0.1.14.
+The game folder is v0.1.15. testing carries this build. main and the
+public zip stay on v0.1.14. The zip is FFRAutoBattle.zip on tag v0.1.14.
 It uses the same FFRS\Binaries\Win64\... folders as the v0.1.12 zip, and
 it includes the script files the planner loads.
 
@@ -392,3 +392,11 @@ opening MP, so "party restored. ledger cleared" did not print, and the
 raises did not print it either. main and the public zip are v0.1.14.
 The zip is FFRAutoBattle.zip on tag v0.1.14. The startup line stays
 "loaded. planner v0.1.14."
+
+Shipped as v0.1.15
+BattleSpeed in config.ini is the battle speed. Whole numbers only.
+2 plays at twice normal speed. A number above 8 is used as 8. A
+number below 1 is used as 1. Any number other than 1 sets every
+battle-speed step to that rate. 1 leaves the game's speed button
+alone. There is no hotkey. testing carries this build. main and the
+public zip stay on v0.1.14. The startup line is "loaded. planner v0.1.15."

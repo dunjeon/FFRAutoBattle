@@ -224,8 +224,15 @@ local function loadConfig()
         end
     end
     for name in pairs(Defaults) do take(name) end
-    if cfg.BattleSpeed < 1 then cfg.BattleSpeed = 1 end
-    if cfg.BattleSpeed > 4 then cfg.BattleSpeed = 4 end
+    local written = cfg.BattleSpeed
+    local speed = written
+    if speed > 8 then speed = 8 end
+    if speed < 1 then speed = 1 end
+    speed = math.floor(speed + 0.5)
+    if speed ~= written then
+        log("battle speed x%s, using x%s", tostring(written), tostring(speed))
+        cfg.BattleSpeed = speed
+    end
     local state = loadIni(STATE_PATH)
     if state.enabled then cfg.Enabled = parseBool(state.enabled) end
     if state.attacks then cfg.AttacksOnly = parseBool(state.attacks) end
@@ -4183,8 +4190,7 @@ local function applySpeed()
                     return
                 end
                 list:ForEach(function(_, e)
-                    local v = num(e)
-                    if v then e:set(v * cfg.BattleSpeed) end
+                    if num(e) then e:set(cfg.BattleSpeed) end
                 end)
                 applied = true
             end)
@@ -4382,7 +4388,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.14. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.15. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
