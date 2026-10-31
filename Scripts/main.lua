@@ -1508,7 +1508,7 @@ Fight = {
     debuffOn = {}, debuffSeen = {}, debuffTold = {},
     went = {}, rounds = 0, seenFoe = {}, planTag = nil, afterBonus = false,
     fieldTold = false, chipped = false,
-    esperOut = nil, esperTold = false,
+    esperOut = nil, esperTold = false, esperSkip = {},
 }
 
 local function currentActor()
@@ -2682,7 +2682,9 @@ local function turn(uid, skills, w, phase)
         if ((mode == "again") or (mode == "later")) and ((not long) or (band() ~= "high")) then return nil end
         if (mode == "break") and (band() ~= "high") and (not weaknessFits(0)) then return nil end
         local hits = {}
-        for _, u in ipairs(list) do
+        -- The signature hits every living enemy, not only the current plan.
+        local field = (#w.enemies > 0) and w.enemies or list
+        for _, u in ipairs(field) do
             local gauge, remain = gaugeOfEnemy(u)
             local ratio = 1
             if gauge > 0 then ratio = remain / gauge end
@@ -2698,6 +2700,16 @@ local function turn(uid, skills, w, phase)
                     local factor = elementFactor({ known = fact, name = s.name }, h.foe)
                     if fact.element and (factor <= 0) then blocked = true end
                     scored[#scored + 1] = { factor = factor, prefer = h.prefer, ratio = h.ratio }
+                end
+                if blocked and fact.element then
+                    Fight.esperSkip = Fight.esperSkip or {}
+                    local key = (s.name or "summon") .. ":" .. fact.element
+                    if not Fight.esperSkip[key] then
+                        Fight.esperSkip[key] = true
+                        local line = "esper " .. (s.name or "summon") .. " skipped, " .. fact.element .. " null"
+                        log("%s", line)
+                        appendLog("  " .. line)
+                    end
                 end
                 local care = not blocked
                 if care then
@@ -3244,6 +3256,7 @@ local function ensureBattle()
     Fight.chipped = false
     Fight.esperOut = nil
     Fight.esperTold = false
+    Fight.esperSkip = {}
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
     Fight.unmarked = false

@@ -52,6 +52,12 @@ to break can call it early. The Esper's own turn is not given a party
 command. The design doc still says one Esper before the first paid chip.
 Do not put that single cast back. The version line stays v0.1.12.
 
+2026-10-31 esper null. The signature hits every living enemy, not only the
+current plan. A wind summon stayed off once any living body nulled or
+absorbed wind. The log says "esper <name> skipped, <element> null" once
+per fight. The 13:21 fight called Siren while the plan was an add and
+the other body nulled wind. Do not score the summon on the plan alone.
+
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
