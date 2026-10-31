@@ -264,6 +264,7 @@ return {
         ["smelling salts"] = "cure",
         ["unicorn horn"] = "cure",
         ["gold needle"] = "cure",
+        ["herb of awakening"] = "cure",
         ["remedy"] = "cure",
     },
     leave = {
@@ -278,5 +279,6 @@ return {
         ["mist x-ether"] = true,
         ["phoenix pinion"] = true,
         ["tent"] = true,
+        ["healing spring"] = true,
     },
 }

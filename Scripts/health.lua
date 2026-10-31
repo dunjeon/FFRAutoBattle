@@ -8,6 +8,7 @@
 
 local HEAVY = 500
 local FIXED = 3
+local SLEEP = 3
 local SILENCE = 4
 local LOCK = {
     [3] = true, [4] = true, [5] = true, [6] = true, [7] = true,
@@ -24,6 +25,7 @@ local CURE_ITEM = {
     ["smelling salts"] = { [6] = true },
     ["unicorn horn"] = { [5] = true },
     ["gold needle"] = { [7] = true },
+    ["herb of awakening"] = { [SLEEP] = true },
     remedy = true,
 }
 
