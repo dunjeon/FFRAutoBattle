@@ -20,6 +20,20 @@ on the cure list with sleep, silence, paralysis, and the other locks.
 Silence on someone who can cast is cured first. Poison, blind, and
 stat-broken are still not locks. Scripts/health.lua holds that policy.
 
+2026-10-31 debuffs. Scripts/debuffs.lua. A defense-down or attack-down
+goes on the danger body, or the largest gauge. Blind and silence go on
+a caster (the book says counter magic). Charm, confuse, poison, and
+slow are spent only when none of those is equipped, and a body the
+book lists as immune to that ailment is skipped. The log line is
+"debuff <effect> skipped, immune". A status still on the body is not
+cast again. There is no duration to read. Once the status has been
+seen and then drops, it can be refreshed. A stat change has no status
+id, so it is once per body. No debuff while someone is critical, or
+while a payable hit would finish the danger gauge. The design doc
+still says one debuff. Do not put that single cast back. Distress
+and Misfortune are random ailments and stay untagged. The version
+line stays v0.1.12.
+
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says

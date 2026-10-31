@@ -100,6 +100,15 @@ do
         log("health unavailable: %s", tostring(loaded))
     end
 end
+local Debuffs = {}
+do
+    local ok, loaded = pcall(dofile, DIR .. "/Scripts/debuffs.lua")
+    if ok and type(loaded) == "table" then
+        Debuffs = loaded
+    else
+        log("debuffs unavailable: %s", tostring(loaded))
+    end
+end
 local function foldName(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
@@ -1460,7 +1469,8 @@ Fight = {
     poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {}, brokeOn = {}, gaugeSure = {}, gaugeWas = {},
     downSince = nil, phaseSeen = 0, bonusSeen = false, lastHit = nil, line = false,
     prevHit = nil, building = nil, kits = {},
-    claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, debuff = false, esper = false, lb = false },
+    claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, esper = false, lb = false },
+    debuffOn = {}, debuffSeen = {}, debuffTold = {},
     went = {}, rounds = 0, seenFoe = {}, planTag = nil, afterBonus = false,
     fieldTold = false, chipped = false,
 }
@@ -1826,15 +1836,34 @@ local function finishList(uid)
     return out
 end
 
+local function markDebuff(id, effect)
+    if (not id) or (not effect) or (effect == "") then return end
+    Fight.debuffOn = Fight.debuffOn or {}
+    local row = Fight.debuffOn[id]
+    if not row then
+        row = {}
+        Fight.debuffOn[id] = row
+    end
+    row[effect] = true
+    -- A fresh cast has not been seen yet. Clearing the old sighting
+    -- stops a refresh from repeating until the status is back, then gone.
+    if Fight.debuffSeen and Fight.debuffSeen[id] then
+        Fight.debuffSeen[id][effect] = nil
+    end
+end
+
 local function turn(uid, skills, w, phase)
     -- One slot of the round. Care first, then the phase the whole field is in.
     -- Damage is scored against every living gauge, using what earlier slots already claimed.
     w.usedSupport = w.usedSupport or {}
     Fight.claim = Fight.claim or {
         heal = {}, revive = {}, hone = {}, ether = {},
-        guard = false, debuff = false, esper = false, lb = false, scan = {},
+        guard = false, esper = false, lb = false, scan = {},
         etherRound = false,
     }
+    Fight.debuffOn = Fight.debuffOn or {}
+    Fight.debuffSeen = Fight.debuffSeen or {}
+    Fight.debuffTold = Fight.debuffTold or {}
     Fight.scanned = Fight.scanned or {}
     Fight.poured = Fight.poured or {}
     Fight.down = Fight.down or {}
@@ -2217,23 +2246,134 @@ local function turn(uid, skills, w, phase)
         if choice then return choice end
     end
 
+    local foeRows, seenNoted, matterKnown, debuffOwedFlag = nil, false, nil, nil
+    local function hitWouldFinish(enemy, remain)
+        for _, a in ipairs(w.allies) do
+            if (not a.dead) and (a.acts ~= false) then
+                local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
+                local spells = skills
+                if a.id ~= uid then
+                    local kit = unitKit(a.id)
+                    spells = (kit and kit.spells) or {}
+                end
+                for _, s in ipairs(spells) do
+                    if isHit(s, false) and ((s.cost or 0) <= mp) then
+                        local gained = staggerOf(s, enemy)
+                        if (gained > 0) and (gained >= remain) then return true end
+                    end
+                end
+            end
+        end
+        return false
+    end
+    local function debuffFoes()
+        if foeRows then return foeRows end
+        local rows, preferI, preferGauge, preferDanger = {}, nil, -1, false
+        for _, u in ipairs(w.enemies) do
+            local gauge, remain, empty = gaugeOfEnemy(u)
+            local card = mobOf(u)
+            local danger = (card and card.danger and card.danger[1]) and true or false
+            local about = false
+            if empty then
+                about = true
+            elseif remain > 0 then
+                about = hitWouldFinish(u, remain)
+            end
+            rows[#rows + 1] = {
+                id = u.id,
+                name = u.name,
+                danger = danger,
+                gauge = gauge,
+                counter = card and card.counter or nil,
+                ail = card and card.ail or nil,
+                statuses = statuses(u.id),
+                empty = empty and true or false,
+                broken = u.broken and true or false,
+                about = about,
+                prefer = false,
+            }
+            local row = rows[#rows]
+            if (not row.empty) and (not row.broken) then
+                local take = (not preferI) or (danger and (not preferDanger))
+                    or ((danger == preferDanger) and (gauge > preferGauge))
+                if take then preferI, preferGauge, preferDanger = #rows, gauge, danger end
+            end
+        end
+        if preferI then rows[preferI].prefer = true end
+        foeRows = rows
+        return rows
+    end
+    local function noteDebuffSeen(foes)
+        if seenNoted or (not Debuffs.STATUS) then return end
+        seenNoted = true
+        Fight.debuffSeen = Fight.debuffSeen or {}
+        for _, foe in ipairs(foes or {}) do
+            local set = foe.statuses
+            if set then
+                for effect, id in pairs(Debuffs.STATUS) do
+                    if set[id] then
+                        Fight.debuffSeen[foe.id] = Fight.debuffSeen[foe.id] or {}
+                        Fight.debuffSeen[foe.id][effect] = true
+                    end
+                end
+            end
+        end
+    end
+    local function payableDebuffs(actorId, mp)
+        local spells = skills
+        if actorId ~= uid then
+            local kit = unitKit(actorId)
+            spells = (kit and kit.spells) or {}
+        end
+        local out = {}
+        for _, s in ipairs(spells) do
+            if ((useOf(s) == "debuff") or (s.kind == "debuff")) and ((s.cost or 0) <= mp) then
+                out[#out + 1] = s
+            end
+        end
+        return out
+    end
+    local function partyMatter()
+        if matterKnown ~= nil then return matterKnown end
+        matterKnown = false
+        if not (Debuffs.matter and Debuffs.effectOf) then return false end
+        for _, a in ipairs(w.allies) do
+            if (not a.dead) and (a.acts ~= false) then
+                local spells = skills
+                if a.id ~= uid then
+                    local kit = unitKit(a.id)
+                    spells = (kit and kit.spells) or {}
+                end
+                for _, s in ipairs(spells) do
+                    if ((useOf(s) == "debuff") or (s.kind == "debuff")) and Debuffs.matter(Debuffs.effectOf(s)) then
+                        matterKnown = true
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
     local function debuffOwed()
-        if phase ~= 0 or not hardField or style == "aggressive" or Fight.claim.debuff then return false end
-        if Fight.fell and #Fight.fell > 0 then return false end
+        if debuffOwedFlag ~= nil then return debuffOwedFlag end
+        debuffOwedFlag = false
+        if Fight.chipped or (phase ~= 0) or (not hardField) or (style == "aggressive") then return false end
+        if Fight.fell and (#Fight.fell > 0) then return false end
         if allyCritical() then return false end
         for _, a in ipairs(w.allies) do
             if a.dead then return false end
         end
+        if not Debuffs.choose then return false end
+        local foes = debuffFoes()
+        noteDebuffSeen(foes)
+        local fallback = not partyMatter()
         for _, a in ipairs(w.allies) do
-            if not a.dead and a.acts ~= false then
-                local kit = unitKit(a.id)
-                local mp = stat(a.id, PARAM.MP, false) or 0
-                if kit then
-                    for _, s in ipairs(kit.spells or {}) do
-                        if (useOf(s) == "debuff" or s.kind == "debuff") and (s.cost or 0) <= mp then
-                            return true
-                        end
-                    end
+            if (not a.dead) and (a.acts ~= false) then
+                local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
+                local picks = payableDebuffs(a.id, mp)
+                if Debuffs.choose(picks, foes, Fight.debuffOn, Fight.debuffSeen, fallback) then
+                    debuffOwedFlag = true
+                    return true
                 end
             end
         end
@@ -2467,6 +2607,47 @@ local function turn(uid, skills, w, phase)
         return nil
     end
 
+    local function castDebuff(refreshOnly)
+        if (phase ~= 0) or (not hardField) or (style == "aggressive") or (not Debuffs.choose) then
+            return nil
+        end
+        if allyCritical() then return nil end
+        for _, a in ipairs(w.allies) do
+            if a.dead then return nil end
+        end
+        local foes = debuffFoes()
+        noteDebuffSeen(foes)
+        local fallback = not partyMatter()
+        local picks = payableDebuffs(uid, w.mp or 0)
+        local s, foe, why = Debuffs.choose(picks, foes, Fight.debuffOn, Fight.debuffSeen, fallback)
+        if s and foe and ((not refreshOnly) or (why == "refresh")) then
+            local effect = Debuffs.effectOf(s) or "debuff"
+            local spread = aoeOf(s)
+            local ids = { foe.id }
+            if spread then
+                ids = {}
+                for _, row in ipairs(foes) do
+                    if (not row.empty) and (not row.broken) then ids[#ids + 1] = row.id end
+                end
+                if #ids == 0 then ids[1] = foe.id end
+            end
+            local choice = finishChoice(uid, s, why .. " debuff " .. effect .. " " .. foe.name, ids, spread)
+            if choice then
+                for _, id in ipairs(ids) do markDebuff(id, effect) end
+                return choice
+            end
+        elseif (not refreshOnly) and (not s) and Debuffs.immuneEffect then
+            local skipped = Debuffs.immuneEffect(picks, foes, fallback)
+            if skipped and (not Fight.debuffTold[skipped]) then
+                Fight.debuffTold[skipped] = true
+                local line = "debuff " .. skipped .. " skipped, immune"
+                log("%s", line)
+                appendLog("  " .. line)
+            end
+        end
+        return nil
+    end
+
     local alreadyFell = Fight.fell and #Fight.fell > 0
     if not Fight.chipped and phase == 0 and not alreadyFell and not allyCritical() and not dead then
         local scanTarget = nil
@@ -2503,25 +2684,9 @@ local function turn(uid, skills, w, phase)
                 if choice then Fight.claim.guard = true return choice end
             end
         end
-        if bossFight and style ~= "aggressive" and not Fight.claim.debuff then
-            local s = firstSkill(function(x) return useOf(x) == "debuff" or x.kind == "debuff" end)
-            local foe, foeGauge, foeDanger = nil, -1, false
-            for _, u in ipairs(w.enemies) do
-                local _, _, empty = gaugeOfEnemy(u)
-                if not empty then
-                    local card = mobOf(u)
-                    local danger = card and card.danger and card.danger[1] and true or false
-                    local gauge = gaugeOfEnemy(u)
-                    if not foe or (danger and not foeDanger) or (danger == foeDanger and gauge > foeGauge) then
-                        foe, foeGauge, foeDanger = u, gauge, danger
-                    end
-                end
-            end
-            foe = foe or pool[1] or open[1] or w.enemies[1]
-            if s and foe then
-                local choice = finishChoice(uid, s, "setup debuff " .. foe.name, { foe.id }, false)
-                if choice then Fight.claim.debuff = true return choice end
-            end
+        if bossFight and (style ~= "aggressive") then
+            local choice = castDebuff(false)
+            if choice then return choice end
         end
         if bossFight and not Fight.claim.lb then
             local s = firstSkill(function(x) return useOf(x) == "lb-setup" end)
@@ -2577,6 +2742,11 @@ local function turn(uid, skills, w, phase)
                 return ether
             end
         end
+    end
+
+    if Fight.chipped and (phase == 0) and (not allyCritical()) and (not dead) then
+        local again = castDebuff(true)
+        if again then return again end
     end
 
     local chip = castDamage(#pool > 0 and pool or open, false, mode)
@@ -2898,7 +3068,8 @@ local function ensureBattle()
     Fight.prevHit = nil
     Fight.building = nil
     Fight.kits = {}
-    Fight.claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, debuff = false, esper = false, lb = false }
+    Fight.claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, esper = false, lb = false }
+    Fight.debuffOn, Fight.debuffSeen, Fight.debuffTold = {}, {}, {}
     Fight.went, Fight.rounds, Fight.seenFoe = {}, 0, {}
     Fight.planTag, Fight.afterBonus = nil, false
     Fight.fieldTold = false
@@ -3314,7 +3485,11 @@ local function noteHand(v)
         Fight.claim.ether[uid] = true
         Fight.claim.etherRound = true
     end
-    if kind == "debuff" then Fight.claim.debuff = true end
+    if (kind == "debuff") and info and info.effect then
+        if #targets > 0 then
+            for _, id in ipairs(targets) do markDebuff(id, info.effect) end
+        end
+    end
     if use == "guardbuff" then Fight.claim.guard = true end
     if (use == "opener") and uid and (uid >= 0) then Fight.claim.hone[uid] = true end
     if use == "lb-setup" then Fight.claim.lb = true end

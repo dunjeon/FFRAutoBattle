@@ -15,7 +15,8 @@
 --   heal      restore HP
 --   party     the heal is published as hitting all allies
 --   patch     a heal too small to spend the turn on. A potion is preferred.
---   debuff    a real debuff, once
+--   debuff    tagged by effect. Defense and attack on the danger body,
+--             blind and silence on a caster. The effect key is the tag.
 --   lb-setup  Limit Burst whose payoff is before the break (Null Moon)
 --   lb-cash   Limit Burst whose payoff is after the break
 --   lb-revive Limit Burst that raises the party (Radiant Restoration)
@@ -53,7 +54,7 @@ return {
         ["protectga"] = { use = "guardbuff" },
         ["defend"] = { use = "guard" },
         ["guard"] = { use = "guard" },
-        ["blind"] = { use = "debuff" },
+        ["blind"] = { use = "debuff", effect = "blind" },
         ["cure"] = { use = "heal" },
         ["cura"] = { use = "heal" },
         ["curaga"] = { use = "heal" },
