@@ -91,6 +91,15 @@ do
         log("bestiary unavailable: %s", tostring(loaded))
     end
 end
+local Health = {}
+do
+    local ok, loaded = pcall(dofile, DIR .. "/Scripts/health.lua")
+    if ok and type(loaded) == "table" then
+        Health = loaded
+    else
+        log("health unavailable: %s", tostring(loaded))
+    end
+end
 local function foldName(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
@@ -132,7 +141,12 @@ local VAR = { UP = 0, RATIO = 2 }
 local ST_BREAK = 89
 local GUARD_STATUS = { [34] = true, [35] = true, [36] = true }
 local OUT_OF_CONTROL = { [6] = "confused", [8] = "charmed", [10] = "berserk" }
-local LOCK = { [3] = true, [4] = true, [5] = true, [6] = true, [7] = true, [8] = true, [10] = true, [11] = true }
+-- Sleep, silence, paralysis, confuse, petrify, charm, stop, berserk, doom.
+-- Poison, blind, and stat-broken stay off this list. health.lua cures it.
+local LOCK = {
+    [3] = true, [4] = true, [5] = true, [6] = true, [7] = true,
+    [8] = true, [9] = true, [10] = true, [11] = true,
+}
 local PHASE_BONUS, PHASE_FINISH = 1, 2
 local DECIDE_MS = 420
 
@@ -342,6 +356,7 @@ local function buildSkillIndex()
                     target = num(field(row, "TargetType")) or TGT.SINGLE,
                     rel = rel,
                     power = num(field(row, "magnification")) or 0,
+                    calc = num(field(row, "damageCalcType")) or 0,
                     breakPower = num(field(row, "breakDamageValue")) or 0,
                     hits = num(field(row, "hitCount")) or 1,
                     targetState = num(field(row, "defaultTargetState")) or 0,
@@ -1062,6 +1077,7 @@ local function firstDead(w, pred)
 end
 
 local function lockedAlly(w)
+    if Health.locked then return Health.locked(w.allies) end
     local body = nil
     for _, u in ipairs(w.allies) do
         if not u.dead and u.statuses then
@@ -1175,7 +1191,7 @@ local function ownedRecovery()
                 or lowered:find("scroll", 1, true)
             local common = not (row and row.rare) and not heldBack
             if common then
-                local hp, mp, kind = false, false, nil
+                local hp, mp, kind, amount = false, false, nil, nil
                 if listed == "hp" then hp, kind = true, "heal" end
                 if listed == "mp" then mp = true end
                 if listed == "revive" then kind = "revive" end
@@ -1183,6 +1199,9 @@ local function ownedRecovery()
                 if row and row.skillId then
                     local s = skillOf(row.skillId)
                     if s then
+                        if Health.FIXED and (s.calc == Health.FIXED) and ((s.power or 0) > 0) then
+                            amount = s.power
+                        end
                         if s.effect == EFF.REVIVE or (s.rel == REL.FRIEND and s.targetState == 2) then kind = "revive" end
                         if s.effect == EFF.CURE then kind = "cure" end
                         if s.rel == REL.FRIEND and s.effect == EFF.DAMAGE and s.paramType == PARAM.HP
@@ -1199,7 +1218,10 @@ local function ownedRecovery()
                 if saysYes(bfl, "IsAbleRecoverHitPoint", id) or saysYes(lib, "IsAbleRecoverHitPoint", id) then hp = true end
                 if saysYes(bfl, "IsAbleRecoverMagicPoint", id) or saysYes(lib, "IsAbleRecoverMagicPoint", id) then mp = true end
                 if hp or mp or kind == "revive" or kind == "cure" then
-                    out[#out + 1] = { id = id, name = name, hp = hp, mp = mp, kind = kind, count = count }
+                    out[#out + 1] = {
+                        id = id, name = name, hp = hp, mp = mp, kind = kind,
+                        count = count, amount = amount,
+                    }
                 end
             end
         end
@@ -1237,7 +1259,8 @@ local function pickRecoveryItem(uid, w, want)
         return nil
     end
     if want == "revive" then
-        local dead = firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
+        local dead = (Health.fallen and Health.fallen(w.allies, unitKit, offenseOf))
+            or firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
         if not dead then return nil end
         local it = first(function(it) return it.kind == "revive" end)
         if it then return itemChoice(uid, it, "item raise " .. dead.name, dead.id, "revive") end
@@ -1246,7 +1269,12 @@ local function pickRecoveryItem(uid, w, want)
     if want == "heal" then
         local hurt = lowestAlly(w)
         if not hurt then return nil end
-        local it = first(function(it) return it.hp or it.kind == "heal" end)
+        local missing = nil
+        local maxv = stat(hurt.id, PARAM.HP, true)
+        local ratio = hurt.hp or 1
+        if maxv and (maxv > 0) and (ratio < 1) then missing = (1 - ratio) * maxv end
+        local it = (Health.choosePotion and Health.choosePotion(items, missing))
+            or first(function(row) return row.hp or row.kind == "heal" end)
         if not it then return nil end
         local pct = math.floor((hurt.hp or 0) * 100 + 0.5)
         return itemChoice(uid, it, string.format("item heal %s at %d%%", hurt.name, pct), hurt.id, "hp")
@@ -1980,7 +2008,8 @@ local function turn(uid, skills, w, phase)
     for _, a in ipairs(w.allies) do
         if not a.dead then Fight.claim.revive[a.id] = nil end
     end
-    local dead = firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
+    local dead = (Health.fallen and Health.fallen(w.allies, unitKit, offenseOf))
+        or firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
     if dead and Fight.claim.revive[dead.id] then
         local at = Fight.claim.revive[dead.id]
         local waitN = #w.allies
@@ -2017,22 +2046,30 @@ local function turn(uid, skills, w, phase)
         for _, a in ipairs(w.allies) do
             if not a.dead and (a.hp or 1) < 0.50 then hurtN = hurtN + 1 end
         end
+        local missing = nil
+        local maxv = stat(hurt.id, PARAM.HP, true)
+        local ratio = hurt.hp or 1
+        if maxv and (maxv > 0) and (ratio < 1) then missing = (1 - ratio) * maxv end
         for _, s in ipairs(skills) do
             if (s.kind == "heal") and pay(s) and (not isPatch(s)) then
-                local cost = s.cost or 0
-                if cost < 1 then cost = 1 end
-                local power = s.power or 0
                 local party = partyOf(s)
                 local r
-                if power > 0 then
-                    r = power / cost
-                    if (hurtN >= 3) and party then r = r * 3 end
-                elseif (hurtN >= 3) and party then
-                    r = 3 + (0.01 / cost)
-                elseif party then
-                    r = 0.5 + (0.01 / cost)
+                if Health.spellRank then
+                    r = Health.spellRank(s, missing, hurtN, party)
                 else
-                    r = 1 + (0.01 / cost)
+                    local cost = s.cost or 0
+                    if cost < 1 then cost = 1 end
+                    local power = s.power or 0
+                    if power > 0 then
+                        r = power / cost
+                        if (hurtN >= 3) and party then r = r * 3 end
+                    elseif (hurtN >= 3) and party then
+                        r = 3 + (0.01 / cost)
+                    elseif party then
+                        r = 0.5 + (0.01 / cost)
+                    else
+                        r = 1 + (0.01 / cost)
+                    end
                 end
                 if r > rank then skill, rank = s, r end
             end
@@ -2129,12 +2166,35 @@ local function turn(uid, skills, w, phase)
         if item then Fight.claim.heal[who.id] = true return item end
     end
 
-    local recoverAt = 0.50
-    for _, u in ipairs(w.enemies) do
-        local card = mobOf(u)
-        if card and card.danger and card.danger[1] then
+    local recoverAt, smallDanger = 0.50, false
+    if Health.recoverAt then
+        local rows = {}
+        for _, u in ipairs(w.enemies) do
+            local card = mobOf(u)
             local _, _, empty = gaugeOfEnemy(u)
-            if not empty and not u.broken then recoverAt = 0.65 end
+            rows[#rows + 1] = {
+                danger = (card and card.danger and card.danger[1]) and true or false,
+                empty = empty and true or false,
+                broken = u.broken and true or false,
+                gauge = card and tonumber(card.gauge) or 0,
+            }
+        end
+        recoverAt, smallDanger = Health.recoverAt(w.boss and true or false, rows)
+    else
+        for _, u in ipairs(w.enemies) do
+            local card = mobOf(u)
+            if card and card.danger and card.danger[1] then
+                local _, _, empty = gaugeOfEnemy(u)
+                if not empty and not u.broken then recoverAt = 0.65 end
+            end
+        end
+    end
+    if (not Fight.recoverTold) and ((recoverAt > 0.50) or smallDanger) then
+        Fight.recoverTold = true
+        if recoverAt > 0.50 then
+            log("recover line 65%")
+        else
+            log("recover line 50%, danger gauge is small")
         end
     end
     local function underMark()
@@ -2847,6 +2907,7 @@ local function ensureBattle()
     Fight.lbGaugeApi = {}
     Fight.unmarked = false
     Fight.unmarkedTold = false
+    Fight.recoverTold = false
     Fight.finishNote = {}
     Fight.finishScan = nil
     itemsLogged = false

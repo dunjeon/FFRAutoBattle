@@ -9,6 +9,17 @@ to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
 a Steam launch. The startup line is "loaded. planner v0.1.12."
 
+2026-10-31 party health. The 65% recover line is only a boss fight, or a
+danger gauge the book lists at 500 or more, while that gauge is still open.
+A smaller danger move stays at 50%. Do not put every danger card back on
+65% unless a new fight log says the small packs needed it. A shop potion
+whose row is a fixed restore is the smallest one that covers the missing
+HP. A magic heal still ranks by power per MP, because that power is not
+restored HP. A healer is raised before the highest damage dealer. Stop is
+on the cure list with sleep, silence, paralysis, and the other locks.
+Silence on someone who can cast is cured first. Poison, blind, and
+stat-broken are still not locks. Scripts/health.lua holds that policy.
+
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
