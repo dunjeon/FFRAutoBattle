@@ -94,9 +94,9 @@ Policy files, in order: AGENTS.md, then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins.
-The game folder is v0.1.14. testing carries this build. main and the
-public zip stay on v0.1.12. The zip is FFRAutoBattle.zip on tag v0.1.12.
-It uses the same FFRS\Binaries\Win64\... folders as the v0.1.8 zip, and
+The game folder is v0.1.14. main and the public zip are v0.1.14.
+The zip is FFRAutoBattle.zip on tag v0.1.14.
+It uses the same FFRS\Binaries\Win64\... folders as the v0.1.12 zip, and
 it includes the script files the planner loads.
 
 The fix list
@@ -356,9 +356,10 @@ pay. On a critical ally they step in under 15%, or under 20% while a
 danger gauge is open, when that healer has not acted yet this round.
 On the 50% and 65% lines they leave the heal for the round. With no
 payable healer, the old heal and potion lines stay. The log says
-"heal left, <name> waits" once per ally per round. testing carries this
-build. main and the public zip stay on v0.1.12. The startup line is
-"loaded. planner v0.1.13." Support spending is still open.
+"heal left, <name> waits" once per ally per round. That build shipped
+on testing. It is included in the public v0.1.14 release. The startup
+line for this step was "loaded. planner v0.1.13." Support spending is
+still open.
 
 Shipped as v0.1.14
 The 2026-10-31 15:58 fight ran v0.1.13. Fina took the recover cures.
@@ -371,8 +372,8 @@ gate. It now stops after a fall and while someone is critical. A gauge
 that fills before anyone has fallen still spends that one setup.
 battle_log.txt keeps the last five fights. Siren logged "esper Siren
 skipped, wind null" and was called later, once that null was off the
-field. testing carries this build. main and the public zip stay on
-v0.1.12. The startup line is "loaded. planner v0.1.14."
+field. main and the public zip are v0.1.14. The startup line is
+"loaded. planner v0.1.14."
 
 Same version, after the 16:31 session
 The healer wait held. Dire potions stayed under 20% with Aether's
@@ -383,3 +384,11 @@ body the game still calls broken from an older wave does not take it.
 Battle 1 put the party back on its opening MP and left Aether's working
 gauge at 938. That restore now clears the stagger ledger and the
 one-time setup. The startup line stays "loaded. planner v0.1.14."
+
+The 2026-10-31 17:15 fight ran that build after a full relaunch. Rain's
+Infinity Drive cashed Aether's Guardian on the break the ledger had
+just marked. The healer wait held. The party did not come back at its
+opening MP, so "party restored. ledger cleared" did not print, and the
+raises did not print it either. main and the public zip are v0.1.14.
+The zip is FFRAutoBattle.zip on tag v0.1.14. The startup line stays
+"loaded. planner v0.1.14."
