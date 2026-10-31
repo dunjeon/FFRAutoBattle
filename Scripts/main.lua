@@ -127,6 +127,15 @@ do
         log("espers unavailable: %s", tostring(loaded))
     end
 end
+local Limits = {}
+do
+    local ok, loaded = pcall(dofile, DIR .. "/Scripts/limits.lua")
+    if ok and type(loaded) == "table" then
+        Limits = loaded
+    else
+        log("limits unavailable: %s", tostring(loaded))
+    end
+end
 local function foldName(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
@@ -972,6 +981,24 @@ local function tagSkill(uid, id, borrowed)
         end
         if copy.known and copy.known.role == "guard" then copy.kind = "buff" end
     end
+    -- The book is the role for a Limit Burst. A shared name on an ordinary
+    -- skill stays a spell. known.lua still supplies a stagger the book omits.
+    if copy.attr == ATTR.LB and Limits.lookup then
+        local fact = Limits.lookup(copy.name)
+        if fact then
+            copy.known = Limits.apply(copy.known, fact)
+            info = copy.known
+        elseif copy.name and Fight then
+            Fight.limitUntagged = Fight.limitUntagged or {}
+            local key = foldName(copy.name)
+            if (key ~= "") and (not Fight.limitUntagged[key]) then
+                Fight.limitUntagged[key] = true
+                local line = "limit " .. copy.name .. " untagged"
+                log("%s", line)
+                appendLog("  " .. line)
+            end
+        end
+    end
     if info then
         if info.stagger then copy.breakPower = info.stagger end
         if info.use == "guard" then copy.kind = "defend"
@@ -1509,6 +1536,7 @@ Fight = {
     went = {}, rounds = 0, seenFoe = {}, planTag = nil, afterBonus = false,
     fieldTold = false, chipped = false,
     esperOut = nil, esperTold = false, esperSkip = {},
+    limitUntagged = {}, limitSkip = {},
 }
 
 local function currentActor()
@@ -2070,8 +2098,10 @@ local function turn(uid, skills, w, phase)
         appendLog("  " .. line)
     end
 
+    Fight.downNow = {}
     for _, a in ipairs(w.allies) do
-        if not a.dead then Fight.claim.revive[a.id] = nil end
+        if not a.dead then Fight.claim.revive[a.id] = nil
+        elseif a.acts ~= false then Fight.downNow[#Fight.downNow + 1] = a end
     end
     local dead = (Health.fallen and Health.fallen(w.allies, unitKit, offenseOf))
         or firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
@@ -2093,14 +2123,38 @@ local function turn(uid, skills, w, phase)
             if not empty and remain > gauge * 0.25 then calm = false end
         end
         if not (oneLeft and calm) then
-            for _, s in ipairs(skills) do
-                if s.kind == "revive" and pay(s) then
-                    local choice = finishChoice(uid, s, "raise " .. dead.name, { dead.id }, false)
-                    if choice then Fight.claim.revive[dead.id] = #(Fight.actions or {}) return choice end
+            local function raiseFallen(allowOne)
+                local downN = #Fight.downNow
+                if (downN < 1) and dead then downN = 1 end
+                local s, partyHit = nil, false
+                if Limits.bestRaise then
+                    s, partyHit = Limits.bestRaise(skills, downN, pay, allowOne)
+                elseif not allowOne then
+                    for _, row in ipairs(skills) do
+                        if (row.kind == "revive") and pay(row) then s = row break end
+                    end
                 end
+                if not s then return nil end
+                local many = partyHit and (#Fight.downNow >= 2)
+                local ids = (many and idsOf(Fight.downNow)) or { dead.id }
+                local why = (many and "raise the party") or ("raise " .. dead.name)
+                local choice = finishChoice(uid, s, why, ids, many and true or false)
+                if not choice then return nil end
+                local at = #(Fight.actions or {})
+                Fight.claim.revive[dead.id] = at
+                if many then
+                    for _, ally in ipairs(Fight.downNow) do
+                        Fight.claim.revive[ally.id] = at
+                    end
+                end
+                return choice
             end
+            local choice = raiseFallen(false)
+            if choice then return choice end
             local item = pickRecoveryItem(uid, w, "revive")
             if item then Fight.claim.revive[dead.id] = #(Fight.actions or {}) return item end
+            choice = raiseFallen(true)
+            if choice then return choice end
         end
     end
 
@@ -2515,6 +2569,24 @@ local function turn(uid, skills, w, phase)
             if not pay(s) then return end
             local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
             if spendLb and (not hardField) then return end
+            -- An area Limit hits every living enemy. A nulled element stays off.
+            if spendLb and aoeOf(s) and s.known and s.known.element and (#w.enemies > 0) then
+                local blocked = false
+                for _, u in ipairs(w.enemies) do
+                    if elementFactor(s, u) <= 0 then blocked = true end
+                end
+                if blocked then
+                    Fight.limitSkip = Fight.limitSkip or {}
+                    local key = (s.name or "limit") .. ":" .. s.known.element
+                    if not Fight.limitSkip[key] then
+                        Fight.limitSkip[key] = true
+                        local line = "limit " .. (s.name or "limit") .. " skipped, " .. s.known.element .. " null"
+                        log("%s", line)
+                        appendLog("  " .. line)
+                    end
+                    return
+                end
+            end
             if (not cashing) and (debuffOwed() or guardOwed() or lbOwed()) and ((s.cost or 0) > 0) then return end
             local b = band()
             local useful, pts, weak, finishes, early = 0, 0, false, false, false
@@ -2579,7 +2651,13 @@ local function turn(uid, skills, w, phase)
             score = score + threat
             -- A Limit row often has no magnification. On a hard break it is the cash,
             -- so a missing power must not lose to a normal spell. Trash keeps the gauge.
-            if cashing and hardField and spendLb then score = score + 100000 end
+            -- The matching element wins when two bursts are ready. A row with no
+            -- element still gets the cash bonus. The heavier gauge wins a tie.
+            if cashing and hardField and spendLb then
+                score = score + 100000
+                if weak then score = score + 20000 end
+                score = score + ((s.lbCost or 1) * 100)
+            end
             if score > bestScore then
                 bestS, bestU, bestScore, bestSpread = s, targets[1], score, spread and true or false
             end
@@ -2782,6 +2860,44 @@ local function turn(uid, skills, w, phase)
         return nil
     end
 
+    -- One setup Limit per fight. A party row lands on the allies. A stagger
+    -- row lands on the danger body, or the largest gauge still open.
+    local function setupLimit()
+        if Fight.claim.lb then return nil end
+        local s = nil
+        if Limits.bestSetup then s = Limits.bestSetup(skills, pay) end
+        if not s then s = firstSkill(function(x) return useOf(x) == "lb-setup" end) end
+        if not s then return nil end
+        if not (partyWeak(uid, s.cost or 0) or (not partyWeak(nil, 0))) then return nil end
+        if s.known and s.known.party then
+            local ids = {}
+            for _, a in ipairs(w.allies) do
+                if not a.dead then ids[#ids + 1] = a.id end
+            end
+            if #ids == 0 then return nil end
+            local choice = finishChoice(uid, s, "setup lb " .. (s.name or "limit") .. " party", ids, true)
+            if choice then Fight.claim.lb = true end
+            return choice
+        end
+        local best, bestGauge, danger, dangerGauge = nil, -1, nil, -1
+        local list = ((#open > 0) and open) or w.enemies
+        for _, u in ipairs(list) do
+            local gauge, _, empty = gaugeOfEnemy(u)
+            if not empty then
+                if gauge > bestGauge then best, bestGauge = u, gauge end
+                local card = mobOf(u)
+                if card and card.danger and card.danger[1] and (gauge > dangerGauge) then
+                    danger, dangerGauge = u, gauge
+                end
+            end
+        end
+        local foe = danger or best or list[1]
+        if not foe then return nil end
+        local choice = finishChoice(uid, s, "setup lb " .. (s.name or "limit") .. " " .. foe.name, { foe.id }, false)
+        if choice then Fight.claim.lb = true end
+        return choice
+    end
+
     local function castDebuff(refreshOnly)
         if (phase ~= 0) or (not hardField) or (style == "aggressive") or (not Debuffs.choose) then
             return nil
@@ -2864,14 +2980,8 @@ local function turn(uid, skills, w, phase)
             if choice then return choice end
         end
         if bossFight and not Fight.claim.lb then
-            local s = firstSkill(function(x) return useOf(x) == "lb-setup" end)
-            if s and (partyWeak(uid, s.cost or 0) or not partyWeak(nil, 0)) then
-                local foe = pool[1] or open[1]
-                if foe then
-                    local choice = finishChoice(uid, s, "setup lb " .. foe.name, { foe.id }, aoeOf(s))
-                    if choice then Fight.claim.lb = true return choice end
-                end
-            end
+            local choice = setupLimit()
+            if choice then return choice end
         end
         if bossFight and style ~= "aggressive" then
             local choice = summonChoice("setup")
@@ -2891,14 +3001,8 @@ local function turn(uid, skills, w, phase)
         end
     end
     if phase == 0 and hardField and not Fight.claim.lb then
-        local s = firstSkill(function(x) return useOf(x) == "lb-setup" end)
-        if s and (partyWeak(uid, s.cost or 0) or not partyWeak(nil, 0)) then
-            local foe = pool[1] or open[1] or w.enemies[1]
-            if foe then
-                local choice = finishChoice(uid, s, "setup lb " .. foe.name, { foe.id }, aoeOf(s))
-                if choice then Fight.claim.lb = true return choice end
-            end
-        end
+        local choice = setupLimit()
+        if choice then return choice end
     end
 
     local function unpaidWeakness(list)
@@ -3257,6 +3361,9 @@ local function ensureBattle()
     Fight.esperOut = nil
     Fight.esperTold = false
     Fight.esperSkip = {}
+    Fight.limitUntagged = {}
+    Fight.limitSkip = {}
+    Fight.downNow = {}
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
     Fight.unmarked = false

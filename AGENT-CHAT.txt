@@ -58,6 +58,18 @@ absorbed wind. The log says "esper <name> skipped, <element> null" once
 per fight. The 13:21 fight called Siren while the plan was an add and
 the other body nulled wind. Do not score the summon on the plan alone.
 
+2026-10-31 limit bursts. Scripts/limits.lua. Sixteen rows, the same
+way the Esper book names an element. A setup row goes on the danger
+body, or the largest open gauge. A party row goes on the allies.
+Mirroring Prism is a setup, not a cash hit. A damage row is spent on
+the hard break. The matching element wins when two are ready. A row
+with no element is still spent. An area row whose element a living
+enemy nulls logs "limit <name> skipped, <element> null" once. A
+one-gauge row is spent when that gauge is full. It does not wait for
+a second gauge. Two or more fallen allies and a party raise log
+"raise the party". A name the book does not know is still cast, and
+logs "limit <name> untagged" once. The version line stays v0.1.12.
+
 Policy files, in order: AGENTS.md, then
 "Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md", then
 README.md "How a fight is played". This file does not replace them. It says
