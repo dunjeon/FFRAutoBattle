@@ -60,6 +60,20 @@ do
     else
         log("known list unavailable: %s", tostring(loaded))
     end
+    -- Names already in known.lua keep their stagger and use. The catalog only fills gaps.
+    local catOk, catalog = pcall(dofile, DIR .. "/Scripts/catalog.lua")
+    if catOk and type(catalog) == "table" and type(catalog.skills) == "table" and type(Known.skills) == "table" then
+        local added = 0
+        for name, row in pairs(catalog.skills) do
+            if Known.skills[name] == nil and type(row) == "table" then
+                Known.skills[name] = row
+                added = added + 1
+            end
+        end
+        log("catalog %d added", added)
+    elseif not catOk then
+        log("catalog unavailable: %s", tostring(catalog))
+    end
 end
 local function knownOf(skill)
     local map = Known.skills
