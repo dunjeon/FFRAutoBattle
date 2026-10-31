@@ -33,7 +33,7 @@ At battle start, and again whenever a Vision, gear or status changes, the AI sca
 | --- | --- | --- |
 | HEAL\_SINGLE / HEAL\_ALL | The live target is one ally or the party, or the catalog marks the heal as hitting all allies. The row restores HP | Healing before items |
 | REVIVE | Skill or item removes KO | Revive rule |
-| CURE\_STATUS | Removes poison, blind, silence and similar | Status rule |
+| CURE\_STATUS | A cure effect on the live row | Sleep, silence, paralysis, confuse, petrify, charm, stop, berserk, or doom on a living ally. Poison, blind, and a broken stat are not this row |
 | BUFF / DEBUFF | Raises ally or lowers enemy stats, Shell, Haste, Regen | Setup turns |
 | DAMAGE\_ELEM(x) | Deals element x damage, single or all targets | Weakness targeting |
 | DAMAGE\_PHYS | Physical damage skill, often 0 MP | Free fallback damage |
@@ -123,10 +123,10 @@ The party's HP is one shared pool of risk: the AI picks the cheapest tool that f
 | Critical HP | Ally under 30% HP | 1. A payable heal. A party heal when three or more allies are under 50%. 2. Smallest potion that restores the missing HP. Elixir-class items stay in the bag. The ally who is the only one able to pay a weakness on the current pool keeps chipping while the hurt ally is at or above 15% and someone else can still heal. Under 15%, that chipper heals too. |
 | Low HP | Ally under 50%, no one is critical, MP is above half, and either several allies are hurt or the bonus window just ended. While a danger gauge is open, the lowest ally under 65% | A heal spell whose cost fits. A party heal when three or more allies are under 50%. Otherwise a potion. The danger line does not wait for the bonus. |
 | Party-wide damage | 3 or more allies under 50% | A group heal is preferred over a single heal of similar power per MP. A row with no magnification still takes the group heal on that spread. A patch stays a last resort. |
-| Harmful status | Poison, blind, silence, sleep or similar on an ally | CURE\_STATUS skill, then matching cure item (Remedy). Silence on a caster is treated as high priority because it locks their MP skills. |
+| Harmful status | Sleep, silence, paralysis, confuse, petrify, charm, stop, berserk, or doom on a living ally. Silence on someone who can still cast is first | 1. A CURE\_STATUS skill. 2. The shop item that clears that lock: Echo Herb for silence, Smelling Salts for confuse, Unicorn Horn for paralysis, Gold Needle for petrify, Remedy for any of these. Antidote, Antidote Herb, and Eye Drops stay in the bag. A cure name the book does not list is still spent. When nothing matches, the turn is a swing. Poison and blind are not this row. |
 | Healer is down or silenced | No HEAL tag usable | Any other ally uses items; the AI never waits for a healer. |
 
-**Item budget.** Phoenix Down is spent when a raise spell cannot be paid. There is no saved reserve. Elixir, megalixir, X-tier items, turbo ether, a phoenix pinion, a tent, and scrolls stay in the bag. On a Pot fight nothing is spent. The planner does not refill the party between fights.
+**Item budget.** Phoenix Down is spent when a raise spell cannot be paid. There is no saved reserve. A status item is spent only when it clears a lock on that ally. Elixir, megalixir, X-tier items, turbo ether, a phoenix pinion, a tent, and scrolls stay in the bag. On a Pot fight nothing is spent. The planner does not refill the party between fights.
 
 **Who keeps chipping.** The ally who is the only one able to pay a weakness on the current pool skips a heal while the hurt ally is at or above 15% and someone else can still heal. Under 15%, during the bonus, and when no one else can heal, that ally heals too. Able to pay means the spell's cost fits that ally's current MP.
 

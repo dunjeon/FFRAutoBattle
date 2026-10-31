@@ -18,7 +18,14 @@ HP. A magic heal still ranks by power per MP, because that power is not
 restored HP. A healer is raised before the highest damage dealer. Stop is
 on the cure list with sleep, silence, paralysis, and the other locks.
 Silence on someone who can cast is cured first. Poison, blind, and
-stat-broken are still not locks. Scripts/health.lua holds that policy.
+stat-broken are still not locks. A cure spell still goes first. A
+status item is spent only when it clears a lock on that ally. Antidote,
+Antidote Herb, and Eye Drops do not. Echo Herb, Smelling Salts, Unicorn
+Horn, and Gold Needle match silence, confuse, paralysis, and petrify.
+Remedy matches any lock. A cure name the book does not list is still
+spent. The 2026-10-31 13:56 fight spent Antidote Herb on a lock. The
+log line when the bag cannot clear it is "cure item skipped, lock
+remains". Scripts/health.lua holds that policy.
 
 2026-10-31 debuffs. Scripts/debuffs.lua. A defense-down or attack-down
 goes on the danger body, or the largest gauge. Blind and silence go on

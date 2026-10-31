@@ -13,6 +13,19 @@ local LOCK = {
     [3] = true, [4] = true, [5] = true, [6] = true, [7] = true,
     [8] = true, [9] = true, [10] = true, [11] = true,
 }
+-- Shop cures and the lock they clear. Poison and blind are not locks, so
+-- those items never qualify. Remedy clears any lock. A name that is not
+-- here still qualifies, so a new shop cure is not dropped.
+local CURE_ITEM = {
+    antidote = false,
+    ["antidote herb"] = false,
+    ["eye drops"] = false,
+    ["echo herb"] = { [SILENCE] = true },
+    ["smelling salts"] = { [6] = true },
+    ["unicorn horn"] = { [5] = true },
+    ["gold needle"] = { [7] = true },
+    remedy = true,
+}
 
 local M = {}
 M.HEAVY = HEAVY
@@ -122,6 +135,30 @@ function M.fallen(allies, kitOf, offenseOf)
     if healer then return healer end
     if dealer then return dealer end
     return anyKit or anyBody
+end
+
+local function fold(name)
+    local n = (name or ""):lower()
+    n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
+    return n
+end
+
+-- True when this item can clear a lock that is on the ally right now.
+function M.itemClears(name, statuses)
+    local row = CURE_ITEM[fold(name)]
+    if row == nil then return true end
+    if row == false then return false end
+    if not statuses then return false end
+    if row == true then
+        for id in pairs(LOCK) do
+            if statuses[id] then return true end
+        end
+        return false
+    end
+    for id in pairs(row) do
+        if statuses[id] and LOCK[id] then return true end
+    end
+    return false
 end
 
 function M.locked(allies)

@@ -1353,8 +1353,20 @@ local function pickRecoveryItem(uid, w, want)
     if want == "cure" then
         local who = lockedAlly(w)
         if not who then return nil end
-        local it = first(function(it) return it.kind == "cure" end)
+        local saw = false
+        local it = first(function(row)
+            if row.kind ~= "cure" then return false end
+            saw = true
+            if Health.itemClears then
+                return Health.itemClears(row.name, who.statuses)
+            end
+            return true
+        end)
         if it then return itemChoice(uid, it, "item cure " .. who.name, who.id, "cure") end
+        if saw and Fight and (not Fight.cureHeld) then
+            Fight.cureHeld = true
+            log("cure item skipped, lock remains")
+        end
         return nil
     end
     if want == "mp" then
@@ -1537,6 +1549,7 @@ Fight = {
     fieldTold = false, chipped = false,
     esperOut = nil, esperTold = false, esperSkip = {},
     limitUntagged = {}, limitSkip = {},
+    cureHeld = false,
 }
 
 local function currentActor()
@@ -3363,6 +3376,7 @@ local function ensureBattle()
     Fight.esperSkip = {}
     Fight.limitUntagged = {}
     Fight.limitSkip = {}
+    Fight.cureHeld = false
     Fight.downNow = {}
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
