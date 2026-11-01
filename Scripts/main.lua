@@ -1062,7 +1062,7 @@ local function tagSkill(uid, id, borrowed)
         if info.use == "guard" then copy.kind = "defend"
         elseif info.use == "opener" or info.use == "guardbuff" or info.use == "buff" or info.use == "lb-setup" then
             copy.kind = "buff"
-        elseif info.use == "lb-revive" then copy.kind = "revive"
+        elseif info.use == "lb-revive" or info.use == "revive" then copy.kind = "revive"
         elseif info.use == "heal" then copy.kind = "heal"
         elseif info.use == "cure" then copy.kind = "cure"
         elseif info.use == "debuff" then copy.kind = "debuff"
@@ -1141,6 +1141,7 @@ unitKit = function(uid)
 end
 
 local function friendAction(skill)
+    if skill.kind == "revive" then return true end
     if skill.rel == REL.ENEMY then return false end
     if skill.rel == REL.FRIEND then return true end
     if skill.kind == "heal" or skill.kind == "revive" or skill.kind == "buff"
@@ -1156,6 +1157,14 @@ local function legalize(uid, skill, targets, isAll)
     if friendAction(skill) then rel = REL.FRIEND end
     local legal = targetsFor(uid, skill, rel)
     if #legal == 0 then return targets, isAll end
+    if skill.kind == "revive" then
+        for _, id in ipairs(targets or {}) do
+            for _, l in ipairs(legal) do
+                if id == l then return { id }, false end
+            end
+        end
+        if targets and (#targets > 0) then return targets, false end
+    end
     if isAll or aoeOf(skill) then return legal, true end
     for _, id in ipairs(targets or {}) do
         for _, l in ipairs(legal) do
@@ -2052,7 +2061,7 @@ local function turn(uid, skills, w, phase)
         if use == "skip" or use == "opener" or use == "guardbuff" or use == "guard" or use == "scan" or use == "heal" or use == "cure" then
             return false
         end
-        if use == "lb-setup" or use == "lb-revive" then return false end
+        if use == "lb-setup" or use == "lb-revive" or use == "revive" then return false end
         if (s.attr == ATTR.LB) or (use == "lb-cash") then
             if cashing then return true end
             return false
@@ -2199,7 +2208,7 @@ local function turn(uid, skills, w, phase)
         end
     end
     if dead and not Fight.claim.revive[dead.id] then
-        local oneLeft, calm = #w.enemies <= 1, true
+        local oneLeft, calm = #w.enemies == 1, true
         for _, u in ipairs(w.enemies) do
             local card = mobOf(u)
             if card and card.danger and card.danger[1] then calm = false end
@@ -3531,7 +3540,11 @@ local function consider(uid)
             for _, id in ipairs(targetsFor(uid, s, REL.FRIEND)) do
                 local seen = false
                 for _, a in ipairs(w.allies) do
-                    if a.id == id then a.dead = true seen = true end
+                    if a.id == id then
+                        a.dead = true
+                        a.hp = 0
+                        seen = true
+                    end
                 end
                 if not seen then
                     w.allies[#w.allies + 1] = { id = id, name = unitName(id), hp = 0, dead = true, statuses = {}, acts = true }
@@ -4143,6 +4156,7 @@ local function noteHand(v)
     end
     if (use == "heal") or (use == "patch") then kind = "heal" end
     if use == "cure" then kind = "cure" end
+    if (use == "revive") or (use == "lb-revive") then kind = "revive" end
     if use == "debuff" then kind = "debuff" end
     if (not kind) and ((use == "break") or (use == "cash")) then kind = "damage" end
     local phase = currentPhase()
