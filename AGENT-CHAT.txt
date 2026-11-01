@@ -7,7 +7,7 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.15."
+a Steam launch. The startup line is "loaded. planner v0.1.17."
 
 2026-10-31 party health. The 65% recover line is only a boss fight, or a
 danger gauge the book lists at 500 or more, while that gauge is still open.
@@ -94,10 +94,10 @@ Policy files, in order: AGENTS.md, then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins.
-The game folder is v0.1.15. testing carries this build. main and the
-public zip stay on v0.1.14. The zip is FFRAutoBattle.zip on tag v0.1.14.
-It uses the same FFRS\Binaries\Win64\... folders as the v0.1.12 zip, and
-it includes the script files the planner loads.
+The game folder, testing, main, and the public zip are v0.1.17. The zip
+is FFRAutoBattle.zip on tag v0.1.17. It uses the same
+FFRS\Binaries\Win64\... folders as the v0.1.14 zip, and it includes the
+script files the planner loads. The v0.1.14 and v0.1.12 downloads stay up.
 
 The fix list
 ------------
@@ -402,12 +402,26 @@ alone. There is no hotkey. testing carries this build. main and the
 public zip stay on v0.1.14. The startup line is "loaded. planner v0.1.15."
 
 Shipped as v0.1.16
-The config speed setting is gone. A battle plays at the speed the
-player set with the game's own speed button and menu, whether auto
-battle is on or off. There is no BattleSpeed line. In a fight, the
-left trigger toggles basic attacks only while auto battle is on, and
-the game's all-target use of that button stays off. While auto battle
-is off, or outside a fight, the trigger stays with the game. F9 still
-toggles basic attacks. No version bump. testing carries this build.
-main and the public zip stay on v0.1.14. The startup line is
-"loaded. planner v0.1.16."
+Battle speed is left to the game. There is no BattleSpeed line.
+The mod does not read, write, or multiply the speed steps, and it
+does not move the marks. In a fight, the left trigger toggles basic
+attacks only while auto battle is on. Holding the game's all-target
+binding aside threw inside the trigger poll and stopped both
+triggers, so that hold is gone. The game still receives the left
+trigger. While auto battle is off, or outside a fight, the trigger
+stays with the game. F9 still toggles basic attacks. The right
+trigger toggles auto battle during a fight. No version bump on that
+testing push. The startup line was "loaded. planner v0.1.16." main
+and the public zip stayed on v0.1.14.
+
+Shipped as v0.1.17
+The public release. Battle speed stays with the game. There is no
+BattleSpeed line. The mod does not read, write, multiply, or clamp
+the speed steps, and it does not move the marks or bind the speed
+key. In a fight, while auto battle is on, the left trigger toggles
+basic attacks. The game still receives that press. While auto battle
+is off, or outside a fight, the left trigger stays with the game.
+F9 still toggles basic attacks. The right trigger toggles auto battle
+during a fight. main and the public zip are v0.1.17. The zip is
+FFRAutoBattle.zip on tag v0.1.17. The startup line is
+"loaded. planner v0.1.17."

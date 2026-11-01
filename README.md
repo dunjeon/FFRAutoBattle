@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.1.15. Lead Programmer: Grok, by xAI. Released under the MIT license.
+Version 0.1.17. Lead Programmer: Grok, by xAI. Released under the MIT license.
 
 ## Install
 
@@ -63,7 +63,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.1.16.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
+Search for `loaded. planner v0.1.17.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
 
 ### If it does not load
 
@@ -97,7 +97,7 @@ If you turn auto battle off, play some turns yourself, and turn it back on, the 
 
 ### Gamepad
 
-The right trigger turns auto battle on or off during a fight. The left trigger switches Take it Easy and No Mercy during a fight while auto battle is on, and the game's all-target command stays off that button. While auto battle is off, the left trigger keeps the game's own battle action. On the field, and in menus outside a fight, both triggers keep the actions the game already uses.
+The right trigger turns auto battle on or off during a fight. The left trigger switches Take it Easy and No Mercy during a fight while auto battle is on. The game still receives that left-trigger press. While auto battle is off, the left trigger keeps the game's own battle action. On the field, and in menus outside a fight, both triggers keep the actions the game already uses.
 
 | Button | What it does | When |
 | --- | --- | --- |
@@ -106,7 +106,7 @@ The right trigger turns auto battle on or off during a fight. The left trigger s
 
 The other settings are in `config.ini`. A change there needs a restart. A written account of each fight is added to `battle_log.txt` in this folder.
 
-How fast a battle plays is the game's own speed button and menu. Auto battle follows that speed. Change it whenever you want, whether auto battle is on or off.
+Battle speed is the game's own button and marks. Auto battle leaves them alone.
 
 ## How a fight is played
 
