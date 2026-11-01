@@ -10,13 +10,13 @@ The license is MIT.
 
 ## What this mod is
 
-One UE4SS Lua mod. F10 turns auto battle on or off. F9 turns basic attacks on or off. In a fight the right trigger does what F10 does, and the left trigger does what F9 does. Outside a fight the triggers stay with the game. One shared planner for the round. The characters carry out the next slot from the gear, skills, items, and Vision the player equipped.
+One UE4SS Lua mod. F10 turns auto battle on or off. F9 turns basic attacks on or off. In a fight the right trigger does what F10 does. In a fight, while auto battle is on, the left trigger does what F9 does and the game's all-target bind on that button stays off. While auto battle is off, or outside a fight, the left trigger stays with the game. One shared planner for the round. The characters carry out the next slot from the gear, skills, items, and Vision the player equipped.
 
 It has to work for any party size, any character, and any Vision. A change that names a fight, a character, or a Vision is the wrong change.
 
 ## Where the files are
 
-The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.15.`
+The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.16.`
 
 `known.lua` is published skill and item facts: element, stagger, and use. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
@@ -32,6 +32,7 @@ If a `wip/` folder exists beside the game, copy the three scripts there after a 
 - Claims stop a second heal, a second revive, or a second Ether in the same round.
 - Common shop items only. Elixir, megalixir, X-tier, turbo ether, phoenix pinion, tent, and scrolls stay put. A Pot fight spends nothing.
 - The Resonance wheel is the player's. Detect the phase. Do not send a normal spell as a Finish Blow. Do not guess command-bar ids as Vision ids.
+- Battle speed stays with the game. The in-game speed button and menu set it, whether auto battle is on or off. Do not write the speed list or the speed marks.
 - If the planner throws or returns nothing, swing a payable damage skill. Defend only when there is no enemy and an ally is under 30% HP.
 
 ## Lua

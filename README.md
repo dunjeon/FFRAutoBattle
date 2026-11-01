@@ -63,7 +63,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.1.15.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
+Search for `loaded. planner v0.1.16.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
 
 ### If it does not load
 
@@ -97,16 +97,16 @@ If you turn auto battle off, play some turns yourself, and turn it back on, the 
 
 ### Gamepad
 
-The triggers do those same two things, and only during a fight. On the field, and in menus outside a fight, they keep doing what the game already uses them for.
+The right trigger turns auto battle on or off during a fight. The left trigger switches Take it Easy and No Mercy during a fight while auto battle is on, and the game's all-target command stays off that button. While auto battle is off, the left trigger keeps the game's own battle action. On the field, and in menus outside a fight, both triggers keep the actions the game already uses.
 
 | Button | What it does | When |
 | --- | --- | --- |
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
-| Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight |
+| Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight, while auto battle is on |
 
 The other settings are in `config.ini`. A change there needs a restart. A written account of each fight is added to `battle_log.txt` in this folder.
 
-`BattleSpeed` in that file is how fast the battle plays. Use a whole number. `2` is twice normal speed, and that is the default. A higher number is faster. A lower number is slower. A number above `8` is used as `8`. A number below `1` is used as `1`. Any number other than `1` sets every battle-speed step to that rate, so the battle stays at the speed you wrote. `1` leaves the game's own speed button alone. There is no hotkey for this.
+How fast a battle plays is the game's own speed button and menu. Auto battle follows that speed. Change it whenever you want, whether auto battle is on or off.
 
 ## How a fight is played
 
@@ -132,7 +132,7 @@ An enemy who is confused, charmed, or berserk is left for you, and so is a secon
 
 Set `Submit = false` in `config.ini` and restart. The mod still chooses and writes the choice to `battle_log.txt` and `UE4SS.log`, and it leaves the menu open.
 
-If another mod also changes battle speed, set `BattleSpeed = 1`. If FFRS QoL's auto-repeat (F8) is on, turn that off. Both mods would press the command.
+If FFRS QoL's auto-repeat (F8) is on, turn that off. Both mods would press the command.
 
 ## Uninstall
 

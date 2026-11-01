@@ -400,3 +400,14 @@ number below 1 is used as 1. Any number other than 1 sets every
 battle-speed step to that rate. 1 leaves the game's speed button
 alone. There is no hotkey. testing carries this build. main and the
 public zip stay on v0.1.14. The startup line is "loaded. planner v0.1.15."
+
+Shipped as v0.1.16
+The config speed setting is gone. A battle plays at the speed the
+player set with the game's own speed button and menu, whether auto
+battle is on or off. There is no BattleSpeed line. In a fight, the
+left trigger toggles basic attacks only while auto battle is on, and
+the game's all-target use of that button stays off. While auto battle
+is off, or outside a fight, the trigger stays with the game. F9 still
+toggles basic attacks. No version bump. testing carries this build.
+main and the public zip stay on v0.1.14. The startup line is
+"loaded. planner v0.1.16."

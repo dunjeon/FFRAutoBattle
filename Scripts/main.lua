@@ -6,8 +6,10 @@
 -- F9 is on/off. On flashes AutoBattle: Take it Easy! Off flashes
 -- AutoBattle: No Mercy! On is Attack only:
 -- no MP and no items. Off is the default. Both choices are remembered.
--- In a fight, the right trigger fires the F10 action and the left trigger
--- fires the F9 action. Outside a fight the triggers stay with the game.
+-- In a fight, the right trigger fires the F10 action. While auto battle is
+-- on in a fight, the left trigger fires the F9 action and the game's
+-- all-target bind on that button is held aside. While auto battle is off,
+-- or outside a fight, the left trigger stays with the game.
 --
 -- known.lua is the skill book. mobs.lua is the enemy book. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
@@ -187,7 +189,7 @@ local PHASE_BONUS, PHASE_FINISH = 1, 2
 local DECIDE_MS = 420
 
 local Defaults = {
-    Enabled = true, BattleSpeed = 2, Submit = true, AttacksOnly = false,
+    Enabled = true, Submit = true, AttacksOnly = false,
     TakeOverKey = "F10", MenuKey = "F9",
 }
 local cfg = {}
@@ -224,15 +226,6 @@ local function loadConfig()
         end
     end
     for name in pairs(Defaults) do take(name) end
-    local written = cfg.BattleSpeed
-    local speed = written
-    if speed > 8 then speed = 8 end
-    if speed < 1 then speed = 1 end
-    speed = math.floor(speed + 0.5)
-    if speed ~= written then
-        log("battle speed x%s, using x%s", tostring(written), tostring(speed))
-        cfg.BattleSpeed = speed
-    end
     local state = loadIni(STATE_PATH)
     if state.enabled then cfg.Enabled = parseBool(state.enabled) end
     if state.attacks then cfg.AttacksOnly = parseBool(state.attacks) end
@@ -4167,41 +4160,6 @@ Hud.badgeShow = function(msg)
     end)
 end
 
-local speedDone = false
-local function applySpeed()
-    if speedDone or cfg.BattleSpeed == 1 then speedDone = true return end
-    local tables = FindAllOf("DataTable")
-    if not tables then return end
-    local applied = false
-    for _, dt in ipairs(tables) do
-        pcall(function()
-            if type(dt) ~= "userdata" or not dt:IsValid() then return end
-            if rowStructName(dt) ~= "BTL_GENERAL_DATA" then return end
-            dt:ForEachRow(function(_, row)
-                local list = row.GameSpeedList
-                if not (list and list.ForEach) then return end
-                local first
-                list:ForEach(function(i, e)
-                    if i == 1 then first = num(e) end
-                end)
-                if not first or math.abs(first - 1) > 0.05 then
-                    log("battle speed left as it is (first step %s)", tostring(first))
-                    speedDone = true
-                    return
-                end
-                list:ForEach(function(_, e)
-                    if num(e) then e:set(cfg.BattleSpeed) end
-                end)
-                applied = true
-            end)
-        end)
-    end
-    if applied then
-        speedDone = true
-        log("battle speed x%s", tostring(cfg.BattleSpeed))
-    end
-end
-
 local function watchField()
     if not (Fight and Fight.active) then return end
     pcall(function() noteChanges(livingSnapshot()) end)
@@ -4289,7 +4247,6 @@ end
 local absent = 0
 gameLoop(400, resonanceWatch)
 gameLoop(700, function()
-    applySpeed()
     buildSkillIndex()
     if not Fight.active then return end
     local u = FindFirstOf("CPP_BtlUnit")
@@ -4337,7 +4294,109 @@ local function inFight()
 end
 
 local padTold, padLeft, padRight = false, false, false
+-- from is the key we parked. noted logs once per hold.
+local allTarget = { held = false, noted = false, failNoted = false, from = nil }
+
+local function parkAllTarget(steal)
+    local function keyString(key)
+        local ok, name = pcall(function()
+            if type(key) ~= "userdata" then return nil end
+            local kn = key.KeyName
+            if kn and kn.ToString then
+                local s = kn:ToString()
+                if type(s) == "string" and s ~= "" then return s end
+            end
+            if key.ToString then
+                local s = key:ToString()
+                if type(s) == "string" and s ~= "" then return s end
+            end
+            return nil
+        end)
+        if ok and type(name) == "string" then return name end
+        return nil
+    end
+    local function actionString(action)
+        if type(action) ~= "userdata" or not (action.IsValid and action:IsValid()) then return nil end
+        local ok, name = pcall(function() return action:GetName() end)
+        if ok and type(name) == "string" then return name end
+        return nil
+    end
+    local function setKey(mapping, keyName)
+        local function assign()
+            mapping.Key = { KeyName = FName(keyName) }
+        end
+        local ok = pcall(assign)
+        if not ok then
+            ok = pcall(function() mapping.Key.KeyName = FName(keyName) end)
+        end
+        if not ok then return false end
+        return keyString(mapping.Key) == keyName
+    end
+    local parked, restored, failed = 0, 0, false
+    local function walk(list)
+        if not (list and list.ForEach) then return end
+        list:ForEach(function(_, mapping)
+            local actionName = actionString(mapping.Action)
+            if not (actionName and actionName:find("Battle_AoE", 1, true)) then return end
+            local key = keyString(mapping.Key)
+            local left = false
+            if key == "Gamepad_LeftTrigger" or key == "Left Trigger" then left = true end
+            if key and key:find("LeftTrigger", 1, true) and not key:find("Axis", 1, true) then left = true end
+            if steal and left then
+                allTarget.from = key
+                if setKey(mapping, "F13") then parked = parked + 1 else failed = true end
+            elseif steal and key == "F13" then
+                parked = parked + 1
+            elseif (not steal) and key == "F13" then
+                local back = allTarget.from or "Gamepad_LeftTrigger"
+                if setKey(mapping, back) then restored = restored + 1 else failed = true end
+            end
+        end)
+    end
+    local function walkInput(obj)
+        if type(obj) ~= "userdata" or not (obj.IsValid and obj:IsValid()) then return end
+        local okM, maps = pcall(function() return obj.EnhancedActionMappings end)
+        if okM then walk(maps) end
+        okM, maps = pcall(function() return obj.Mappings end)
+        if okM then walk(maps) end
+    end
+    local pcOk, pc = pcall(function() return FindFirstOf("PlayerController") end)
+    if pcOk and pc and pc.IsValid and pc:IsValid() then
+        local okPi, pi = pcall(function() return pc.PlayerInput end)
+        if okPi then walkInput(pi) end
+    end
+    local okList, inputs = pcall(FindAllOf, "EnhancedPlayerInput")
+    if okList and inputs then
+        for _, obj in ipairs(inputs) do walkInput(obj) end
+    end
+    okList, inputs = pcall(FindAllOf, "InputMappingContext")
+    if okList and inputs then
+        for _, obj in ipairs(inputs) do walkInput(obj) end
+    end
+    if steal and parked > 0 and not allTarget.noted then
+        allTarget.noted = true
+        log("left trigger takes basic attacks")
+    end
+    if (not steal) and allTarget.noted then
+        allTarget.noted = false
+        log("left trigger back to the game")
+    end
+    if failed and not allTarget.failNoted then
+        allTarget.failNoted = true
+        log("could not move the all-target binding")
+    end
+    if restored > 0 then allTarget.failNoted = false end
+end
+
 local function pollTriggers()
+    local steal = false
+    if cfg.Enabled or allTarget.held then
+        steal = (cfg.Enabled and inFight()) and true or false
+        if steal or allTarget.held then
+            parkAllTarget(steal)
+            allTarget.held = steal
+        end
+    end
     local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
     if not (okPc and pc and pc.IsValid and pc:IsValid()) then return end
     local function down(name)
@@ -4370,7 +4429,7 @@ local function pollTriggers()
     rightRose, padRight = rose(right, padRight)
     if not (leftRose or rightRose) then return end
     if not inFight() then return end
-    if leftRose then pressBasic() end
+    if leftRose and steal then pressBasic() end
     if rightRose then pressAuto() end
 end
 
@@ -4388,10 +4447,10 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.15. %s. %s toggles auto battle. %s basic attacks %s. In a fight, left trigger toggles basic attacks and right trigger toggles auto battle. Bestiary %d. Submit=%s, battle speed x%s.",
+log("loaded. planner v0.1.16. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
     cfg.AttacksOnly and "on" or "off",
     mobCount,
-    tostring(cfg.Submit), tostring(cfg.BattleSpeed))
+    tostring(cfg.Submit))
