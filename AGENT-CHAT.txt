@@ -94,6 +94,19 @@ Policy files, in order: AGENTS.md, then
 README.md "How a fight is played". This file does not replace them. It says
 what a code-only review got right, and what the running game has since ruled
 out. If this file and the design doc disagree, the design doc wins.
+2026-11-01 healer status. A healer who is asleep, paralyzed, stopped,
+petrified, confused, charmed, berserk, or silenced on a spell does not
+hold the heal line. Doom is cleared first. The healer's lost turn is
+next, matching item before a cure spell, and one claim stops a second
+cure in that round. Silence on the healer spends Echo Herb or Remedy
+only, and only when nobody is critical. Poison, blind, and slow wait
+until nobody is critical and MP is not low. Poison is under about 60%
+HP, or on the healer. Blind is a physical attacker. Slow needs MP
+above half. A non-healer leaves those three while the healer can act.
+Remedy is not spent on them, and the last one is kept for the healer
+or for doom. An unknown status id is written once per fight. The
+startup line stays "loaded. planner v0.1.17."
+
 The game folder, testing, main, and the public zip are v0.1.17. The zip
 is FFRAutoBattle.zip on tag v0.1.17. It uses the same
 FFRS\Binaries\Win64\... folders as the v0.1.14 zip, and it includes the

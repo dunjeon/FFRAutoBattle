@@ -179,7 +179,7 @@ local ST_BREAK = 89
 local GUARD_STATUS = { [34] = true, [35] = true, [36] = true }
 local OUT_OF_CONTROL = { [6] = "confused", [8] = "charmed", [10] = "berserk" }
 -- Sleep, silence, paralysis, confuse, petrify, charm, stop, berserk, doom.
--- Poison, blind, and stat-broken stay off this list. health.lua cures it.
+-- Poison, blind, and slow are the softer line in health.lua. A broken stat stays off.
 local LOCK = {
     [3] = true, [4] = true, [5] = true, [6] = true, [7] = true,
     [8] = true, [9] = true, [10] = true, [11] = true,
@@ -1377,7 +1377,7 @@ local function itemChoice(uid, item, reason, targetId, use)
     return choice
 end
 
-local function pickRecoveryItem(uid, w, want)
+local function pickRecoveryItem(uid, w, want, focus)
     if potFight(w) then return nil end
     local items = ownedRecovery()
     local function first(pred)
@@ -1408,19 +1408,29 @@ local function pickRecoveryItem(uid, w, want)
         return itemChoice(uid, it, string.format("item heal %s at %d%%", hurt.name, pct), hurt.id, "hp")
     end
     if want == "cure" then
-        local who = lockedAlly(w)
+        local who = focus or lockedAlly(w)
         if not who then return nil end
+        local soft = focus and focus.soft
         local saw = false
         local it = first(function(row)
             if row.kind ~= "cure" then return false end
             saw = true
+            if Health.holdRemedy and Health.holdRemedy(row.name, row.count, who, w.allies, unitKit) then
+                return false
+            end
             if Health.itemClears then
-                return Health.itemClears(row.name, who.statuses)
+                return Health.itemClears(row.name, who.statuses, soft)
             end
             return true
         end)
-        if it then return itemChoice(uid, it, "item cure " .. who.name, who.id, "cure") end
-        if saw and Fight and (not Fight.cureHeld) then
+        if it then
+            local why = "item cure " .. who.name
+            if focus and focus.tier == "rescue" then why = "item rescue " .. who.name end
+            if focus and focus.tier == "doom" then why = "item cure doom " .. who.name end
+            if focus and focus.tier == "b" then why = "item cure soft " .. who.name end
+            return itemChoice(uid, it, why, who.id, "cure")
+        end
+        if saw and (not soft) and Fight and (not Fight.cureHeld) then
             Fight.cureHeld = true
             log("cure item skipped, lock remains")
         end
@@ -1608,6 +1618,7 @@ Fight = {
     limitUntagged = {}, limitSkip = {},
     cureHeld = false,
     healLeft = {},
+    statusTold = {},
 }
 
 local function currentActor()
@@ -2368,17 +2379,58 @@ local function turn(uid, skills, w, phase)
         if choice then return choice end
     end
 
-    local who = lockedAlly(w)
-    if who and phase ~= PHASE_BONUS and not Fight.claim.heal[who.id] then
-        for _, s in ipairs(skills) do
-            if s.kind == "cure" and pay(s) then
-                local choice = finishChoice(uid, s, "cure " .. who.name, { who.id }, aoeOf(s))
-                if choice then Fight.claim.heal[who.id] = true return choice end
-            end
+    Fight.statusTold = Fight.statusTold or {}
+    if Health.unknownNotes then
+        local notes = Health.unknownNotes(w.allies, Fight.statusTold)
+        for _, line in ipairs(notes) do
+            log("%s", line)
+            appendLog("  " .. line)
         end
-        local item = pickRecoveryItem(uid, w, "cure")
-        if item then Fight.claim.heal[who.id] = true return item end
     end
+    local function castCure(focus)
+        if (not focus) or Fight.claim.heal[focus.id] then return nil end
+        local function bySkill()
+            if focus.itemOnly then return nil end
+            local why = "cure " .. (focus.name or "")
+            if focus.tier == "rescue" then why = "rescue " .. (focus.name or "") end
+            if focus.tier == "doom" then why = "cure doom " .. (focus.name or "") end
+            if focus.tier == "b" then why = "cure soft " .. (focus.name or "") end
+            for _, s in ipairs(skills) do
+                if (s.kind == "cure") and pay(s) then
+                    local choice = finishChoice(uid, s, why, { focus.id }, aoeOf(s))
+                    if choice then return choice end
+                end
+            end
+            return nil
+        end
+        local function byItem()
+            return pickRecoveryItem(uid, w, "cure", focus)
+        end
+        local choice = nil
+        if focus.itemOnly or focus.itemFirst then
+            choice = byItem() or bySkill()
+        else
+            choice = bySkill() or byItem()
+        end
+        if choice then Fight.claim.heal[focus.id] = true end
+        return choice
+    end
+    local function curePass(urgent)
+        if (phase == PHASE_BONUS) or (not Health.cureNow) then return nil end
+        local mpOf = function(id)
+            if id == uid then return w.mp or 0 end
+            return stat(id, PARAM.MP, false) or 0
+        end
+        local focus = Health.cureNow(w.allies, unitKit, mpOf, {
+            actorId = uid,
+            critical = allyCritical() ~= nil,
+            band = band(),
+            urgent = urgent,
+        })
+        return castCure(focus)
+    end
+    local cured = curePass(true)
+    if cured then return cured end
 
     local recoverAt, smallDanger = 0.50, false
     if Health.recoverAt then
@@ -2430,6 +2482,8 @@ local function turn(uid, skills, w, phase)
         local choice = healNow(halfWho, "recover", recoverAt > 0.50 and recoverAt or 0.50)
         if choice then return choice end
     end
+    local softer = curePass(false)
+    if softer then return softer end
 
     local foeRows, seenNoted, matterKnown, debuffOwedFlag = nil, false, nil, nil
     local function hitWouldFinish(enemy, remain)
@@ -3470,6 +3524,7 @@ local function ensureBattle()
     Fight.limitSkip = {}
     Fight.cureHeld = false
     Fight.healLeft = {}
+    Fight.statusTold = {}
     Fight.downNow = {}
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
