@@ -2423,15 +2423,6 @@ local function turn(uid, skills, w, phase)
         if urgent then
             Fight.slowSince = Fight.slowSince or {}
             Fight.slowTold = Fight.slowTold or {}
-            if Fight.slowTry and Health.settleSlow and ((Fight.rounds or 0) > (Fight.slowTry.round or 0)) then
-                local line
-                Fight.slowTry, Fight.slowTold, line = Health.settleSlow(
-                    Fight.slowTry, w.allies, Fight.slowTold)
-                if line then
-                    log("%s", line)
-                    appendLog("  " .. line)
-                end
-            end
             if Health.watchSlow then
                 Health.watchSlow(w.allies, Fight.slowSince, Fight.rounds or 0)
             end
@@ -2525,7 +2516,7 @@ local function turn(uid, skills, w, phase)
             weakId = weakId,
             stagId = stagId,
         })
-        if (not focus) or Fight.claim.heal[focus.id] then return nil end
+        if (not focus) or Fight.claim.heal[focus.id] or Fight.slowTry then return nil end
         local maxv = w.maxMp or 0
         local mpNow = w.mp or 0
         local keep = 0
@@ -2535,9 +2526,10 @@ local function turn(uid, skills, w, phase)
         local pick, pickKey = nil, nil
         Fight.slowUsed = Fight.slowUsed or {}
         for _, s in ipairs(skills) do
-            if (s.kind == "cure") and Health.slowKey and Health.spareMp and Health.slowAllowed then
+            if (s.kind == "cure") and Health.slowKey and Health.spareMp and Health.slowAllowed and Health.listsSlow then
                 local key = Health.slowKey("skill", s.name)
-                local spare = Health.spareMp(mpNow, maxv, s.cost or 0, keep)
+                local spare = (Health.listsSlow(s) or (Health.slowVerdict(key) == "yes"))
+                    and Health.spareMp(mpNow, maxv, s.cost or 0, keep)
                     and Health.slowAllowed(key, Fight.slowUsed[key])
                 if spare and (Health.slowVerdict(key) == "yes") then
                     pick, pickKey = s, key
@@ -2550,10 +2542,9 @@ local function turn(uid, skills, w, phase)
         choice = finishChoice(uid, pick, "cure slow " .. (focus.name or ""), { focus.id }, aoeOf(pick))
         if not choice then return nil end
         Fight.claim.heal[focus.id] = true
-        Fight.slowUsed[pickKey] = true
-        Fight.slowTry = {
+        choice.slow = {
             id = focus.id, key = pickKey, round = Fight.rounds or 0,
-            name = pick.name,
+            name = pick.name, caster = uid, cost = pick.cost or 0, mp = mpNow,
         }
         return choice
     end
@@ -3870,6 +3861,45 @@ local function act(serial)
     if uid < 0 then uid = Menu.actor end
     if uid < 0 then return end
     pcall(ensureBattle)
+    if Fight.slowTry and Health.watchSlowCast and (not Fight.slowTry.out) then
+        Fight.slowHeld = Fight.slowTry.key
+        Fight.slowTry, Fight.slowNote = Health.watchSlowCast(Fight.slowTry, {
+            dead = (hpRatio(Fight.slowTry.caster) or 1) <= 0,
+            statuses = statuses(Fight.slowTry.caster),
+            mp = stat(Fight.slowTry.caster, PARAM.MP, false),
+        })
+        if Fight.slowTry and Fight.slowTry.out and Fight.slowTry.key then
+            Fight.slowUsed = Fight.slowUsed or {}
+            Fight.slowUsed[Fight.slowTry.key] = true
+        end
+        if (not Fight.slowTry) and Fight.slowHeld and Fight.slowUsed then
+            Fight.slowUsed[Fight.slowHeld] = nil
+        end
+        if Fight.slowNote then
+            log("%s", Fight.slowNote)
+            appendLog("  " .. Fight.slowNote)
+            Fight.slowNote = nil
+        end
+        Fight.slowHeld = nil
+    end
+    if Fight.slowTry and Health.settleSlow and ((Fight.rounds or 0) > (Fight.slowTry.round or 0)) then
+        Fight.slowOut = Fight.slowTry.out and true or false
+        Fight.slowHeld = Fight.slowTry.key
+        Fight.slowTry, Fight.slowTold, Fight.slowNote = Health.settleSlow(
+            Fight.slowTry,
+            Health.slowAlly(Fight.slowTry.id, hpRatio(Fight.slowTry.id), statuses(Fight.slowTry.id)),
+            Fight.slowTold)
+        if (not Fight.slowTry) and Fight.slowHeld and (not Fight.slowOut) and Fight.slowUsed then
+            Fight.slowUsed[Fight.slowHeld] = nil
+        end
+        if Fight.slowNote then
+            log("%s", Fight.slowNote)
+            appendLog("  " .. Fight.slowNote)
+            Fight.slowNote = nil
+        end
+        Fight.slowHeld = nil
+        Fight.slowOut = nil
+    end
     -- A wipe puts the party back on its opening MP without a raise we sent.
     -- The stagger book and the one-time setup belong to the attempt that fell.
     local function noteMp(who)
@@ -3969,6 +3999,7 @@ local function act(serial)
         return
     end
     if not sent then return end
+    if choice.slow then Fight.slowTry = choice.slow end
     if choice.attr == ATTR.FINISH then Fight.resonanceSent = true end
     if phase == 0 and choice.kind == "damage" and not choice.isItem then
         Fight.line = true
@@ -4531,7 +4562,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.18. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.19. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

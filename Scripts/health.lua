@@ -9,7 +9,7 @@
 -- Silence on someone whose spells matter waits until nobody is critical.
 -- Poison and blind are that ally's own item, and only when nothing more
 -- urgent is waiting. Slow is a spare cure from the healer after it lasts
--- past the round it appeared. A broken stat is still ignored.
+-- two rounds. The spell's row has to list Slow. A broken stat is still ignored.
 
 local HEAVY = 500
 local FIXED = 3
@@ -30,8 +30,9 @@ local OUT = {
     [CHARM] = true, [STOP] = true, [BERSERK] = true,
 }
 local SOFT = { [POISON] = true, [BLIND] = true }
--- What cleared Slow during this launch. A miss is not tried again.
-local SLOW_YES, SLOW_NO = {}, {}
+-- What cleared Slow during this launch. Two misses, after the cast went
+-- out, mark that cure as not working. One miss does not.
+local SLOW_YES, SLOW_NO, SLOW_MISS = {}, {}, {}
 -- Ids the planner already understands. Anything else is logged once.
 local KNOWN = {
     [34] = true, [35] = true, [36] = true, [89] = true,
@@ -40,7 +41,7 @@ for id = 1, 12 do KNOWN[id] = true end
 
 -- Shop cures and the status they clear. Remedy clears a lock only.
 -- It does not clear poison, blind, or slow. A name that is not here still
--- qualifies, so a new shop cure is not dropped.
+-- clears a lock. It does not clear poison or blind.
 local CURE_ITEM = {
     antidote = { [POISON] = true },
     ["antidote herb"] = { [POISON] = true },
@@ -280,7 +281,13 @@ end
 -- qualifies for poison, blind, or slow.
 function M.itemClears(name, statuses, soft)
     local row = CURE_ITEM[fold(name)]
-    if row == nil then return true end
+    if row == nil then
+        if soft or (not statuses) then return false end
+        for id in pairs(LOCK) do
+            if statuses[id] then return true end
+        end
+        return false
+    end
     if row == false then return false end
     if not statuses then return false end
     if row == true then
@@ -456,8 +463,8 @@ function M.slowVerdict(key)
     return nil
 end
 
--- One try per cure until this launch knows the result. A cure that works
--- can be used again. A cure that left Slow on is finished.
+-- One try per fight until this launch knows the result. A cure that works
+-- can be used again. Two misses, after the cast went out, finish it.
 function M.slowAllowed(key, used)
     local verdict = M.slowVerdict(key)
     if verdict == "no" then return false end
@@ -484,8 +491,44 @@ function M.watchSlow(allies, since, round)
     return since
 end
 
--- The cure was sent on an earlier round. Slow gone means that cure cleared
--- it. Slow still on means that cure did not, and it is not tried again.
+-- True when this cure row lists Slow. A cure that only lists other
+-- statuses is not spent on Slow, so a miss is not learned for it.
+function M.listsSlow(skill)
+    local st = skill and skill.friendStatus
+    return (st and st[SLOW]) and true or false
+end
+
+-- The ally the result is read from. A missing ratio means the body was
+-- not readable, so the try stays open.
+function M.slowAlly(id, ratio, set)
+    if (id == nil) or (ratio == nil) then return {} end
+    return {
+        { id = id, dead = ratio <= 0, statuses = set },
+    }
+end
+
+-- The command was accepted. An MP drop of at least the cost means the
+-- cast went out. Dead, silenced, or unable to act, with no drop, means
+-- it did not.
+function M.watchSlowCast(try, caster)
+    if (not try) or try.out then return try, nil end
+    if not caster then return try, nil end
+    local cost = try.cost or 0
+    local mp = caster.mp
+    if (cost > 0) and (type(mp) == "number") and (type(try.mp) == "number") and (mp <= (try.mp - cost)) then
+        try.out = true
+        return try, nil
+    end
+    if caster.dead or hasId(caster.statuses, SILENCE) or hasAny(caster.statuses, OUT) then
+        return nil, "slow cure did not go out"
+    end
+    if cost <= 0 then try.out = true end
+    return try, nil
+end
+
+-- The cure went out on an earlier round. Slow gone means that cure cleared
+-- it. Slow still on is one miss. The second miss marks it for this launch.
+-- A try whose cast never went out is dropped with no mark.
 function M.settleSlow(try, allies, told)
     if not try then return nil, told, nil end
     local who = nil
@@ -494,33 +537,54 @@ function M.settleSlow(try, allies, told)
     end
     if not who then return try, told, nil end
     if who.dead then return nil, told, nil end
+    told = told or {}
+    if not try.out then
+        try.hold = (try.hold or 0) + 1
+        if try.hold < 2 then return try, told, nil end
+        local missed = (try.name or "cure") .. " not out"
+        local quiet = nil
+        if not told[missed] then
+            told[missed] = true
+            quiet = "slow cure did not go out"
+        end
+        return nil, told, quiet
+    end
     local still = hasId(who.statuses, SLOW)
     local key = try.key
+    local line = nil
     if key then
         if still then
-            SLOW_NO[key] = true
-            SLOW_YES[key] = nil
+            local n = (SLOW_MISS[key] or 0) + 1
+            SLOW_MISS[key] = n
+            if n >= 2 then
+                SLOW_NO[key] = true
+                SLOW_YES[key] = nil
+            end
+            local mark = (try.name or "cure") .. ((n >= 2) and " remains" or " remains once")
+            if not told[mark] then
+                told[mark] = true
+                if n >= 2 then
+                    line = "slow remains after " .. (try.name or "cure")
+                else
+                    line = "slow remains after " .. (try.name or "cure") .. ", once"
+                end
+            end
         else
             SLOW_YES[key] = true
             SLOW_NO[key] = nil
-        end
-    end
-    told = told or {}
-    local line = nil
-    local mark = (try.name or "cure") .. (still and " remains" or " cleared")
-    if not told[mark] then
-        told[mark] = true
-        if still then
-            line = "slow remains after " .. (try.name or "cure")
-        else
-            line = "slow cleared by " .. (try.name or "cure")
+            SLOW_MISS[key] = nil
+            local mark = (try.name or "cure") .. " cleared"
+            if not told[mark] then
+                told[mark] = true
+                line = "slow cleared by " .. (try.name or "cure")
+            end
         end
     end
     return nil, told, line
 end
 
--- The healer clears Slow on their own turn, after it has lasted past the
--- round it appeared. Order is self, then the weakness payer or the stagger
+-- The healer clears Slow on their own turn, after it has lasted two
+-- rounds. Order is self, then the weakness payer or the stagger
 -- finisher, then anyone else. A non-healer casts only when no healer can
 -- act, and only for those three value cases.
 function M.slowFocus(allies, kitOf, mpOf, ctx)
@@ -532,7 +596,7 @@ function M.slowFocus(allies, kitOf, mpOf, ctx)
         if (not a) or a.dead or (not hasId(a.statuses, SLOW)) then return false end
         local at = since[a.id]
         if at == nil then return false end
-        return round > at
+        return round >= (at + 2)
     end
     local function byId(id)
         if not id then return nil end
