@@ -112,9 +112,11 @@ non-healer casts that only when no healer can act, and only for those
 value cases. A slowed healer raises the dire line to 25%, or 30% with
 a danger gauge open, and the others stop waiting on the recover line
 after two of them have acted. A cast counts only after it goes out.
-Two misses mark that cure as not working for the launch. A cast that
-clears Slow is remembered. A Slow that ends on its own after a real
-cast can still be remembered as cleared. Remedy is not spent on
+Two misses mark that cure as not working for the launch. A Slow that
+ends after the cast is not remembered as a clear. A cast that is only
+queued is not a miss. It is tried again when that ally is asked to act
+and the cost has not been paid. If no cure spell lists Slow, the skip
+is logged once. Remedy is not spent on
 poison, blind, or slow, and the last one
 is kept for the healer or for doom. An unknown status id is written
 once per fight. The 2026-11-01 18:33 Medusa fights spent Esuna on a
@@ -142,6 +144,12 @@ is FFRAutoBattle.zip on tag v0.1.21. It uses the same
 FFRS\Binaries\Win64\... folders as the v0.1.20 zip, and it includes the
 script files the planner loads. The v0.1.20, v0.1.19, v0.1.18, v0.1.17,
 v0.1.14, and v0.1.12 downloads stay up.
+
+Testing is ahead of main on the three Slow watches. A missing Slow
+spell is logged once. A queued cast stays open until that ally acts
+again. A Slow that ends is not remembered as a clear. The startup line
+stays "loaded. planner v0.1.21." main and the public zip do not have
+that yet.
 
 The fix list
 ------------

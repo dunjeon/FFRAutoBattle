@@ -2538,7 +2538,15 @@ local function turn(uid, skills, w, phase)
                 if spare and (not pick) then pick, pickKey = s, key end
             end
         end
-        if not pick then return nil end
+        if not pick then
+            Fight.slowNote = Health.slowGap and Health.slowGap(w.allies, unitKit, Fight.slowTold) or nil
+            if Fight.slowNote then
+                log("%s", Fight.slowNote)
+                appendLog("  " .. Fight.slowNote)
+                Fight.slowNote = nil
+            end
+            return nil
+        end
         choice = finishChoice(uid, pick, "cure slow " .. (focus.name or ""), { focus.id }, aoeOf(pick))
         if not choice then return nil end
         Fight.claim.heal[focus.id] = true
@@ -3870,6 +3878,7 @@ local function act(serial)
             dead = (hpRatio(Fight.slowTry.caster) or 1) <= 0,
             statuses = statuses(Fight.slowTry.caster),
             mp = stat(Fight.slowTry.caster, PARAM.MP, false),
+            actor = uid,
         })
         if Fight.slowTry and Fight.slowTry.out and Fight.slowTry.key then
             Fight.slowUsed = Fight.slowUsed or {}

@@ -30,8 +30,8 @@ local OUT = {
     [CHARM] = true, [STOP] = true, [BERSERK] = true,
 }
 local SOFT = { [POISON] = true, [BLIND] = true }
--- What cleared Slow during this launch. Two misses, after the cast went
--- out, mark that cure as not working. One miss does not.
+-- Two misses, after the cast went out, mark that cure as not working.
+-- One miss does not. A Slow that ends is not stored as a clear.
 local SLOW_YES, SLOW_NO, SLOW_MISS = {}, {}, {}
 -- Ids the planner already understands. Anything else is logged once.
 local KNOWN = {
@@ -509,7 +509,8 @@ end
 
 -- The command was accepted. An MP drop of at least the cost means the
 -- cast went out. Dead, silenced, or unable to act, with no drop, means
--- it did not.
+-- it did not. A cast that is only queued stays open. When that caster is
+-- asked to act again and the cost has not been paid, it did not go out.
 function M.watchSlowCast(try, caster)
     if (not try) or try.out then return try, nil end
     if not caster then return try, nil end
@@ -522,13 +523,19 @@ function M.watchSlowCast(try, caster)
     if caster.dead or hasId(caster.statuses, SILENCE) or hasAny(caster.statuses, OUT) then
         return nil, "slow cure did not go out"
     end
-    if cost <= 0 then try.out = true end
+    if cost <= 0 then
+        try.out = true
+        return try, nil
+    end
+    if (caster.actor ~= nil) and (caster.actor == try.caster) then
+        return nil, "slow cure did not go out"
+    end
     return try, nil
 end
 
--- The cure went out on an earlier round. Slow gone means that cure cleared
--- it. Slow still on is one miss. The second miss marks it for this launch.
--- A try whose cast never went out is dropped with no mark.
+-- The cure went out on an earlier round. Slow still on is one miss. The
+-- second miss marks it for this launch. Slow ending is not proof the cure
+-- did it, so that is not remembered. A cast that has not gone out stays open.
 function M.settleSlow(try, allies, told)
     if not try then return nil, told, nil end
     local who = nil
@@ -537,18 +544,8 @@ function M.settleSlow(try, allies, told)
     end
     if not who then return try, told, nil end
     if who.dead then return nil, told, nil end
+    if not try.out then return try, told, nil end
     told = told or {}
-    if not try.out then
-        try.hold = (try.hold or 0) + 1
-        if try.hold < 2 then return try, told, nil end
-        local missed = (try.name or "cure") .. " not out"
-        local quiet = nil
-        if not told[missed] then
-            told[missed] = true
-            quiet = "slow cure did not go out"
-        end
-        return nil, told, quiet
-    end
     local still = hasId(who.statuses, SLOW)
     local key = try.key
     local line = nil
@@ -570,17 +567,33 @@ function M.settleSlow(try, allies, told)
                 end
             end
         else
-            SLOW_YES[key] = true
-            SLOW_NO[key] = nil
             SLOW_MISS[key] = nil
-            local mark = (try.name or "cure") .. " cleared"
+            local mark = (try.name or "cure") .. " gone"
             if not told[mark] then
                 told[mark] = true
-                line = "slow cleared by " .. (try.name or "cure")
+                line = "slow gone after " .. (try.name or "cure")
             end
         end
     end
     return nil, told, line
+end
+
+-- Once per fight, when Slow is ready to be cured and no living ally has a
+-- cure spell whose row lists it.
+function M.slowGap(allies, kitOf, told)
+    for _, a in ipairs(allies or {}) do
+        if a and (not a.dead) then
+            local kit = kitOf and kitOf(a.id)
+            local spells = (kit and kit.spells) or {}
+            for _, s in ipairs(spells) do
+                if (s.kind == "cure") and M.listsSlow(s) then return nil end
+            end
+        end
+    end
+    told = told or {}
+    if told.gap then return nil end
+    told.gap = true
+    return "slow cure skipped, no skill lists slow"
 end
 
 -- The healer clears Slow on their own turn, after it has lasted two
