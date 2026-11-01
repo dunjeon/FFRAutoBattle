@@ -7,7 +7,7 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.20."
+a Steam launch. The startup line is "loaded. planner v0.1.21."
 
 2026-10-31 party health. The 65% recover line is only a boss fight, or a
 danger gauge the book lists at 500 or more, while that gauge is still open.
@@ -137,11 +137,10 @@ were not in those fights. Tranquility on a high unknown gauge, and one
 sync cast after the bonus had already returned, stay with the stagger
 scorer. Do not retune the quarter cap or the 15/20 lines from that log.
 
-The game folder, testing, main, and the public zip are v0.1.20. The zip
-is FFRAutoBattle.zip on tag v0.1.20. It uses the same
-FFRS\Binaries\Win64\... folders as the v0.1.19 zip, and it includes the
-script files the planner loads. The v0.1.19, v0.1.18, v0.1.17, v0.1.14,
-and v0.1.12 downloads stay up.
+The game folder, testing, and main are v0.1.21. The public zip is still
+FFRAutoBattle.zip on tag v0.1.20. This ship did not upload a new
+release. The v0.1.20, v0.1.19, v0.1.18, v0.1.17, v0.1.14, and v0.1.12
+downloads stay up.
 
 The fix list
 ------------
@@ -491,3 +490,12 @@ says the weakness shifts, after a hit has already landed. The opener
 still runs on an aggressive field. main and the public zip are
 v0.1.20. The zip is FFRAutoBattle.zip on tag v0.1.20. The startup
 line is "loaded. planner v0.1.20."
+
+Shipped as v0.1.21
+The book matches the first published sheet. Sadalsuud is marked shift,
+so Libra still goes once. Iron Giant counters physical hits. Beast of
+Ruin, Shinryu, and Tegmine counter any hit. Odin's Shadow and
+Necromonarch only counter a weakness hit, so they have no counter mark.
+Cactuar is marked evade, the same as the other needle plants. The
+picker reads counter and shift. It does not read evade. The public zip
+stays v0.1.20. The startup line is "loaded. planner v0.1.21."
