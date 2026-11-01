@@ -2,7 +2,7 @@
 
 The auto-battle never assumes a build: at battle start it reads each character's actual skills, tags them by function, and then runs one priority ladder each turn that keeps the party alive, keeps MP available, and drives enemies toward stagger.
 
-This is v0.1.19. Two switches sit on top of that ladder. They do not open a menu, and both choices are remembered.
+This is v0.1.20. Two switches sit on top of that ladder. They do not open a menu, and both choices are remembered.
 
 - F10, and the right trigger during a fight, turns auto battle on or off. The screen flashes AutoBattle On or AutoBattle Off. It starts on. While it is off, the planner still records the commands the player chooses and the state of the fight. Turning it back on in the middle of a fight plans from that fight.
 - F9 chooses the plan. On flashes AutoBattle: Take it Easy! and sends the Attack command only. No MP and no items. Off flashes AutoBattle: No Mercy! and runs the ladder below. Off is the default. During a fight, while auto battle is on, the left trigger does the same. The game still receives that press.
@@ -22,7 +22,7 @@ The AI only uses mechanics that hold in every build; anything Vision-specific is
 | Roles | Sentinel, Breaker, Medic, Commando, Saboteur, Synergist | Not read. Skill tags decide behavior |
 | MP | Skills cost MP; Ethers, MP-on-stagger, MP-on-kill and end-of-battle restores exist as passives or gear | MP budget drives skill choice |
 | Items | Potions, Ethers, Phoenix Down, Remedy and similar are in the starter packs | Auto-use as a team resource, with reserves |
-| Libra | Cheap spell revealing an enemy's weakness, drops and traits | Spent once when the name is missing from the book, or the card says the weakness shifts. The result is not read back |
+| Libra | Cheap spell revealing an enemy's weakness, drops and traits | Spent once when the name is missing from the book, or the card says the weakness shifts. A hit that already landed does not skip that Libra. The result is not read back |
 
 Skill lists, costs and stagger values vary per Vision and character, so the doc treats them as data read from the party, not constants.
 
@@ -92,7 +92,7 @@ At battle start the planner scores the party against the enemies and picks a sty
 
 | Phase | Goal | Typical actions |
 | --- | --- | --- |
-| 1. Scout | Learn weaknesses and threats | Libra once when the name is missing from the book, or the card says the weakness shifts. Otherwise the fight goes on to setup and the chip |
+| 1. Scout | Learn weaknesses and threats | Libra once when the name is missing from the book, or the card says the weakness shifts. A hit that already landed does not skip that Libra. Otherwise the fight goes on to setup and the chip |
 | 2. Setup | Make the party safe and the enemy weaker | Shell and Haste-type buffs, Blind and defense-down debuffs, summon if the fight will last |
 | 3. Chip | Bring all gauges near zero without wasting a stagger | AoE or weakness hits, kill fragile support adds |
 | 4. Break and burst | Empty every gauge in one round, then spend the bonus phase | Highest-damage skills on the enemies who just broke, not on a body that walked in during the window. The Resonance wheel is the player's when the Finish Blow is not found |
@@ -145,7 +145,7 @@ Because every Vision skill is paid from the character's own MP, a build with a b
 
 Damage is not the goal until enemies are staggered; the gauge is. The AI picks targets and skills to empty gauges, then bursts.
 
-1. **Find weaknesses.** Libra once when the name is missing from the book, or the card says the weakness shifts. The break ratio stays full, so a weakness is not learned by watching the gauge move. The book is the weakness list.
+1. **Find weaknesses.** Libra once when the name is missing from the book, or the card says the weakness shifts. A hit that already landed does not skip that Libra. The break ratio stays full, so a weakness is not learned by watching the gauge move. The book is the weakness list.
 2. **Pick the attack from the row.** The catalog stagger, or the live row when the spell is unnamed, is the count. The skill with the best stagger against that enemy's known weakness is chosen. An area spell chips the pool when more than one gauge is still up and the element is not absorbed.
 3. **Aim for a sweeping stagger.** With several enemies, the AI avoids staggering one early if it can set up all of them in the same turn. It chips the others first, then finishes the gauges together, because a sweeping stagger grants the bonus phase and a Resonance attack.
 4. **Spend the stagger window.** While an enemy is staggered it loses its action and takes extra damage, so the AI uses its strongest damage skills on the bodies that just broke. A body that walks in during the window does not take that bonus. Heals wait unless an ally is critical.
@@ -174,7 +174,7 @@ Damage is not the goal until enemies are staggered; the gauge is. The AI picks t
 - The break ratio stays full after a hit, so a weakness cannot be learned by watching the gauge move.
 - Do items have shared stacks across the party, and is there a per-battle item limit?
 - A toggle for item aggressiveness is not in v0.1.12. Take it Easy is the basic-attack switch, and it does not change which items are allowed when No Mercy is on. Rare items stay in the bag. Common shop items are spent on the heal and Ether lines above. A Pot fight spends nothing.
-- The 30% heal, the 50% recover, the 65% line while a danger gauge is open, the 15% chipper exception, the 60% adds line, and the MP bands are what the earlier playtests ran. v0.1.12 spends a heal spell before a potion whenever the cost fits, and a party heal when three or more allies are under half. That party-heal line has not had its own playtest yet. v0.1.13 leaves the recover line to the healer. v0.1.14 keeps a non-healer off that heal for the whole round while a payable healer can pay, except under 15%, or under 20% while a danger gauge is open. A healer who is asleep, paralyzed, stopped, petrified, confused, charmed, berserk, or silenced on a spell does not count as able to pay. Doom, and a status that takes the healer's turn, are cleared before the recover line. Poison and blind are that ally's own item when nothing more urgent is waiting. Slow is a spare cure from the healer after it lasts two rounds. The spell's row lists Slow. A cast counts only after it goes out, and two misses mark that cure as not working for the launch. A slowed healer is treated as late. A setup Limit that fills in after the first chip still goes out once, and it stops after a fall or while someone is under 30%. The battle log keeps the last five fights. A bonus spends on the break the ledger just marked. A body still flagged from an older wave does not take that hit. When the party comes back at its opening MP, the stagger ledger and the one-time setup are cleared.
+- The 30% heal, the 50% recover, the 65% line while a danger gauge is open, the 15% chipper exception, the 60% adds line, and the MP bands are what the earlier playtests ran. v0.1.12 spends a heal spell before a potion whenever the cost fits, and a party heal when three or more allies are under half. That party-heal line has not had its own playtest yet. v0.1.13 leaves the recover line to the healer. v0.1.14 keeps a non-healer off that heal for the whole round while a payable healer can pay, except under 15%, or under 20% while a danger gauge is open. A healer who is asleep, paralyzed, stopped, petrified, confused, charmed, berserk, or silenced on a spell does not count as able to pay. Doom, and a status that takes the healer's turn, are cleared before the recover line. Poison and blind are that ally's own item when nothing more urgent is waiting. Slow is a spare cure from the healer after it lasts two rounds. The spell's row lists Slow. A cast counts only after it goes out, and two misses mark that cure as not working for the launch. A slowed healer is treated as late. A setup Limit that fills in after the first chip still goes out once, and it stops after a fall or while someone is under 30%. The battle log keeps the last five fights. A bonus spends on the break the ledger just marked. A body still flagged from an older wave does not take that hit. When the party comes back at its opening MP, the stagger ledger and the one-time setup are cleared. v0.1.20 still spends Libra once after a hit has already landed, when a name is missing from the book or the card says the weakness shifts.
 
 ## Sources
 

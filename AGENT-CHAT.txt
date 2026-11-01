@@ -7,7 +7,7 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.19."
+a Steam launch. The startup line is "loaded. planner v0.1.20."
 
 2026-10-31 party health. The 65% recover line is only a boss fight, or a
 danger gauge the book lists at 500 or more, while that gauge is still open.
@@ -125,11 +125,23 @@ healer were not in those fights. Status 41 landed with Hone Senses, 25
 with Protect, and 27 with Shell. Status 18 on Lid had no matching cast.
 Those four stay unnamed.
 
-The game folder, testing, main, and the public zip are v0.1.19. The zip
-is FFRAutoBattle.zip on tag v0.1.19. It uses the same
-FFRS\Binaries\Win64\... folders as the v0.1.18 zip, and it includes the
-script files the planner loads. The v0.1.18, v0.1.17, v0.1.14, and
-v0.1.12 downloads stay up.
+The 2026-11-01 20:14 session ran v0.1.19 with basic attacks off. An
+unknown name never got Libra, because the first paid chip closed the
+scout. That is the v0.1.20 fix. Hone Senses on an aggressive pack is
+the opener the design allows. "cure item skipped, lock remains" was a
+bag that could not match the lock. First Aid was the patch when no
+potion was in the bag. Dire cures under 15%, and under 20% with a
+danger gauge open, stayed legal. Status 41 landed with Hone Senses.
+Status 27 stayed on Rain. Those stay unnamed. Poison, blind, and Slow
+were not in those fights. Tranquility on a high unknown gauge, and one
+sync cast after the bonus had already returned, stay with the stagger
+scorer. Do not retune the quarter cap or the 15/20 lines from that log.
+
+The game folder, testing, main, and the public zip are v0.1.20. The zip
+is FFRAutoBattle.zip on tag v0.1.20. It uses the same
+FFRS\Binaries\Win64\... folders as the v0.1.19 zip, and it includes the
+script files the planner loads. The v0.1.19, v0.1.18, v0.1.17, v0.1.14,
+and v0.1.12 downloads stay up.
 
 The fix list
 ------------
@@ -472,3 +484,10 @@ not working for the launch. An unknown cure item still clears a lock,
 and it is not spent on poison or blind. main and the public zip are
 v0.1.19. The zip is FFRAutoBattle.zip on tag v0.1.19. The startup
 line is "loaded. planner v0.1.19."
+
+Shipped as v0.1.20
+Libra still goes once when a name is missing from the book, or the card
+says the weakness shifts, after a hit has already landed. The opener
+still runs on an aggressive field. main and the public zip are
+v0.1.20. The zip is FFRAutoBattle.zip on tag v0.1.20. The startup
+line is "loaded. planner v0.1.20."

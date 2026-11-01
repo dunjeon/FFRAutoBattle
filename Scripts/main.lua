@@ -3217,7 +3217,8 @@ local function turn(uid, skills, w, phase)
     end
 
     local alreadyFell = Fight.fell and #Fight.fell > 0
-    if not Fight.chipped and phase == 0 and not alreadyFell and not allyCritical() and not dead then
+    -- A paid chip closes the opener and the other setup. It does not close Libra.
+    if phase == 0 and not alreadyFell and not allyCritical() and not dead then
         local scanTarget = nil
         for _, u in ipairs(#pool > 0 and pool or w.enemies) do
             if not Fight.scanned[u.id] and not Fight.claim.scan[u.id] then
@@ -3236,6 +3237,8 @@ local function turn(uid, skills, w, phase)
                 end
             end
         end
+    end
+    if not Fight.chipped and phase == 0 and not alreadyFell and not allyCritical() and not dead then
         if not Fight.claim.hone[uid] then
             local s = firstSkill(function(x) return useOf(x) == "opener" end)
             if s and weaknessFits(s.cost or 0) then
@@ -4562,7 +4565,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.19. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.20. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

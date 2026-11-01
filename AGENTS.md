@@ -16,7 +16,7 @@ It has to work for any party size, any character, and any Vision. A change that 
 
 ## Where the files are
 
-The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.19.`
+The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.20.`
 
 `known.lua` is published skill and item facts: element, stagger, and use. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
@@ -26,7 +26,7 @@ If a `wip/` folder exists beside the game, copy the three scripts there after a 
 
 - Score the field that is actually alive. A friend, a matching ally name, a nameless slot, or a body with no HP is not a foe.
 - Plan adds only when the largest open gauge is actually larger than the others. Equal gauges stay on one shared plan.
-- Spend the element on the card. No card means stagger factor 1 and the live stagger number. Libra only when the name is missing or the card says the weakness shifts.
+- Spend the element on the card. No card means stagger factor 1 and the live stagger number. Libra only when the name is missing or the card says the weakness shifts. A paid chip does not close that scout.
 - A weakness may finish a gauge when nothing in that element can chip it without finishing. When a weakness can still chip another enemy in the pool, the hit moves there.
 - One debuff goes on the enemy with a dangerous attack, or on the largest gauge.
 - Claims stop a second heal, a second revive, or a second Ether in the same round.
