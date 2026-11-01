@@ -99,13 +99,21 @@ petrified, confused, charmed, berserk, or silenced on a spell does not
 hold the heal line. Doom is cleared first. The healer's lost turn is
 next, matching item before a cure spell, and one claim stops a second
 cure in that round. Silence on the healer spends Echo Herb or Remedy
-only, and only when nobody is critical. Poison, blind, and slow wait
-until nobody is critical and MP is not low. Poison is under about 60%
-HP, or on the healer. Blind is a physical attacker. Slow needs MP
-above half. A non-healer leaves those three while the healer can act.
-Remedy is not spent on them, and the last one is kept for the healer
-or for doom. An unknown status id is written once per fight. The
-startup line stays "loaded. planner v0.1.17."
+only, and only when nobody is critical. Poison and blind are that
+ally's own item, and only when nobody is dead, critical, or under the
+recover line, and not during the setup window or the bonus. Poison is
+under about 60% HP. Blind is a physical attacker. Nobody spends a turn
+on someone else's poison or blind. Slow waits past the round it was
+seen. The healer then clears it with a cure spell when the MP left is
+still above half and a heal is kept back: themself, then the only
+weakness payer or the stagger finisher, then anyone else. A non-healer
+casts that only when no healer can act, and only for those value
+cases. A slowed healer raises the dire line to 25%, or 30% with a
+danger gauge open, and the others stop waiting on the recover line
+after two of them have acted. A cure that leaves Slow is not tried
+again. Remedy is not spent on poison, blind, or slow, and the last one
+is kept for the healer or for doom. An unknown status id is written
+once per fight. The startup line stays "loaded. planner v0.1.17."
 
 The game folder, testing, main, and the public zip are v0.1.17. The zip
 is FFRAutoBattle.zip on tag v0.1.17. It uses the same

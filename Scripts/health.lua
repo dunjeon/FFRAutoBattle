@@ -7,8 +7,9 @@
 -- cleared next, item before spell. Sleep, paralysis, stop, petrify,
 -- confuse, charm, and berserk are cleared before the recover line.
 -- Silence on someone whose spells matter waits until nobody is critical.
--- Poison, blind, and slow are cleared only when nothing more urgent is
--- waiting. A broken stat is still ignored.
+-- Poison and blind are that ally's own item, and only when nothing more
+-- urgent is waiting. Slow is a spare cure from the healer after it lasts
+-- past the round it appeared. A broken stat is still ignored.
 
 local HEAVY = 500
 local FIXED = 3
@@ -28,7 +29,9 @@ local OUT = {
     [SLEEP] = true, [PARALYSIS] = true, [CONFUSE] = true, [PETRIFY] = true,
     [CHARM] = true, [STOP] = true, [BERSERK] = true,
 }
-local SOFT = { [POISON] = true, [BLIND] = true, [SLOW] = true }
+local SOFT = { [POISON] = true, [BLIND] = true }
+-- What cleared Slow during this launch. A miss is not tried again.
+local SLOW_YES, SLOW_NO = {}, {}
 -- Ids the planner already understands. Anything else is logged once.
 local KNOWN = {
     [34] = true, [35] = true, [36] = true, [89] = true,
@@ -272,8 +275,9 @@ function M.available(ally, statuses, kitOf, mpOf)
 end
 
 -- True when this item can clear a status that is on the ally right now.
--- Soft statuses (poison, blind, slow) qualify only when the caller is on
--- that line. Remedy never qualifies for them.
+-- Poison and blind qualify only on the self-care line. Slow is not an
+-- item unless a cure has already been seen to clear it. Remedy never
+-- qualifies for poison, blind, or slow.
 function M.itemClears(name, statuses, soft)
     local row = CURE_ITEM[fold(name)]
     if row == nil then return true end
@@ -316,12 +320,13 @@ end
 -- heal score. A tied score goes to the kit with more real heals. A weaker
 -- heal, such as one Cure beside a fuller kit, waits with the damage dealers.
 -- On a critical ally the others step in under 15%, or under 20% while a
--- danger gauge is open. Above that they leave the heal for the whole round
--- while that healer can still act and pay. A healer who is out of MP, or
--- stopped by a status, does not hold the line. On the recover line the
--- others do not spend a heal or a potion while that healer can act and pay.
--- A healer who is out of MP still spends a potion on their own turn.
-function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf)
+-- danger gauge is open. A slowed main healer is late, so those lines are
+-- 25% and 30%. Above that they leave the heal for the whole round while
+-- that healer can still act and pay. On the recover line, once two others
+-- have acted and the slowed healer has not, the wait ends. A healer who is
+-- out of MP, or stopped by a status, does not hold the line. A healer who
+-- is out of MP still spends a potion on their own turn.
+function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf, went)
     local best = ranked(allies, kitOf)
     if #best == 0 then return false end
     for _, a in ipairs(best) do
@@ -332,9 +337,24 @@ function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf)
         if M.available(a, a.statuses, kitOf, mpOf) then payable = true end
     end
     if not payable then return false end
-    if why ~= "critical" then return true end
+    local healer = best[1]
+    local late = healer and hasId(healer.statuses, SLOW)
+    if why ~= "critical" then
+        if late and went and (not went[healer.id]) then
+            local others = 0
+            for id, on in pairs(went) do
+                if on and (id ~= healer.id) then others = others + 1 end
+            end
+            if others >= 2 then return false end
+        end
+        return true
+    end
     local dire = 0.15
     if danger then dire = 0.20 end
+    if late then
+        dire = 0.25
+        if danger then dire = 0.30 end
+    end
     if (ratio or 1) < dire then return false end
     return true
 end
@@ -352,9 +372,8 @@ local function pack(ally, tier, itemFirst, itemOnly, soft)
 end
 
 -- Urgent cures are doom, a healer who cannot act, and the other locks.
--- The soft line is poison, blind, and slow, and only when nothing more
--- urgent is waiting. A non-healer does not spend that line while a healer
--- can still act and pay.
+-- Poison and blind are the actor's own item after that, and only when
+-- nothing more urgent is waiting. Slow is chosen by slowFocus.
 function M.cureNow(allies, kitOf, mpOf, ctx)
     ctx = ctx or {}
     local urgent = ctx.urgent ~= false
@@ -400,41 +419,168 @@ function M.cureNow(allies, kitOf, mpOf, ctx)
         if sil then return pack(sil, "a", false, false, false) end
         return nil
     end
-    if ctx.critical then return nil end
-    if ctx.band == "low" then return nil end
+    if ctx.critical or ctx.dead or ctx.under or ctx.setup then return nil end
+    local actor = nil
+    for _, a in ipairs(allies or {}) do
+        if a.id == ctx.actorId then actor = a end
+    end
+    if (not actor) or actor.dead or (actor.acts == false) or (not actor.statuses) then
+        return nil
+    end
+    if hasId(actor.statuses, POISON) and ((actor.hp or 1) < 0.60) then
+        return pack(actor, "b", true, true, true)
+    end
+    if hasId(actor.statuses, BLIND) then
+        local kit = kitOf and kitOf(actor.id) or nil
+        if mostlyPhysical(kit) then return pack(actor, "b", true, true, true) end
+    end
+    return nil
+end
+
+-- MP left after the cure is still above half, and a heal is kept back
+-- when keep is the healer's heal cost.
+function M.spareMp(mp, maxMp, cost, keep)
+    local left = (mp or 0) - (cost or 0)
+    if left < (keep or 0) then return false end
+    if (not maxMp) or (maxMp <= 0) then return false end
+    return (left / maxMp) > 0.50
+end
+
+function M.slowKey(kind, name)
+    return (kind or "skill") .. ":" .. fold(name or "")
+end
+
+function M.slowVerdict(key)
+    if SLOW_YES[key] then return "yes" end
+    if SLOW_NO[key] then return "no" end
+    return nil
+end
+
+-- One try per cure until this launch knows the result. A cure that works
+-- can be used again. A cure that left Slow on is finished.
+function M.slowAllowed(key, used)
+    local verdict = M.slowVerdict(key)
+    if verdict == "no" then return false end
+    if used and (verdict ~= "yes") then return false end
+    return true
+end
+
+-- Remember the round Slow was first seen. A status that has dropped is
+-- forgotten, so a later Slow starts its wait over.
+function M.watchSlow(allies, since, round)
+    since = since or {}
+    local live = {}
+    for _, a in ipairs(allies or {}) do
+        if a and (not a.dead) and hasId(a.statuses, SLOW) then
+            live[a.id] = true
+            if since[a.id] == nil then since[a.id] = round or 0 end
+        end
+    end
+    local drop = {}
+    for id in pairs(since) do
+        if not live[id] then drop[#drop + 1] = id end
+    end
+    for _, id in ipairs(drop) do since[id] = nil end
+    return since
+end
+
+-- The cure was sent on an earlier round. Slow gone means that cure cleared
+-- it. Slow still on means that cure did not, and it is not tried again.
+function M.settleSlow(try, allies, told)
+    if not try then return nil, told, nil end
+    local who = nil
+    for _, a in ipairs(allies or {}) do
+        if a.id == try.id then who = a end
+    end
+    if not who then return try, told, nil end
+    if who.dead then return nil, told, nil end
+    local still = hasId(who.statuses, SLOW)
+    local key = try.key
+    if key then
+        if still then
+            SLOW_NO[key] = true
+            SLOW_YES[key] = nil
+        else
+            SLOW_YES[key] = true
+            SLOW_NO[key] = nil
+        end
+    end
+    told = told or {}
+    local line = nil
+    local mark = (try.name or "cure") .. (still and " remains" or " cleared")
+    if not told[mark] then
+        told[mark] = true
+        if still then
+            line = "slow remains after " .. (try.name or "cure")
+        else
+            line = "slow cleared by " .. (try.name or "cure")
+        end
+    end
+    return nil, told, line
+end
+
+-- The healer clears Slow on their own turn, after it has lasted past the
+-- round it appeared. Order is self, then the weakness payer or the stagger
+-- finisher, then anyone else. A non-healer casts only when no healer can
+-- act, and only for those three value cases.
+function M.slowFocus(allies, kitOf, mpOf, ctx)
+    ctx = ctx or {}
+    if ctx.critical or ctx.dead or ctx.under or ctx.setup then return nil end
+    local since = ctx.since or {}
+    local round = ctx.round or 0
+    local function waited(a)
+        if (not a) or a.dead or (not hasId(a.statuses, SLOW)) then return false end
+        local at = since[a.id]
+        if at == nil then return false end
+        return round > at
+    end
+    local function byId(id)
+        if not id then return nil end
+        for _, a in ipairs(allies or {}) do
+            if a.id == id then return a end
+        end
+        return nil
+    end
+    local best = ranked(allies, kitOf)
+    local healer = best[1]
+    local healerUp = false
+    for _, a in ipairs(best) do
+        if M.available(a, a.statuses, kitOf, mpOf) and (not hasId(a.statuses, SILENCE)) then
+            healerUp = true
+        end
+    end
+    local actor = nil
+    for _, a in ipairs(allies or {}) do
+        if a.id == ctx.actorId then actor = a end
+    end
+    if (not actor) or actor.dead or (actor.acts == false) then return nil end
+    if hasId(actor.statuses, SILENCE) then return nil end
     local actorIsHealer = false
     for _, a in ipairs(best) do
         if a.id == ctx.actorId then actorIsHealer = true end
     end
-    if not actorIsHealer then
-        for _, a in ipairs(best) do
-            if M.available(a, a.statuses, kitOf, mpOf) then return nil end
+    local payer = byId(ctx.weakId)
+    local fin = byId(ctx.stagId)
+    if actorIsHealer then
+        if waited(actor) then return pack(actor, "slow", false, false, false) end
+        if waited(payer) then return pack(payer, "slow", false, false, false) end
+        if fin and waited(fin) and ((not payer) or (fin.id ~= payer.id)) then
+            return pack(fin, "slow", false, false, false)
         end
-    end
-    local function softHit(a)
-        if a.dead or (not a.statuses) then return false end
-        if hasId(a.statuses, POISON) then
-            if ((a.hp or 1) < 0.60) or (healer and (a.id == healer.id)) then
-                return true
+        for _, a in ipairs(allies or {}) do
+            if waited(a) then
+                local skip = (a.id == actor.id)
+                if payer and (payer.id == a.id) then skip = true end
+                if fin and (fin.id == a.id) then skip = true end
+                if not skip then return pack(a, "slow", false, false, false) end
             end
         end
-        if hasId(a.statuses, BLIND) then
-            local kit = kitOf and kitOf(a.id) or nil
-            if mostlyPhysical(kit) then return true end
-        end
-        if hasId(a.statuses, SLOW) and (ctx.band == "high") then return true end
-        return false
+        return nil
     end
-    local softHealer, softAct, softBody = nil, nil, nil
-    for _, a in ipairs(allies or {}) do
-        if softHit(a) then
-            if healer and (a.id == healer.id) then softHealer = a
-            elseif a.acts ~= false then softAct = softAct or a
-            else softBody = softBody or a end
-        end
-    end
-    local soft = softHealer or softAct or softBody
-    if soft then return pack(soft, "b", false, false, true) end
+    if healerUp then return nil end
+    if healer and waited(healer) then return pack(healer, "slow", false, false, false) end
+    if waited(payer) then return pack(payer, "slow", false, false, false) end
+    if waited(fin) then return pack(fin, "slow", false, false, false) end
     return nil
 end
 

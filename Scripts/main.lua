@@ -179,7 +179,8 @@ local ST_BREAK = 89
 local GUARD_STATUS = { [34] = true, [35] = true, [36] = true }
 local OUT_OF_CONTROL = { [6] = "confused", [8] = "charmed", [10] = "berserk" }
 -- Sleep, silence, paralysis, confuse, petrify, charm, stop, berserk, doom.
--- Poison, blind, and slow are the softer line in health.lua. A broken stat stays off.
+-- Poison and blind are that ally's own item. Slow is the spare cure in health.lua.
+-- A broken stat stays off.
 local LOCK = {
     [3] = true, [4] = true, [5] = true, [6] = true, [7] = true,
     [8] = true, [9] = true, [10] = true, [11] = true,
@@ -1619,6 +1620,8 @@ Fight = {
     cureHeld = false,
     healLeft = {},
     statusTold = {},
+    slowSince = {}, slowTry = nil, slowTold = {}, slowUsed = {},
+    underLine = false,
 }
 
 local function currentActor()
@@ -2255,7 +2258,7 @@ local function turn(uid, skills, w, phase)
                 if id == uid then return w.mp or 0 end
                 return stat(id, PARAM.MP, false) or 0
             end
-            if Health.healerWaiting(uid, why, hurt.hp, danger, w.allies, unitKit, mpOf) then
+            if Health.healerWaiting(uid, why, hurt.hp, danger, w.allies, unitKit, mpOf, Fight.went) then
                 Fight.healLeft = Fight.healLeft or {}
                 if not Fight.healLeft[uid] then
                     Fight.healLeft[uid] = true
@@ -2395,6 +2398,7 @@ local function turn(uid, skills, w, phase)
             if focus.tier == "rescue" then why = "rescue " .. (focus.name or "") end
             if focus.tier == "doom" then why = "cure doom " .. (focus.name or "") end
             if focus.tier == "b" then why = "cure soft " .. (focus.name or "") end
+            if focus.tier == "slow" then why = "cure slow " .. (focus.name or "") end
             for _, s in ipairs(skills) do
                 if (s.kind == "cure") and pay(s) then
                     local choice = finishChoice(uid, s, why, { focus.id }, aoeOf(s))
@@ -2416,18 +2420,142 @@ local function turn(uid, skills, w, phase)
         return choice
     end
     local function curePass(urgent)
+        if urgent then
+            Fight.slowSince = Fight.slowSince or {}
+            Fight.slowTold = Fight.slowTold or {}
+            if Fight.slowTry and Health.settleSlow and ((Fight.rounds or 0) > (Fight.slowTry.round or 0)) then
+                local line
+                Fight.slowTry, Fight.slowTold, line = Health.settleSlow(
+                    Fight.slowTry, w.allies, Fight.slowTold)
+                if line then
+                    log("%s", line)
+                    appendLog("  " .. line)
+                end
+            end
+            if Health.watchSlow then
+                Health.watchSlow(w.allies, Fight.slowSince, Fight.rounds or 0)
+            end
+        end
         if (phase == PHASE_BONUS) or (not Health.cureNow) then return nil end
         local mpOf = function(id)
             if id == uid then return w.mp or 0 end
             return stat(id, PARAM.MP, false) or 0
+        end
+        local calm = (not urgent) and (not allyCritical()) and (not Fight.underLine)
+            and (not ((phase == 0) and hardField and (style ~= "aggressive") and (not Fight.chipped)))
+        local dead = false
+        if not urgent then
+            for _, a in ipairs(w.allies) do
+                if a.dead then dead = true end
+            end
+            local owed = Health.cureNow(w.allies, unitKit, mpOf, {
+                actorId = uid,
+                critical = allyCritical() ~= nil,
+                urgent = true,
+            })
+            if owed then return nil end
         end
         local focus = Health.cureNow(w.allies, unitKit, mpOf, {
             actorId = uid,
             critical = allyCritical() ~= nil,
             band = band(),
             urgent = urgent,
+            dead = dead,
+            under = (not urgent) and Fight.underLine and true or false,
+            setup = (not urgent) and (phase == 0) and hardField and (style ~= "aggressive")
+                and (not Fight.chipped) and true or false,
         })
-        return castCure(focus)
+        local choice = castCure(focus)
+        if choice or urgent or (not calm) or dead or (not Health.slowFocus) then return choice end
+        local foes = (#pool > 0) and pool or open
+        if #foes == 0 then foes = w.enemies end
+        local weakId, weakN, stagId, stagN, window = nil, 0, nil, 0, false
+        for _, u in ipairs(foes) do
+            local gauge, remain, empty = gaugeOfEnemy(u)
+            local poured = Fight.poured and Fight.poured[u.id] or 0
+            if (not empty) and (not u.broken) and (gauge > 0) and (remain < gauge) and (poured > 0) then
+                window = true
+            end
+        end
+        for _, a in ipairs(w.allies) do
+            if (not a.dead) and (a.acts ~= false) then
+                local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
+                local spells = skills
+                if a.id ~= uid then
+                    local kit = unitKit(a.id)
+                    spells = (kit and kit.spells) or {}
+                end
+                local weak, finish = false, false
+                for _, s in ipairs(spells) do
+                    if isHit(s, false) and ((s.cost or 0) <= mp) then
+                        for _, u in ipairs(foes) do
+                            if elementFactor(s, u) >= 3 then weak = true end
+                            if window then
+                                local _, remain, empty = gaugeOfEnemy(u)
+                                if not empty then
+                                    local gained, f = staggerOf(s, u)
+                                    if (f > 0) and (gained > 0) and (gained >= remain) then
+                                        finish = true
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+                if weak then
+                    weakN = weakN + 1
+                    weakId = a.id
+                end
+                if finish then
+                    stagN = stagN + 1
+                    stagId = a.id
+                end
+            end
+        end
+        if weakN ~= 1 then weakId = nil end
+        if (not window) or (stagN ~= 1) then stagId = nil end
+        focus = Health.slowFocus(w.allies, unitKit, mpOf, {
+            actorId = uid,
+            round = Fight.rounds or 0,
+            since = Fight.slowSince,
+            critical = false,
+            dead = false,
+            under = false,
+            setup = false,
+            weakId = weakId,
+            stagId = stagId,
+        })
+        if (not focus) or Fight.claim.heal[focus.id] then return nil end
+        local maxv = w.maxMp or 0
+        local mpNow = w.mp or 0
+        local keep = 0
+        local selfKit = unitKit(uid)
+        local healer = Health.mainHealer(w.allies, unitKit)
+        if healer and (healer.id == uid) and selfKit then keep = selfKit.healCost or 0 end
+        local pick, pickKey = nil, nil
+        Fight.slowUsed = Fight.slowUsed or {}
+        for _, s in ipairs(skills) do
+            if (s.kind == "cure") and Health.slowKey and Health.spareMp and Health.slowAllowed then
+                local key = Health.slowKey("skill", s.name)
+                local spare = Health.spareMp(mpNow, maxv, s.cost or 0, keep)
+                    and Health.slowAllowed(key, Fight.slowUsed[key])
+                if spare and (Health.slowVerdict(key) == "yes") then
+                    pick, pickKey = s, key
+                    break
+                end
+                if spare and (not pick) then pick, pickKey = s, key end
+            end
+        end
+        if not pick then return nil end
+        choice = finishChoice(uid, pick, "cure slow " .. (focus.name or ""), { focus.id }, aoeOf(pick))
+        if not choice then return nil end
+        Fight.claim.heal[focus.id] = true
+        Fight.slowUsed[pickKey] = true
+        Fight.slowTry = {
+            id = focus.id, key = pickKey, round = Fight.rounds or 0,
+            name = pick.name,
+        }
+        return choice
     end
     local cured = curePass(true)
     if cured then return cured end
@@ -2466,8 +2594,9 @@ local function turn(uid, skills, w, phase)
     local function underMark()
         local n, who = 0, nil
         for _, a in ipairs(w.allies) do
-            if not a.dead and (a.hp or 1) < recoverAt and not Fight.claim.heal[a.id] then
-                if a.acts ~= false then
+            if not a.dead and (a.hp or 1) < recoverAt then
+                Fight.underLine = true
+                if (a.acts ~= false) and (not Fight.claim.heal[a.id]) then
                     n = n + 1
                     if not who or (a.hp or 1) < (who.hp or 1) then who = a end
                 end
@@ -2475,6 +2604,7 @@ local function turn(uid, skills, w, phase)
         end
         return n, who
     end
+    Fight.underLine = false
     local halfN, halfWho = underMark()
     local recoverGate = recoverAt > 0.50 or (band() == "high"
         and (Fight.afterBonus or (style == "defensive" and halfN >= 2)))
@@ -3525,6 +3655,8 @@ local function ensureBattle()
     Fight.cureHeld = false
     Fight.healLeft = {}
     Fight.statusTold = {}
+    Fight.slowSince, Fight.slowTry, Fight.slowTold, Fight.slowUsed = {}, nil, {}, {}
+    Fight.underLine = false
     Fight.downNow = {}
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
