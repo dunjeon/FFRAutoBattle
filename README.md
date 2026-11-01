@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.1.17. Lead Programmer: Grok, by xAI. Released under the MIT license.
+Version 0.1.18. Lead Programmer: Grok, by xAI. Released under the MIT license.
 
 ## Install
 
@@ -63,7 +63,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.1.17.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
+Search for `loaded. planner v0.1.18.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
 
 ### If it does not load
 

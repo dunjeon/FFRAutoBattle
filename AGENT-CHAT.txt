@@ -7,7 +7,7 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.17."
+a Steam launch. The startup line is "loaded. planner v0.1.18."
 
 2026-10-31 party health. The 65% recover line is only a boss fight, or a
 danger gauge the book lists at 500 or more, while that gauge is still open.
@@ -18,11 +18,12 @@ HP. A magic heal still ranks by power per MP, because that power is not
 restored HP. A healer is raised before the highest damage dealer. Stop is
 on the cure list with sleep, silence, paralysis, and the other locks.
 Silence on someone who can cast is cured first. Poison, blind, and
-stat-broken are still not locks. A cure spell still goes first. A
-status item is spent only when it clears a lock on that ally. Antidote,
-Antidote Herb, and Eye Drops do not. Echo Herb, Smelling Salts, Unicorn
-Horn, and Gold Needle match silence, confuse, paralysis, and petrify.
-Remedy matches any lock. A cure name the book does not list is still
+slow follow the 2026-11-01 healer status note below. A broken stat is
+still not a lock. A cure spell still goes first on a lock. A status
+item is spent only when it clears the status on that ally. Echo Herb,
+Smelling Salts, Unicorn Horn, and Gold Needle match silence, confuse,
+paralysis, and petrify. Remedy matches a lock, and it is not spent on
+poison, blind, or slow. A cure name the book does not list is still
 spent. The 2026-10-31 13:56 fight spent Antidote Herb on a lock. The
 log line when the bag cannot clear it is "cure item skipped, lock
 remains". Scripts/health.lua holds that policy.
@@ -113,12 +114,19 @@ danger gauge open, and the others stop waiting on the recover line
 after two of them have acted. A cure that leaves Slow is not tried
 again. Remedy is not spent on poison, blind, or slow, and the last one
 is kept for the healer or for doom. An unknown status id is written
-once per fight. The startup line stays "loaded. planner v0.1.17."
+once per fight. The 2026-11-01 18:33 Medusa fights spent Esuna on a
+known lock, logged "cure item skipped, lock remains" once when the bag
+could not match it, and left the heal with the healer. Rain stepped in
+at 7%. Antidote Herb and Eye Drops stayed in the bag. Slow and a locked
+healer were not in those fights. Status 41 landed with Hone Senses, 25
+with Protect, and 27 with Shell. Status 18 on Lid had no matching cast.
+Those four stay unnamed.
 
-The game folder, testing, main, and the public zip are v0.1.17. The zip
-is FFRAutoBattle.zip on tag v0.1.17. It uses the same
-FFRS\Binaries\Win64\... folders as the v0.1.14 zip, and it includes the
-script files the planner loads. The v0.1.14 and v0.1.12 downloads stay up.
+The game folder, testing, main, and the public zip are v0.1.18. The zip
+is FFRAutoBattle.zip on tag v0.1.18. It uses the same
+FFRS\Binaries\Win64\... folders as the v0.1.17 zip, and it includes the
+script files the planner loads. The v0.1.17, v0.1.14, and v0.1.12
+downloads stay up.
 
 The fix list
 ------------
@@ -446,3 +454,10 @@ F9 still toggles basic attacks. The right trigger toggles auto battle
 during a fight. main and the public zip are v0.1.17. The zip is
 FFRAutoBattle.zip on tag v0.1.17. The startup line is
 "loaded. planner v0.1.17."
+
+Shipped as v0.1.18
+Poison and blind are that ally's own item when nothing more urgent is
+waiting. Slow is a spare cure from the healer after it lasts past the
+round it appeared. A slowed healer is treated as late. main and the
+public zip are v0.1.18. The zip is FFRAutoBattle.zip on tag v0.1.18.
+The startup line is "loaded. planner v0.1.18."
