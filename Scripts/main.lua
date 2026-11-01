@@ -3538,16 +3538,22 @@ local function consider(uid)
     for _, s in ipairs(usable) do
         if s.kind == "revive" then
             for _, id in ipairs(targetsFor(uid, s, REL.FRIEND)) do
-                local seen = false
-                for _, a in ipairs(w.allies) do
-                    if a.id == id then
-                        a.dead = true
-                        a.hp = 0
-                        seen = true
+                local ratio = hpRatio(id)
+                if (ratio == nil) or (ratio <= 0) then
+                    local seen = false
+                    for _, a in ipairs(w.allies) do
+                        if a.id == id then
+                            a.dead = true
+                            a.hp = 0
+                            seen = true
+                        end
                     end
-                end
-                if not seen then
-                    w.allies[#w.allies + 1] = { id = id, name = unitName(id), hp = 0, dead = true, statuses = {}, acts = true }
+                    if not seen then
+                        w.allies[#w.allies + 1] = {
+                            id = id, name = unitName(id), hp = 0,
+                            dead = true, statuses = {}, acts = true,
+                        }
+                    end
                 end
             end
         end

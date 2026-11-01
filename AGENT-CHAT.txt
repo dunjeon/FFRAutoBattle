@@ -149,9 +149,10 @@ Testing is ahead of main on the three Slow watches. A missing Slow
 spell is logged once. A queued cast stays open until that ally acts
 again. A Slow that ends is not remembered as a clear. Raise and Arise
 are revives, so they are spent on a fallen ally and not on an enemy.
-A raise is still skipped only when one weak enemy with no threat is
-left. The startup line stays "loaded. planner v0.1.21." main and the
-public zip do not have that yet.
+A living ally on the raise list is left standing. A raise is still
+skipped only when one weak enemy with no threat is left. The startup
+line stays "loaded. planner v0.1.21." main and the public zip do not
+have that yet.
 
 The fix list
 ------------
