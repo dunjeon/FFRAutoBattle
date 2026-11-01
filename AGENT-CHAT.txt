@@ -7,7 +7,7 @@ state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
 to the game-root wip/ folder when that folder exists, and parse with
 luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
-a Steam launch. The startup line is "loaded. planner v0.1.21."
+a Steam launch. The startup line is "loaded. planner v0.1.22."
 
 2026-10-31 party health. The 65% recover line is only a boss fight, or a
 danger gauge the book lists at 500 or more, while that gauge is still open.
@@ -139,20 +139,17 @@ were not in those fights. Tranquility on a high unknown gauge, and one
 sync cast after the bonus had already returned, stay with the stagger
 scorer. Do not retune the quarter cap or the 15/20 lines from that log.
 
-The game folder, testing, main, and the public zip are v0.1.21. The zip
-is FFRAutoBattle.zip on tag v0.1.21. It uses the same
-FFRS\Binaries\Win64\... folders as the v0.1.20 zip, and it includes the
-script files the planner loads. The v0.1.20, v0.1.19, v0.1.18, v0.1.17,
-v0.1.14, and v0.1.12 downloads stay up.
+The game folder, testing, main, and the public zip are v0.1.22. The zip
+is FFRAutoBattle.zip on tag v0.1.22. It uses the same
+FFRS\Binaries\Win64\... folders as the v0.1.21 zip, and it includes the
+script files the planner loads. The v0.1.21, v0.1.20, v0.1.19, v0.1.18,
+v0.1.17, v0.1.14, and v0.1.12 downloads stay up.
 
-Testing is ahead of main on the three Slow watches. A missing Slow
-spell is logged once. A queued cast stays open until that ally acts
-again. A Slow that ends is not remembered as a clear. Raise and Arise
-are revives, so they are spent on a fallen ally and not on an enemy.
-A living ally on the raise list is left standing. A raise is still
-skipped only when one weak enemy with no threat is left. The startup
-line stays "loaded. planner v0.1.21." main and the public zip do not
-have that yet.
+Raise and Arise are spent on a fallen ally. A living ally is left
+standing. A raise is still skipped only when one weak enemy with no
+threat is left. A missing Slow spell is logged once. A queued cast
+stays open until that ally acts again. A Slow that ends is not
+remembered as a clear. The startup line is "loaded. planner v0.1.22."
 
 The fix list
 ------------
@@ -512,3 +509,12 @@ Cactuar is marked evade, the same as the other needle plants. The
 picker reads counter and shift. It does not read evade. main and the
 public zip are v0.1.21. The zip is FFRAutoBattle.zip on tag v0.1.21.
 The startup line is "loaded. planner v0.1.21."
+
+Shipped as v0.1.22
+Raise and Arise are spent on a fallen ally. A living ally is left
+standing. A raise is still skipped only when one weak enemy with no
+threat is left. A missing Slow spell is logged once. A queued cast
+stays open until that ally acts again. A Slow that ends is not
+remembered as a clear. main and the public zip are v0.1.22. The zip
+is FFRAutoBattle.zip on tag v0.1.22. The startup line is
+"loaded. planner v0.1.22."
