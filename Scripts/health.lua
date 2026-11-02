@@ -743,4 +743,19 @@ function M.locked(allies)
     return acting or body
 end
 
+-- Dire need in a boss fight: an ally is down, an ally is under 30%, or most
+-- of the living party is under half. Lifts the one-Ether-per-round limit.
+function M.direNeed(w)
+    if not (w and w.boss) then return false end
+    local living, low = 0, 0
+    for _, u in ipairs(w.allies or {}) do
+        if u.dead then return true end
+        living = living + 1
+        local r = u.hp or 1
+        if r < 0.30 then return true end
+        if r < 0.50 then low = low + 1 end
+    end
+    return living > 0 and (low * 2) > living
+end
+
 return M

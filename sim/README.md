@@ -8,7 +8,7 @@ lua5.4 sim/run.lua [sessions] [seed] [--only kind] [--hard 1.0] [--keep loss,tim
 
 - `sessions` is how many game launches to play. Each one loads `main.lua` once and plays one to three fights in a row, with HP, MP, and falls carried between them. The default is 200. 1000 takes about 45 seconds.
 - `seed` makes a run repeatable. The same seed plays the same fights.
-- `--only kind` plays one kind of fight: `trash`, `mixed`, `equal`, `danger`, `boss`, `status`, `counter`, `absorb`, `pot`, `entry`.
+- `--only kind` plays one kind of fight: `trash`, `mixed`, `equal`, `danger`, `boss`, `status`, `counter`, `absorb`, `pot`, `entry`. `replay` plays the battle log's boss Shoggoth of 2026-11-02 with that fight's party and bag. It is only played when asked for.
 - `--hard` scales enemy HP and attack. 1.0 is the default.
 - `--keep loss,timeout,fled` also writes those fights to `sim/out/kept`.
 - `--easy` plays Take it Easy instead of No Mercy, and flags anything but the free basic Attack. Every other run, and every test, is No Mercy.
@@ -26,9 +26,9 @@ A broken rule is any of these, in any fight:
 - **illegal**: a skill not on the bar, not paid, or sealed, an item not in the bag, or a missing target.
 - **wrong actor**, **wrong side**, **dead target**, **empty cure**: a command aimed at the wrong unit.
 - **wasted revive**: a raise on a living ally.
-- **premium item**: Elixir, Megalixir, X-Potion, Turbo Ether, Phoenix Pinion, a tent, or a scroll. These rows are not flagged rare, so the planner has to know them by name.
+- **premium item**: Elixir, Megalixir, X-Potion, Turbo Ether, Phoenix Pinion, a tent, a scroll, a knife, or a shuriken outside a boss fight. In a boss fight: a tent at all, a rare heal or MP item with no dire need, or a rare item while a common one of the same use is in the bag. These rows are not flagged rare, so the planner has to know them by name.
 - **pot item**: any item spent in a Pot fight.
-- **second ether**: two Ethers in one round, as the planner counts a round.
+- **second ether**: two Ethers in one round, as the planner counts a round, unless a boss fight is in dire need. An Elixir spent on a heal is not an Ether.
 - **overheal**: a second single heal in the round on an ally already above 65%.
 - **summon target**: a single heal, cure, or raise on a summon.
 - **healer draws**, **calm draw**: Provoke or Cover from the party's best healer, or on a field with no threat and no hurt healer.

@@ -723,7 +723,46 @@ end
 -- Commands: checking and applying what the planner sends
 --------------------------------------------------------------------------------
 
-local PREMIUM = { "elixir", "megalixir", "x-potion", "turbo ether", "x-ether", "phoenix pinion", "tent", "scroll" }
+local PREMIUM = { "elixir", "megalixir", "x-potion", "turbo ether", "x-ether", "phoenix pinion", "tent", "scroll", "knife", "shuriken" }
+
+local function isPremium(name)
+    local low = name:lower()
+    for _, p in ipairs(PREMIUM) do if low:find(p, 1, true) then return true end end
+    return false
+end
+
+-- A common item in the bag that does what this rare one does. A full heal
+-- that only beats the commons on size is fine when no common covers the gap,
+-- so for HP this is judged loosely: any common heal counts only when the
+-- rare row is not a full heal.
+local function commonLeft(spec)
+    for id, n in pairs(B.bag) do
+        local it = Sim.items[id]
+        if n > 0 and it and not isPremium(it.Name) then
+            local c = it.skill and it.skill.sim or {}
+            if spec.revive and c.revive then return true end
+            if spec.mp and not spec.heal and c.mp then return true end
+            if spec.heal and not spec.full and c.heal then return true end
+        end
+    end
+    return false
+end
+
+-- Boss fight and an ally down, under 30%, or most of the living party under half.
+local function direNeed()
+    if not B.boss then return false end
+    local n, low = 0, 0
+    for _, u in pairs(B.units) do
+        if u.side == "ally" and not u.summon and not u.gone then
+            if u.dead then return true end
+            n = n + 1
+            local r = u.hp / math.max(1, u.maxHp)
+            if r < 0.30 then return true end
+            if r < 0.50 then low = low + 1 end
+        end
+    end
+    return n > 0 and low * 2 > n
+end
 
 -- The heal kit the doc calls the healer: best heal row power.
 local function healPower(u)
@@ -792,7 +831,17 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
         end
         local low = item.Name:lower()
         for _, p in ipairs(PREMIUM) do
-            if low:find(p, 1, true) then violate("premium item", "%s used %s", actor.name, item.Name) end
+            if low:find(p, 1, true) then
+                -- A rare item is the boss fight's, and only when no common
+                -- item of the same use is left. Tents and scrolls never.
+                if not B.boss or p == "tent" then
+                    violate("premium item", "%s used %s outside a boss fight", actor.name, item.Name)
+                elseif (spec.heal or spec.mp) and not direNeed() then
+                    violate("premium item", "%s used %s with no dire need", actor.name, item.Name)
+                elseif commonLeft(spec) then
+                    violate("premium item", "%s used %s with a common one in the bag", actor.name, item.Name)
+                end
+            end
         end
         if B.pot then violate("pot item", "%s used %s in a Pot fight", actor.name, item.Name) end
     else
@@ -982,10 +1031,14 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
             violate("early escape", "%s escaped while enemies were still losing HP", actor.name)
         end
     end
-    if spec.mp and isItem and byMod then
+    if spec.mp and not spec.heal and isItem and byMod then
         B.roundEthers = B.roundEthers + 1
         B.stats.ethers = B.stats.ethers + 1
-        if B.roundEthers > 1 then violate("second ether", "%s drank a second Ether this round", actor.name) end
+        if B.roundEthers > 1 and not direNeed() then
+            local hp = {}
+            for _, u in pairs(B.units) do if u.side == "ally" then hp[#hp + 1] = string.format("%s %d/%d%s%s", u.name, u.hp, u.maxHp, u.dead and " dead" or "", u.summon and " summon" or "") end end
+            violate("second ether", "%s drank a second Ether this round (%s)", actor.name, table.concat(hp, ", "))
+        end
     end
     if (spec.provoke or eff == EFF.COVER) and byMod then
         B.stats.draws = B.stats.draws + 1

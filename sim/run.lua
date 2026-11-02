@@ -94,6 +94,10 @@ for _, el in ipairs({ { "Fire", "Fira" }, { "Blizzard", "Blizzara" }, { "Thunder
     dmg(el[1], ATTR.MAGIC, 5, 120, 17)
     dmg(el[2], ATTR.MAGIC, 15, 200, 25)
 end
+-- From the battle log of 2026-11-02 (the replay fight). Tranquility is a
+-- katana hit in the game: physical, whatever the books say.
+dmg("Tranquility", ATTR.ABILITY, 13, 200, 40, nil, { magic = false, phys = true })
+dmg("Shining Arrow", ATTR.ABILITY, 6, 140, 25)
 dmg("Banish", ATTR.MAGIC, 6, 130, 17)
 dmg("Banishra", ATTR.MAGIC, 16, 210, 25)
 
@@ -149,6 +153,7 @@ Sim.addSkill({ name = "Crystal Braver", attr = ATTR.FINISH, effect = EFF.DAMAGE,
 local function item(name, spec, rare) return Sim.addItem(name, spec, rare) end
 item("Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, calc = 3, power = 300 })
 item("Hi-Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, calc = 3, power = 700 })
+item("Mist Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, calc = 3, power = 200, target = TGT.ALL })
 item("Ether", { effect = EFF.DAMAGE, rel = REL.FRIEND, mp = true, calc = 3, power = 60 })
 item("Phoenix Down", { effect = EFF.REVIVE, rel = REL.FRIEND, revive = true })
 item("Antidote", { effect = EFF.CURE, rel = REL.FRIEND, status = ST.POISON })
@@ -165,6 +170,12 @@ item("Megalixir", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, mp = tru
 item("X-Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, full = true, calc = 3, power = 9999 })
 item("Turbo Ether", { effect = EFF.DAMAGE, rel = REL.FRIEND, mp = true, full = true, calc = 3, power = 999 })
 item("Phoenix Pinion", { effect = EFF.REVIVE, rel = REL.FRIEND, revive = true })
+-- Thrown attack items. Not flagged rare, so the planner knows them by name.
+for _, e in ipairs({ { "Flame", "fire" }, { "Ice", "ice" }, { "Wind", "wind" }, { "Earth", "earth" }, { "Lightning", "lightning" }, { "Water", "water" } }) do
+    item(e[1] .. " Scroll I", { effect = EFF.DAMAGE, rel = REL.ENEMY, element = e[2], magic = true, calc = 3, power = 180, stagger = 12 })
+end
+item("Knife of Blind", { effect = EFF.DAMAGE, rel = REL.ENEMY, phys = true, calc = 3, power = 120, stagger = 8, status = ST.BLIND })
+item("Fuma Shuriken", { effect = EFF.DAMAGE, rel = REL.ENEMY, phys = true, calc = 3, power = 260, stagger = 10 })
 
 --------------------------------------------------------------------------------
 -- Visions: a bar of skills. The planner is never told which one it is.
@@ -191,6 +202,27 @@ local VISIONS = {
     { key = "brawler", hp = { 900, 1000 }, mp = { 30, 50 }, atk = 115, mag = 30,
         skills = { "Attack", "Tackle", "Bladeblitz" } },
 }
+-- The replay party: the last fight in the battle log of 2026-11-02, a boss
+-- Shoggoth that wiped this party. Skills and MP are read from the log; HP,
+-- attack, and magic are guesses.
+local REPLAY_PARTY = {
+    { name = "Nichol", vision = "tactician", maxHp = 700, maxMp = 52, atk = 60, mag = 90, spd = 11,
+        skills = { "Escape", "Attack", "Slow", "Watera", "Formation: Assail", "Cure", "Defend" } },
+    { name = "Lasswell", vision = "sword", maxHp = 820, maxMp = 52, atk = 105, mag = 70, spd = 13,
+        skills = { "Escape", "Attack", "Tranquility", "Placidity", "Blizzard", "Dawn Frost", "Defend" } },
+    { name = "Fina", vision = "white", healer = true, maxHp = 680, maxMp = 220, atk = 55, mag = 95, spd = 10,
+        skills = { "Escape", "Attack", "Siren", "Esuna", "Shining Arrow", "Cure", "Raise" } },
+    { name = "Rain", vision = "red", maxHp = 780, maxMp = 55, atk = 80, mag = 80, spd = 12,
+        skills = { "Escape", "Attack", "Fire", "Fira", "Provoke", "Cure", "Defend", "Crystal Braver" } },
+}
+local function replayBag()
+    return {
+        ["Potion"] = 10, ["Mist Potion"] = 10, ["Ether"] = 12, ["Phoenix Down"] = 6,
+        ["Antidote"] = 2, ["Eye Drops"] = 2, ["Echo Herb"] = 2, ["Remedy"] = 1,
+        ["Water Scroll I"] = 4, ["Wind Scroll I"] = 2,
+    }
+end
+
 local LIMITS = { "Null Moon", "Infinity Drive", "Transient Rite", "Radiant Restoration" }
 local NAMES = { "Rain", "Fina", "Lasswell", "Nichol", "Aria", "Bram", "Cora", "Dax" }
 
@@ -282,6 +314,10 @@ local function makeFight(kind, size)
     elseif kind == "pot" then
         f.pot = true
         f.foes[1] = { name = "Pot", hp = math.floor(400 * scale), atk = 20, spd = 5, statusChance = 0 }
+    elseif kind == "replay" then
+        -- The battle log's last fight: Shoggoth as a boss, alone.
+        f.boss = true
+        f.foes[1] = foe({ name = "shoggoth", card = Mobs["shoggoth"] }, 1, true)
     elseif kind == "nophys" then
         -- A book card that nulls physical hits and deals magic damage.
         local e = { name = "shoggoth", card = Mobs["shoggoth"] }
@@ -311,6 +347,9 @@ local function bag()
         ["Unicorn Horn"] = 2, ["Gold Needle"] = 1, ["Herb of Awakening"] = 2, ["Smelling Salts"] = 1,
         ["Remedy"] = math.random(0, 2), ["Elixir"] = 2, ["Megalixir"] = 1, ["X-Potion"] = 1,
         ["Turbo Ether"] = 1, ["Phoenix Pinion"] = 1,
+        ["Flame Scroll I"] = math.random(0, 2), ["Ice Scroll I"] = math.random(0, 2), ["Wind Scroll I"] = math.random(0, 2),
+        ["Earth Scroll I"] = math.random(0, 2), ["Lightning Scroll I"] = math.random(0, 2), ["Water Scroll I"] = math.random(0, 2),
+        ["Knife of Blind"] = math.random(0, 2), ["Fuma Shuriken"] = math.random(0, 1),
     }
 end
 
@@ -373,11 +412,14 @@ local function playSession(sid, withMod)
     local size = math.random(1, 4)
     local party = makeParty(size)
     local nFights = math.random(1, 3)
+    if only == "replay" then
+        size, party, nFights = #REPLAY_PARTY, copyParty(REPLAY_PARTY), 1
+    end
     local plan = {}
     for i = 1, nFights do
         local kind = only or pick(KINDS)
         plan[i] = makeFight(kind, size)
-        plan[i].bag = bag()
+        plan[i].bag = (kind == "replay") and replayBag() or bag()
     end
     Sim.install()
     if withMod then

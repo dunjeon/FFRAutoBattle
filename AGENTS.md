@@ -16,7 +16,7 @@ It has to work for any party size, any character, and any Vision. A change that 
 
 ## Where the files are
 
-The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.27.`
+The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.28.`
 
 `known.lua` is published skill and item facts: element, stagger, and use. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
@@ -32,12 +32,12 @@ This repo is the only copy under git. The installed mod folder, `FFRS/Binaries/W
 - A weakness may finish a gauge when nothing in that element can chip it without finishing. When a weakness can still chip another enemy in the pool, the hit moves there.
 - One debuff goes on the enemy with a dangerous attack, or on the largest gauge.
 - Claims stop a second heal, a second revive, or a second Ether in the same round.
-- Common shop items only. Elixir, megalixir, X-tier, turbo ether, phoenix pinion, tent, and scrolls stay put. A Pot fight spends nothing.
+- Common shop items only, outside a boss fight. In a boss fight a rare item is spent when no common item does the job: a raise at once, a heal or MP item only under dire need (an ally down, an ally under 30%, or most of the living party under half). Dire need lifts the one-Ether-per-round limit. Scrolls and knives are thrown in a boss fight on a weakness the bar cannot pay, or when nothing payable lands. Tents and Healing Spring stay put. A Pot fight spends nothing.
 - The Resonance wheel is the player's. Detect the phase. Do not send a normal spell as a Finish Blow. Do not guess command-bar ids as Vision ids.
 - Battle speed stays with the game. Do not read it, write it, multiply it, clamp it, or move its marks. Do not bind the speed key.
 - In a fight, while auto battle is on, the left trigger toggles basic attacks. While auto battle is off, or outside a fight, the left trigger stays with the game. F9 still toggles basic attacks. Do not rewrite the game's input mappings from the trigger poll. That walk threw and stopped both triggers.
 - If the planner throws or returns nothing, swing a payable damage skill that can land, on a body it lands on. When nothing on the bar can land on anyone, Defend. With no Defend, swing anyway, so the menu is never left open.
-- A kind of hit (physical or magic) the card nulls, or one the fight has seen do no damage twice, is a miss, the same as a nulled element.
+- A kind of hit (physical or magic) the card nulls, or one the fight has seen do no damage twice, is a miss, the same as a nulled element. A kind that already took HP off that enemy in the fight, with no summon out, is not learned as nulled.
 
 ## Lua
 
