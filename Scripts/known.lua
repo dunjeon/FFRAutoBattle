@@ -29,7 +29,7 @@ return {
     skills = {
         ["attack"] = { stagger = 25, use = "break", phys = true },
         ["tackle"] = { stagger = 35, use = "break", phys = true },
-        ["dawn frost"] = { stagger = 30, element = "ice", use = "break", magic = true },
+        ["dawn frost"] = { stagger = 30, element = "ice", use = "break", phys = true },
         ["fire"] = { stagger = 17, element = "fire", use = "break", magic = true },
         ["fira"] = { stagger = 19, element = "fire", use = "break", magic = true },
         ["blizzard"] = { stagger = 17, element = "ice", use = "break", magic = true },
