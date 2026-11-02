@@ -29,6 +29,10 @@ local OUT = {
     [SLEEP] = true, [PARALYSIS] = true, [CONFUSE] = true, [PETRIFY] = true,
     [CHARM] = true, [STOP] = true, [BERSERK] = true,
 }
+local OUT_NAME = {
+    [SLEEP] = "sleep", [PARALYSIS] = "paralysis", [CONFUSE] = "confuse", [PETRIFY] = "petrify",
+    [CHARM] = "charm", [STOP] = "stop", [BERSERK] = "berserk",
+}
 local SOFT = { [POISON] = true, [BLIND] = true }
 -- Two misses, after the cast went out, mark that cure as not working.
 -- One miss does not. A Slow that ends is not stored as a clear.
@@ -389,7 +393,9 @@ function M.entryNote(allies)
             bits[#bits + 1] = name .. " down"
         elseif a.statuses then
             if hasId(a.statuses, DOOM) then bits[#bits + 1] = name .. " doom" end
-            if hasAny(a.statuses, OUT) then bits[#bits + 1] = name .. " locked" end
+            for id, label in pairs(OUT_NAME) do
+                if a.statuses[id] then bits[#bits + 1] = name .. " " .. label end
+            end
             if hasId(a.statuses, SILENCE) then bits[#bits + 1] = name .. " silence" end
             if hasId(a.statuses, POISON) then bits[#bits + 1] = name .. " poison" end
             if hasId(a.statuses, BLIND) then bits[#bits + 1] = name .. " blind" end

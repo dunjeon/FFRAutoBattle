@@ -129,10 +129,11 @@ function M.pickDraw(skills, ctx)
         if (cost > 0) and (not ctx.pay) then return false end
         return true
     end
-    -- Up while its status is on a living ally. Without a status id,
-    -- Provoke is up for its turns and a Cover is spent once a fight.
-    -- A recast also waits one pass of the party, so a status the game
-    -- never shows cannot loop.
+    -- Up while its status is on a living ally. A status seen and then
+    -- gone can be recast. A status the game has not shown since the cast
+    -- is treated as no status: Provoke is up for its turns, and a Cover
+    -- is spent once a fight.
+    local seen = ctx.seen or {}
     local function up(skill, row, key)
         local at = sent[key]
         local now = ctx.actions or 0
@@ -140,9 +141,12 @@ function M.pickDraw(skills, ctx)
         local map = skill.friendStatus
         if listed(map) then
             for _, a in ipairs(ctx.allies or {}) do
-                if (not a.dead) and bodyHas(a, map) then return true end
+                if (not a.dead) and bodyHas(a, map) then
+                    seen[key] = true
+                    return true
+                end
             end
-            return (type(at) == "number") and ((now - at) < party)
+            if seen[key] then return false end
         end
         if type(at) ~= "number" then return false end
         if row.kind == "provoke" then return (now - at) < span end
@@ -162,6 +166,8 @@ function M.pickDraw(skills, ctx)
     for _, slot in ipairs(order) do
         local f = found[slot]
         if f then
+            -- This cast starts a new watch for its status.
+            seen[f.key] = nil
             if slot == "cover" then
                 local target = (healerHurt and healer) or lowest
                 if target then

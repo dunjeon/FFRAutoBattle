@@ -2578,10 +2578,50 @@ local function turn(uid, skills, w, phase)
             if focus.tier == "doom" then why = "cure doom " .. (focus.name or "") end
             if focus.tier == "b" then why = "cure soft " .. (focus.name or "") end
             if focus.tier == "slow" then why = "cure slow " .. (focus.name or "") end
+            -- A cure is aimed at a status its row lists, when it lists any.
+            -- A cure that went out and left the same status is a miss. Two
+            -- misses and that cure is not spent on that status this fight.
+            Fight.cureTry = Fight.cureTry or {}
+            Fight.cureMiss = Fight.cureMiss or {}
+            local ids = {}
+            for id in pairs(focus.statuses or {}) do
+                if LOCK[id] or (id == 1) or (id == 2) or (id == 12) then ids[#ids + 1] = id end
+            end
+            table.sort(ids)
+            local sig = table.concat(ids, ",")
+            local try = Fight.cureTry[focus.id]
+            if try then
+                Fight.cureTry[focus.id] = nil
+                local fresh = ((Fight.rounds or 0) - (try.round or 0)) <= 1
+                if fresh and (try.sig == sig) and (#(Fight.actions or {}) > (try.at or 0)) then
+                    local k = try.name .. "|" .. sig
+                    Fight.cureMiss[k] = (Fight.cureMiss[k] or 0) + 1
+                    if Fight.cureMiss[k] == 2 then
+                        local line = string.format("cure %s does not clear status %s on %s", try.name, sig, focus.name or "?")
+                        log("%s", line)
+                        appendLog("  " .. line)
+                    end
+                end
+            end
             for _, s in ipairs(skills) do
                 if (s.kind == "cure") and pay(s) then
-                    local choice = finishChoice(uid, s, why, { focus.id }, aoeOf(s))
-                    if choice then return choice end
+                    local lists, hits = anyKey(s.friendStatus), false
+                    if lists then
+                        for id in pairs(focus.statuses or {}) do
+                            if s.friendStatus[id] then hits = true end
+                        end
+                    end
+                    local missed = (Fight.cureMiss[(s.name or "") .. "|" .. sig] or 0) >= 2
+                    if ((not lists) or hits) and (not missed) then
+                        local choice = finishChoice(uid, s, why, { focus.id }, aoeOf(s))
+                        if choice then
+                            Fight.cureTry[focus.id] = {
+                                name = s.name or "", sig = sig,
+                                at = #(Fight.actions or {}), round = Fight.rounds or 0,
+                            }
+                            return choice
+                        end
+                    end
                 end
             end
             return nil
@@ -2805,9 +2845,23 @@ local function turn(uid, skills, w, phase)
             if card and card.danger and card.danger[1] and (not empty) and (not u.broken) then danger = true end
         end
         local own = unitKit(uid)
-        local healer = Health.mainHealer and Health.mainHealer(w.allies, unitKit) or nil
+        -- The healer to protect is the best heal kit among the others. The
+        -- actor holds back only when its own kit heals better than all of
+        -- them. Equal kits mean either one can pull the attacks.
+        local ownScore = (own and own.healScore) or 0
+        local healer, bestScore = nil, -1
+        for _, a in ipairs(w.allies) do
+            if (a.id ~= uid) and (not a.dead) and (a.acts ~= false) and (not heldOut(a)) then
+                local kit = unitKit(a.id)
+                local score = (kit and kit.healScore) or 0
+                if (score >= 50) and (score > bestScore) then healer, bestScore = a, score end
+            end
+        end
+        local healerId = healer and healer.id or nil
+        if (ownScore >= 50) and (ownScore > bestScore) then healerId = uid end
+        Fight.drawSeen = Fight.drawSeen or {}
         local picked = Kits.pickDraw(skills, {
-            allies = w.allies, selfId = uid, healerId = healer and healer.id or nil,
+            allies = w.allies, selfId = uid, healerId = healerId, seen = Fight.drawSeen,
             recoverAt = recoverAt, danger = danger,
             mp = w.mp or 0, pay = (band() ~= "low"),
             keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
@@ -3974,6 +4028,7 @@ local function ensureBattle()
     Fight.kits = {}
     Fight.claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, kit = {}, etherRound = false, guard = false, esper = false, lb = false }
     Fight.kitOn = {}
+    Fight.drawSeen, Fight.cureTry, Fight.cureMiss = {}, {}, {}
     Fight.luckToss = {}
     Fight.debuffOn, Fight.debuffSeen, Fight.debuffTold = {}, {}, {}
     Fight.went, Fight.rounds, Fight.seenFoe = {}, 0, {}
