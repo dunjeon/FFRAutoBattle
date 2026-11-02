@@ -1599,10 +1599,7 @@ local function worldOf(uid, boss, summoned)
         local r = hpRatio(id)
         local hp = r or 1
         if down then hp = 0 end
-        local name = unitName(id)
-        if name:find("^Unit ") and Fight and Fight.seenAlly and Fight.seenAlly[id] then
-            name = Fight.seenAlly[id]
-        end
+        local name = (Fight and Fight.nameOf) and Fight.nameOf(id) or unitName(id)
         allies[#allies + 1] = {
             id = id, name = name, hp = hp,
             dead = down and true or false, statuses = statuses(id),
@@ -1769,6 +1766,14 @@ Fight = {
     slowSince = {}, slowTry = nil, slowTold = {}, slowUsed = {},
     underLine = false,
 }
+
+-- A party slot can read no name, when fallen or on the wheel. The name seen
+-- earlier in the fight is the party member's name.
+Fight.nameOf = function(id)
+    local name = unitName(id)
+    if name:find("^Unit ") and Fight.seenAlly and Fight.seenAlly[id] then return Fight.seenAlly[id] end
+    return name
+end
 
 local function currentActor()
     local ss = FindFirstOf("CPP_UI_BattleSubsystem")
@@ -2237,6 +2242,16 @@ local function turn(uid, skills, w, phase)
         return who
     end
 
+    -- An ally whose status takes the turn is not counted on to act: not to
+    -- heal, chip, pay a weakness, or cast the setup. The actor is acting now.
+    local function heldOut(a)
+        if (not a) or (a.id == uid) or (not Health.OUT) or (not a.statuses) then return false end
+        for sid in pairs(Health.OUT) do
+            if a.statuses[sid] then return true end
+        end
+        return false
+    end
+
     if phase == PHASE_FINISH then
         local finishes = {}
         for _, s in ipairs(skills) do
@@ -2270,7 +2285,7 @@ local function turn(uid, skills, w, phase)
         local healers = 0
         hardField = w.boss and true or false
         for _, a in ipairs(w.allies) do
-            if not a.dead and a.acts ~= false then
+            if not a.dead and a.acts ~= false and not heldOut(a) then
                 local kit = unitKit(a.id)
                 if kit and (kit.healScore or 0) >= 50 then
                     local mp = stat(a.id, PARAM.MP, false) or 0
@@ -2505,11 +2520,10 @@ local function turn(uid, skills, w, phase)
         if phase == PHASE_BONUS then return false end
         if crit and (crit.hp or 1) < 0.15 then return false end
         local list = (#pool > 0) and pool or open
+        -- The same hit the damage picker would cast. A summon is not a chip.
         local function pays(spells, mp)
             for _, s in ipairs(spells) do
-                if s.kind ~= "heal" and s.kind ~= "buff" and s.kind ~= "debuff"
-                    and s.kind ~= "cure" and s.kind ~= "revive" and s.kind ~= "defend"
-                    and s.kind ~= "scan" and (s.cost or 0) <= mp then
+                if isHit(s, false) and (s.cost or 0) <= mp then
                     for _, u in ipairs(list) do
                         if elementFactor(s, u) >= 3 then return true end
                     end
@@ -2522,7 +2536,7 @@ local function turn(uid, skills, w, phase)
         local others, otherPays, otherHeals = 0, false, false
         local mpOf = function(id) return stat(id, PARAM.MP, false) or 0 end
         for _, a in ipairs(w.allies) do
-            if a.id ~= uid and not a.dead and a.acts ~= false then
+            if a.id ~= uid and not a.dead and a.acts ~= false and not heldOut(a) then
                 others = others + 1
                 local kit = unitKit(a.id)
                 local mp = mpOf(a.id)
@@ -2634,7 +2648,7 @@ local function turn(uid, skills, w, phase)
             end
         end
         for _, a in ipairs(w.allies) do
-            if (not a.dead) and (a.acts ~= false) then
+            if (not a.dead) and (a.acts ~= false) and not heldOut(a) then
                 local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
                 local spells = skills
                 if a.id ~= uid then
@@ -2784,7 +2798,7 @@ local function turn(uid, skills, w, phase)
     local foeRows, seenNoted, matterKnown, debuffOwedFlag = nil, false, nil, nil
     local function hitWouldFinish(enemy, remain)
         for _, a in ipairs(w.allies) do
-            if (not a.dead) and (a.acts ~= false) then
+            if (not a.dead) and (a.acts ~= false) and not heldOut(a) then
                 local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
                 local spells = skills
                 if a.id ~= uid then
@@ -2903,7 +2917,7 @@ local function turn(uid, skills, w, phase)
         noteDebuffSeen(foes)
         local fallback = not partyMatter()
         for _, a in ipairs(w.allies) do
-            if (not a.dead) and (a.acts ~= false) then
+            if (not a.dead) and (a.acts ~= false) and not heldOut(a) then
                 local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
                 local picks = payableDebuffs(a.id, mp)
                 if Debuffs.choose(picks, foes, Fight.debuffOn, Fight.debuffSeen, fallback) then
@@ -2922,7 +2936,7 @@ local function turn(uid, skills, w, phase)
             if a.dead then return false end
         end
         for _, a in ipairs(w.allies) do
-            if not a.dead and a.acts ~= false then
+            if not a.dead and a.acts ~= false and not heldOut(a) then
                 local kit = unitKit(a.id)
                 local mp = stat(a.id, PARAM.MP, false) or 0
                 if kit then
@@ -2942,7 +2956,7 @@ local function turn(uid, skills, w, phase)
         local foes = (#pool > 0) and pool or open
         if #foes == 0 then foes = w.enemies end
         for _, a in ipairs(w.allies) do
-            if not a.dead and a.acts ~= false then
+            if not a.dead and a.acts ~= false and not heldOut(a) then
                 local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
                 if a.id == skipId then mp = mp - (skipCost or 0) end
                 if mp >= 0 then
@@ -2974,7 +2988,7 @@ local function turn(uid, skills, w, phase)
             if a.dead then return false end
         end
         for _, a in ipairs(w.allies) do
-            if not a.dead and a.acts ~= false then
+            if not a.dead and a.acts ~= false and not heldOut(a) then
                 local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
                 local ids = equippedIds(a.id)
                 for _, id in ipairs(ids) do
@@ -3599,8 +3613,7 @@ local function livingSnapshot()
             -- A fallen slot reads no HP. Without this it reads full and the fall is missed.
             local hp = hpRatio(id) or 1
             if Fight.unitDown and Fight.unitDown(id) then hp = 0 end
-            local name = unitName(id)
-            if name:find("^Unit ") and Fight.seenAlly and Fight.seenAlly[id] then name = Fight.seenAlly[id] end
+            local name = Fight.nameOf(id)
             snap[id] = { side = "ally", name = name, hp = hp, broken = false }
         end
     end
@@ -3614,7 +3627,8 @@ local function noteChanges(now)
     local last = Fight.last
     for id, was in pairs(Fight.prev) do
         local cur = now[id]
-        if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) then
+        local summon = Fight.summons and Fight.summons[id]
+        if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon then
             Fight.fell[#Fight.fell + 1] = was.name
             appendLog("  fell: " .. was.name)
         end
@@ -4295,7 +4309,7 @@ local function act(serial)
         return
     end
     if not Menu.open or Menu.serial ~= serial then return end
-    local who = unitName(uid)
+    local who = Fight.nameOf(uid)
     local phase = finishing and PHASE_FINISH or currentPhase()
     local mpNow = stat(uid, PARAM.MP, false)
     local line = string.format("%s p%d mp%s: %s -> %s", who, phase, tostring(mpNow or "?"), choice.name, choice.reason)
@@ -4395,10 +4409,14 @@ local function noteHand(v)
     if not Fight.active then return end
     pcall(function() noteChanges(livingSnapshot()) end)
     pcall(settleGauges)
-    -- The unit whose turn it is. The game also decides for an ally whose
-    -- status takes the turn, with no menu, so the last menu is only a fallback.
-    local uid = currentActor()
+    -- A pick from an open menu, or on the Resonance wheel, belongs to that
+    -- menu's ally. A command with no menu is one the game made for the
+    -- unit whose turn it is, such as an ally whose status takes the turn.
+    local onWheel = (currentPhase() == PHASE_FINISH)
+    local uid = nil
+    if Menu.fromMenu or onWheel then uid = Menu.actor else uid = currentActor() end
     if (not uid) or (uid < 0) then uid = Menu.actor end
+    if (not uid) or (uid < 0) then uid = currentActor() end
     local actionId, isItem, targets, rowObj = nil, false, {}, nil
     local function readIds(list)
         local out = {}
@@ -4456,11 +4474,11 @@ local function noteHand(v)
     if use == "debuff" then kind = "debuff" end
     if (not kind) and ((use == "break") or (use == "cash")) then kind = "damage" end
     local phase = currentPhase()
-    local who = (uid and (uid >= 0)) and unitName(uid) or "you"
+    local who = (uid and (uid >= 0)) and Fight.nameOf(uid) or "you"
     local line = string.format("player %s p%d: %s", who, phase, name)
     if #targets > 0 then
         local bits = {}
-        for _, tid in ipairs(targets) do bits[#bits + 1] = unitName(tid) end
+        for _, tid in ipairs(targets) do bits[#bits + 1] = Fight.nameOf(tid) end
         line = line .. " -> " .. table.concat(bits, ", ")
     end
     log("%s", line)
@@ -4560,7 +4578,8 @@ local function noteHand(v)
             else Fight.elemRun[tid] = { el = el, n = 1 } end
         end
     end
-    if uid and (uid >= 0) then noteRound(uid) end
+    -- The wheel is the party's pick, not a turn.
+    if uid and (uid >= 0) and (not onWheel) then noteRound(uid) end
 end
 
 local function scheduleAct()
@@ -4585,6 +4604,7 @@ local function hookDecide()
             local v = value:get()
             local fromMod = (Menu.byMod == true)
             Menu.byMod = false
+            Menu.fromMenu = Menu.open and (not Menu.decided) and true or false
             learn(v)
             Menu.decided = true
             Menu.sub = false
