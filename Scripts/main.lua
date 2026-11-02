@@ -577,6 +577,14 @@ end
 
 local function unitName(uid)
     local p = paramOf(uid)
+    -- A fallen ally is not in the living list. Its slot still has the name.
+    if not p then
+        local bfl = battleLib()
+        if bfl and bfl:IsValid() then
+            local ok, q = pcall(function() return bfl:GetBattleUnitParameter(uid, false) end)
+            if ok and q and q.IsValid and q:IsValid() then p = q end
+        end
+    end
     if p then
         local ok, n = pcall(function() return p:GetDuplicationUnitName() end)
         local s = ok and textOf(n) or nil
@@ -1591,8 +1599,12 @@ local function worldOf(uid, boss, summoned)
         local r = hpRatio(id)
         local hp = r or 1
         if down then hp = 0 end
+        local name = unitName(id)
+        if name:find("^Unit ") and Fight and Fight.seenAlly and Fight.seenAlly[id] then
+            name = Fight.seenAlly[id]
+        end
         allies[#allies + 1] = {
-            id = id, name = unitName(id), hp = hp,
+            id = id, name = name, hp = hp,
             dead = down and true or false, statuses = statuses(id),
         }
     end
@@ -2491,16 +2503,25 @@ local function turn(uid, skills, w, phase)
             return false
         end
         if not pays(skills, w.mp or 0) then return false end
-        local others, otherPays = 0, false
+        -- The payer keeps chipping only while someone else can still heal.
+        local others, otherPays, otherHeals = 0, false, false
+        local mpOf = function(id) return stat(id, PARAM.MP, false) or 0 end
         for _, a in ipairs(w.allies) do
             if a.id ~= uid and not a.dead and a.acts ~= false then
                 others = others + 1
                 local kit = unitKit(a.id)
-                local mp = stat(a.id, PARAM.MP, false) or 0
+                local mp = mpOf(a.id)
                 if kit and pays(kit.spells or {}, mp) then otherPays = true end
+                if kit and ((kit.healScore or 0) >= 50) then
+                    if Health.available then
+                        if Health.available(a, a.statuses, unitKit, mpOf) then otherHeals = true end
+                    elseif ((kit.healCost or 0) <= 0) or (mp >= (kit.healCost or 0)) then
+                        otherHeals = true
+                    end
+                end
             end
         end
-        return others > 0 and not otherPays
+        return others > 0 and not otherPays and otherHeals
     end
     if crit and phase ~= PHASE_BONUS and not deferHeal() then
         local choice = healNow(crit, "critical")
@@ -3504,7 +3525,7 @@ local function turn(uid, skills, w, phase)
         local tosses = (Fight.luckToss and Fight.luckToss[uid]) or 0
         local picked = Kits.pick(skills, {
             allies = w.allies, foes = foes, selfId = uid,
-            actions = #(Fight.actions or {}), mp = w.mp or 0,
+            actions = #(Fight.actions or {}), mp = w.mp or 0, maxMp = w.maxMp or 0,
             keep = keep, pay = (band() ~= "low"), healer = healer,
             claim = Fight.claim.kit, sent = Fight.kitOn,
             tossOk = locked and (not hitting) and (not Fight.chipped) and (tosses < 2),
@@ -3549,7 +3570,12 @@ end
 local function livingSnapshot()
     local snap = {}
     for _, id in ipairs(friendIds()) do
-        snap[id] = { side = "ally", name = unitName(id), hp = hpRatio(id) or 1, broken = false }
+        -- A fallen slot reads no HP. Without this it reads full and the fall is missed.
+        local hp = hpRatio(id) or 1
+        if Fight.unitDown and Fight.unitDown(id) then hp = 0 end
+        local name = unitName(id)
+        if name:find("^Unit ") and Fight.seenAlly and Fight.seenAlly[id] then name = Fight.seenAlly[id] end
+        snap[id] = { side = "ally", name = name, hp = hp, broken = false }
     end
     for _, id in ipairs(members(REL.ENEMY)) do
         snap[id] = { side = "enemy", name = unitName(id), hp = hpRatio(id) or 1, broken = broken(id) }
@@ -3885,6 +3911,8 @@ local function ensureBattle()
     Fight.downNow = {}
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
+    -- A low bar from the last fight is not a wipe in this one.
+    Fight.mpAnchor, Fight.mpLow, Fight.mpBack = {}, {}, {}
     Fight.unmarked = false
     Fight.unmarkedTold = false
     Fight.recoverTold = false

@@ -191,12 +191,32 @@ function M.pick(skills, ctx)
         return rank < best
     end
 
+    -- A ready that sets up a formation is spent only when the formation it
+    -- sets up still fits after it: the MP covers both, the heal kept back
+    -- still fits, and a paid formation is not left in the low band.
+    local function followFits(s, row)
+        if row.with ~= "formation" then return true end
+        local mp = (ctx.mp or 0) - (s.cost or 0)
+        local maxMp = ctx.maxMp or 0
+        for _, f in ipairs(skills) do
+            local frow = rowOf(f)
+            if frow and (frow.kind == "formation") and (not claim[fold(f.name)])
+                and (not friendUp(f, fold(f.name), frow.turns, true)) then
+                local cost = f.cost or 0
+                local left = mp - cost
+                local band = (cost <= 0) or (maxMp <= 0) or ((mp / maxMp) >= 0.20)
+                if (left >= 0) and (left >= (ctx.keep or 0)) and band then return true end
+            end
+        end
+        return false
+    end
+
     local function takeReady()
         local best, bestRank = nil, nil
         for _, s in ipairs(skills) do
             local row = rowOf(s)
             local key = fold(s.name)
-            if row and (row.kind == "ready") and allowed(row) and afford(s)
+            if row and (row.kind == "ready") and allowed(row) and afford(s) and followFits(s, row)
                 and (not claim[key]) and (not groupUp(row.group))
                 and (not friendUp(s, key, row.turns, row.party))
                 and better(row.rank, bestRank) then
