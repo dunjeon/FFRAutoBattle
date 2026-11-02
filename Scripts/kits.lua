@@ -28,6 +28,17 @@ local BOOK = {
     ["cointoss"] = { kind = "luck", rank = 1 },
 }
 
+-- Skills that pull enemy attacks onto the caster. Provoke draws every
+-- enemy for about three turns. Cover takes the hits meant for one ally.
+-- Multi-Cover does that for the party. Cover has no published duration,
+-- so it is held while its live status is up, or cast once a fight when
+-- the row lists no status.
+local DRAW = {
+    ["provoke"] = { kind = "provoke", turns = 3 },
+    ["cover"] = { kind = "cover" },
+    ["multicover"] = { kind = "cover", party = true },
+}
+
 local GATED = {
     ["blitzstrahl"] = true,
     ["demolisherrush"] = true,
@@ -72,7 +83,106 @@ end
 
 function M.key(name)
     local k = fold(name)
-    if BOOK[k] then return k end
+    if BOOK[k] or DRAW[k] then return k end
+    return nil
+end
+
+-- Provoke, Cover, or Multi-Cover for the actor, or nil.
+-- They answer a threat: a dangerous attack still open on the field, or a
+-- healer under the recover line. A calm field spends none. The healer
+-- does not pull attacks, and neither does an ally under the recover line.
+-- There has to be someone else to protect. One of them per round, then
+-- the chip. A paid one goes while MP is above the low band.
+-- ctx: allies, selfId, healerId, recoverAt, danger, mp, keep, pay,
+-- claim, sent, actions.
+function M.pickDraw(skills, ctx)
+    if (not skills) or (not ctx) then return nil end
+    local claim = ctx.claim or {}
+    local sent = ctx.sent or {}
+    if claim.draw then return nil end
+    local line = ctx.recoverAt or 0.50
+    local selfBody, healer, others, lowest = nil, nil, 0, nil
+    local party = 0
+    for _, a in ipairs(ctx.allies or {}) do
+        if not a.dead then
+            party = party + 1
+            if a.id == ctx.selfId then
+                selfBody = a
+            else
+                others = others + 1
+                if (not lowest) or ((a.hp or 1) < (lowest.hp or 1)) then lowest = a end
+            end
+            if a.id == ctx.healerId then healer = a end
+        end
+    end
+    if (not selfBody) or (others == 0) then return nil end
+    if ctx.healerId and (ctx.selfId == ctx.healerId) then return nil end
+    if (selfBody.hp or 1) < line then return nil end
+    local healerHurt = healer and (healer.id ~= ctx.selfId) and ((healer.hp or 1) < line)
+    if not (ctx.danger or healerHurt) then return nil end
+
+    local function afford(skill)
+        local cost = skill.cost or 0
+        local mp = ctx.mp or 0
+        if cost > mp then return false end
+        if (mp - cost) < (ctx.keep or 0) then return false end
+        if (cost > 0) and (not ctx.pay) then return false end
+        return true
+    end
+    -- Up while its status is on a living ally. Without a status id,
+    -- Provoke is up for its turns and a Cover is spent once a fight.
+    -- A recast also waits one pass of the party, so a status the game
+    -- never shows cannot loop.
+    local function up(skill, row, key)
+        local at = sent[key]
+        local now = ctx.actions or 0
+        local span = (row.turns or 0) * party
+        local map = skill.friendStatus
+        if listed(map) then
+            for _, a in ipairs(ctx.allies or {}) do
+                if (not a.dead) and bodyHas(a, map) then return true end
+            end
+            return (type(at) == "number") and ((now - at) < party)
+        end
+        if type(at) ~= "number" then return false end
+        if row.kind == "provoke" then return (now - at) < span end
+        return true
+    end
+
+    local found = {}
+    for _, s in ipairs(skills) do
+        local key = fold(s.name)
+        local row = DRAW[key]
+        if row and afford(s) and (not up(s, row, key)) then
+            local slot = (row.kind == "cover") and (row.party and "party" or "cover") or "provoke"
+            if not found[slot] then found[slot] = { skill = s, key = key } end
+        end
+    end
+    local order = healerHurt and { "cover", "party", "provoke" } or { "provoke", "party", "cover" }
+    for _, slot in ipairs(order) do
+        local f = found[slot]
+        if f then
+            if slot == "cover" then
+                local target = (healerHurt and healer) or lowest
+                if target then
+                    return {
+                        skill = f.skill, key = f.key, mode = "ally", target = target,
+                        why = "draw " .. (f.skill.name or "cover") .. " on " .. (target.name or "ally"),
+                    }
+                end
+            elseif slot == "party" then
+                return {
+                    skill = f.skill, key = f.key, mode = "party",
+                    why = "draw " .. (f.skill.name or "cover") .. " party",
+                }
+            else
+                return {
+                    skill = f.skill, key = f.key, mode = "self",
+                    why = "draw " .. (f.skill.name or "provoke"),
+                }
+            end
+        end
+    end
     return nil
 end
 

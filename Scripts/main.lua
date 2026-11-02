@@ -2795,6 +2795,44 @@ local function turn(uid, skills, w, phase)
     local softer = curePass(false)
     if softer then return softer end
 
+    -- Provoke, Cover, Multi-Cover: after the care steps, before setup and
+    -- the chip. Someone critical or a fall still down comes first.
+    if (phase == 0) and Kits.pickDraw and (not allyCritical()) and (not dead) then
+        local danger = false
+        for _, u in ipairs(w.enemies) do
+            local card = mobOf(u)
+            local _, _, empty = gaugeOfEnemy(u)
+            if card and card.danger and card.danger[1] and (not empty) and (not u.broken) then danger = true end
+        end
+        local own = unitKit(uid)
+        local healer = Health.mainHealer and Health.mainHealer(w.allies, unitKit) or nil
+        local picked = Kits.pickDraw(skills, {
+            allies = w.allies, selfId = uid, healerId = healer and healer.id or nil,
+            recoverAt = recoverAt, danger = danger,
+            mp = w.mp or 0, pay = (band() ~= "low"),
+            keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
+            claim = Fight.claim.kit, sent = Fight.kitOn, actions = #(Fight.actions or {}),
+        })
+        if picked then
+            local ids, isAll = { uid }, false
+            if picked.mode == "ally" and picked.target then
+                ids = { picked.target.id }
+            elseif picked.mode == "party" then
+                ids = {}
+                for _, a in ipairs(w.allies) do
+                    if not a.dead then ids[#ids + 1] = a.id end
+                end
+                isAll = true
+            end
+            local choice = finishChoice(uid, picked.skill, picked.why, ids, isAll)
+            if choice then
+                choice.kitKey = picked.key
+                Fight.claim.kit.draw = true
+                return choice
+            end
+        end
+    end
+
     local foeRows, seenNoted, matterKnown, debuffOwedFlag = nil, false, nil, nil
     local function hitWouldFinish(enemy, remain)
         for _, a in ipairs(w.allies) do
@@ -4908,7 +4946,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.24. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.25. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
