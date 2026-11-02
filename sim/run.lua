@@ -1,6 +1,6 @@
 -- FFR:AutoBattle sim runner.
 --
---   lua5.4 sim/run.lua [sessions] [seed] [--only kind] [--hard 1.0] [--keep loss,timeout]
+--   lua5.4 sim/run.lua [sessions] [seed] [--only kind] [--hard 1.0] [--keep loss,timeout] [--easy]
 --                      [--scripts DIR] [--echo]
 --
 -- Loads the real Scripts/*.lua into the sim, plays random parties against
@@ -25,10 +25,13 @@ local only = nil
 -- --hard 1.0 is the default difficulty. Higher hits harder and lasts longer.
 HARD = 1.0
 KEEP = {}
+EASY = false
 for i = 1, #arg do
     if arg[i] == "--echo" then Sim.echo = true end
     if arg[i] == "--only" then only = arg[i + 1] end
     if arg[i] == "--hard" then HARD = tonumber(arg[i + 1]) or 1.0 end
+    -- --easy plays Take it Easy: only the free basic Attack may go out.
+    if arg[i] == "--easy" then EASY = true end
     -- --keep loss,timeout also writes those fights to sim/out/kept.
     if arg[i] == "--keep" then for w in (arg[i + 1] or ""):gmatch("[^,]+") do KEEP[w] = true end end
 end
@@ -101,6 +104,7 @@ Sim.addSkill({ name = "Esuna", attr = ATTR.MAGIC, effect = EFF.CURE, cost = 8, r
 Sim.addSkill({ name = "Raise", attr = ATTR.MAGIC, effect = EFF.REVIVE, cost = 20, rel = REL.FRIEND, revive = true })
 Sim.addSkill({ name = "Libra", attr = ATTR.MAGIC, effect = EFF.ANALYZE, cost = 2 })
 Sim.addSkill({ name = "Defend", attr = ATTR.FIGHT, effect = EFF.DEFEND, cost = 0, target = TGT.SELF, rel = REL.FRIEND })
+Sim.addSkill({ name = "Escape", attr = 16, effect = 0, cost = 0, target = TGT.SELF, rel = REL.FRIEND })
 
 support("Protect", 8, TGT.SINGLE, ST.PROTECT)
 support("Protectga", 18, TGT.ALL, ST.PROTECT)
@@ -195,7 +199,7 @@ local function makeParty(size)
     local party, used = {}, {}
     for i = 1, size do
         local v = pick(VISIONS)
-        local skills = {}
+        local skills = { "Escape" }
         for _, s in ipairs(v.skills) do skills[#skills + 1] = s end
         if math.random() < 0.5 then skills[#skills + 1] = pick(LIMITS) end
         if math.random() < 0.3 then skills[#skills + 1] = "Crystal Braver" end
@@ -362,7 +366,7 @@ local function playSession(sid, withMod)
     Sim.install()
     if withMod then
         local f = io.open(WORK .. "/state.txt", "w")
-        f:write("enabled=true\nattacks=false\n")
+        f:write("enabled=true\nattacks=" .. (EASY and "true" or "false") .. "\n")
         f:close()
         local ok, err = pcall(dofile, WORK .. "/Scripts/main.lua")
         if not ok then error("main.lua failed to load: " .. tostring(err)) end
@@ -377,12 +381,25 @@ local function playSession(sid, withMod)
             if #members > 1 and math.random() < 0.5 then m.hp = 0 else m.statuses = { [pick({ ST.CONFUSE, ST.SLEEP, ST.SILENCE, ST.POISON })] = 3 } end
         end
         local B = Sim.newBattle({ party = members, foes = fight.foes, boss = fight.boss, pot = fight.pot,
-            bag = (i == 1) and sharedBag or nil, focusHealer = fight.focusHealer })
+            bag = (i == 1) and sharedBag or nil, focusHealer = fight.focusHealer, easy = EASY and withMod })
         if i > 1 then B.bag = results[i - 1].bag end
         local outcome = Sim.play(40, (not withMod) and Sim.baseline or nil)
         local viol = {}
         for _, v in ipairs(B.violations) do viol[#viol + 1] = v end
-        if withMod then scanModLines(B.modLines, fight, viol) end
+        if withMod then
+            scanModLines(B.modLines, fight, viol)
+            -- The planner's battle summary should not list more falls than happened.
+            for _, line in ipairs(B.modLines) do
+                local fellPart = line:match("battle %d+ done: .*%.%s([^%.]*)%.$")
+                if fellPart and fellPart ~= "no one fell" then
+                    local n = 1
+                    for _ in fellPart:gmatch(", ") do n = n + 1 end
+                    if n > B.stats.falls then
+                        viol[#viol + 1] = { kind = "false fall", text = string.format("summary lists %d falls (%s), %d happened", n, fellPart, B.stats.falls) }
+                    end
+                end
+            end
+        end
         results[i] = {
             kind = fight.kind, size = size, outcome = outcome, rounds = B.round, stats = B.stats,
             violations = viol, events = B.events, modLines = B.modLines, bag = B.bag, party = members,
@@ -406,13 +423,13 @@ local function describe(party, r)
     return table.concat(bits, " "), table.concat(foes, ", ")
 end
 
-local tally = { fights = 0, win = 0, loss = 0, timeout = 0, baseWin = 0, baseFights = 0, rounds = 0, baseRounds = 0 }
+local tally = { fights = 0, win = 0, loss = 0, timeout = 0, fled = 0, baseWin = 0, baseFights = 0, rounds = 0, baseRounds = 0 }
 local byKind, bySize, kinds = {}, {}, {}
 local function bump(t, k, field, n)
     t[k] = t[k] or { fights = 0, win = 0, base = 0, baseFights = 0 }
     t[k][field] = t[k][field] + (n or 1)
 end
-local stats = { pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
+local stats = { escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
     gameCommands = 0, modCommands = 0, cures = 0 }
 local items = {}
 local fails = 0
@@ -429,6 +446,7 @@ local MARKS = {
     { "cure does not clear", "does not clear status" }, { "ether heal", "ether so a heal fits" },
     { "ether weak", "ether so the weakness fits" }, { "heal left", "heal left," }, { "fill", "-> fill " },
     { "resonance sent", "resonance " }, { "pot fight", "pot fight" }, { "summon acts", "acts on its own" },
+    { "raise left", "raise left to" }, { "stalemate", "stalemate:" },
 }
 local marks = {}
 local started = os.clock()
@@ -450,6 +468,15 @@ for sid = 1, sessions do
             for k in pairs(stats) do stats[k] = stats[k] + (r.stats[k] or 0) end
             for name, n in pairs(r.stats.items) do items[name] = (items[name] or 0) + n end
             for _, line in ipairs(r.modLines) do
+                local summary = line:match("battle %d+ done: (.*)$")
+                if summary then
+                    local fellPart = summary:match("%.%s([^%.]*)%.$")
+                    if fellPart and fellPart ~= "no one fell" then
+                        local n = 1
+                        for _ in fellPart:gmatch(", ") do n = n + 1 end
+                        stats.fallsLogged = stats.fallsLogged + n
+                    end
+                end
                 for _, m in ipairs(MARKS) do
                     if line:find(m[2], 1, true) then marks[m[1]] = (marks[m[1]] or 0) + 1 end
                 end
@@ -504,7 +531,7 @@ local lines = {}
 local function out(fmt, ...) lines[#lines + 1] = string.format(fmt, ...) end
 out("FFR:AutoBattle sim: %d sessions, %d fights, seed %d, %.1fs", sessions, tally.fights, seed0, os.clock() - started)
 out("")
-out("Planner  win %s  loss %d  timeout %d  avg rounds %.1f", pct(tally.win, tally.fights), tally.loss, tally.timeout,
+out("Planner  win %s  loss %d  timeout %d  fled %d  avg rounds %.1f", pct(tally.win, tally.fights), tally.loss, tally.timeout, tally.fled,
     tally.rounds / math.max(1, tally.fights))
 out("Baseline win %s  avg rounds %.1f   (attack with the strongest payable skill)", pct(tally.baseWin, tally.baseFights),
     tally.baseRounds / math.max(1, tally.baseFights))
@@ -534,6 +561,7 @@ out("Items: %s", (#il > 0) and table.concat(il, ", ") or "none")
 out("Weakness: a payable weakness hit was on the bar %d times, the planner took it %d times (%s)",
     stats.weakChance, stats.weakUsed, pct(stats.weakUsed, stats.weakChance))
 out("Phoenix Down while a living ally could pay a raise spell: %d", stats.pdWhileRaise)
+out("Falls: %d in the sim, %d in the planner's battle summaries", stats.falls, stats.fallsLogged)
 local ml = {}
 for _, m in ipairs(MARKS) do ml[#ml + 1] = string.format("%s %d", m[1], marks[m[1]] or 0) end
 out("Planner lines: %s", table.concat(ml, ", "))

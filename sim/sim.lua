@@ -14,7 +14,7 @@
 
 local Sim = {}
 
-local ATTR = { FIGHT = 1, ABILITY = 3, MAGIC = 4, LB = 5, ITEM = 6, SUMMON = 7, FINISH = 9 }
+local ATTR = { FIGHT = 1, ABILITY = 3, MAGIC = 4, LB = 5, ITEM = 6, SUMMON = 7, FINISH = 9, ESCAPE = 16 }
 local EFF = { DAMAGE = 1, PARAM = 2, CURE = 19, REVIVE = 20, DEFEND = 26, ANALYZE = 29, COVER = 41 }
 local TGT = { SELF = 0, SINGLE = 1, GROUP = 2, ALL = 4 }
 local REL = { FRIEND = 1, ENEMY = 2 }
@@ -266,6 +266,7 @@ function BFL:IsEnableCommand(uid, id)
     local u = unitById(uid)
     local s = Sim.skills[id]
     if not (u and s) then return false end
+    if s.skillAttrType == ATTR.ESCAPE and B and B.boss then return false end
     return BFL.CanUnitActivateSkill(self, uid, id) and (u.mp >= (s.Cost or 0) or s.skillAttrType == ATTR.LB)
 end
 function BFL:GetUnitLimitBurstPoint(uid) local u = unitById(uid) return u and u.lb or 0 end
@@ -427,13 +428,13 @@ end
 function Sim.newBattle(opts)
     B = {
         units = {}, bag = {}, boss = opts.boss or false, phase = 0, active = true,
-        round = 0, events = {}, modLines = {}, violations = {}, stats = {
+        round = 0, lastProgress = 0, events = {}, modLines = {}, violations = {}, stats = {
             commands = 0, modCommands = 0, gameCommands = 0, playerCommands = 0, stalls = 0,
             items = {}, falls = 0, raises = 0, draws = 0, heals = 0, ethers = 0,
             bonus = 0, finish = 0, finishByMod = 0, cures = 0, cureMiss = 0, wasted = 0,
         },
         roundHeals = {}, roundEthers = 0, passActed = {}, pot = opts.pot or false, rules = opts.rules or {},
-        focusHealer = opts.focusHealer or false,
+        focusHealer = opts.focusHealer or false, easy = opts.easy or false,
     }
     for i, m in ipairs(opts.party) do
         local id = i - 1
@@ -516,6 +517,7 @@ local function hurt(u, amount, src)
     amount = math.max(0, math.floor(amount + 0.5))
     if u.defending then amount = math.floor(amount / 2) end
     u.hp = u.hp - amount
+    if u.side == "enemy" and amount > 0 then B.lastProgress = B.round end
     if u.side == "ally" then u.lb = math.min(u.lbMax or 200, (u.lb or 0) + math.floor(amount * 60 / u.maxHp)) end
     if u.statuses[ST.SLEEP] then u.statuses[ST.SLEEP] = nil end
     if u.hp <= 0 then
@@ -569,6 +571,7 @@ local function strike(actor, row, foe, scale)
             foe.brokenFor = 2
             -- The game's logs: a break gives the next ally turn the bonus (p1).
             B.bonusNext = true
+            B.lastProgress = B.round
             event("%s broke", foe.name)
         end
     end
@@ -613,6 +616,11 @@ local function resolve(actor, row, targets, isAll, isItem, item)
     end
     if row.skillAttrType == ATTR.LB then
         actor.lb = math.max(0, (actor.lb or 0) - (spec.lbGauges or 1) * 100)
+    end
+    if row.skillAttrType == ATTR.ESCAPE then
+        B.fled = true
+        event("%s led the escape", actor.name)
+        return
     end
     if row.skillAttrType == ATTR.SUMMON then
         local id = 7
@@ -835,6 +843,20 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
             if t and t.side == "enemy" and select(1, factors(row, t)) >= 3 then
                 B.stats.weakUsed = (B.stats.weakUsed or 0) + 1
             end
+        end
+    end
+    -- Take it Easy: the planner sends the free basic Attack at an enemy, and nothing else.
+    if B.easy and byMod then
+        local t = unitById(targets[1] or -1)
+        if isItem or row.skillAttrType ~= ATTR.FIGHT or (row.Cost or 0) > 0 or row.defaultTargetRelation ~= REL.ENEMY
+            or (t and t.side ~= "enemy") then
+            violate("easy mode", "%s sent %s in Take it Easy", actor.name, isItem and item.Name or row.Name)
+        end
+    end
+    if row.skillAttrType == ATTR.ESCAPE and byMod then
+        B.stats.escapes = (B.stats.escapes or 0) + 1
+        if (B.round - (B.lastProgress or 0)) < 4 then
+            violate("early escape", "%s escaped while enemies were still losing HP", actor.name)
         end
     end
     if spec.mp and isItem and byMod then
@@ -1060,6 +1082,7 @@ local function over()
             if u.side == "enemy" then e = e + 1 end
         end
     end
+    if B.fled then return "fled" end
     if e == 0 then return "win" end
     if a == 0 then return "loss" end
     return nil
@@ -1127,7 +1150,13 @@ function Sim.play(maxRounds, policy)
         table.sort(order, function(a, b) return a.init > b.init end)
         for _, u in ipairs(order) do
             local done = over()
-            if done then B.active = false Sim.advance(2000) return done end
+            if done then
+                -- The units stay on screen a moment after the last blow.
+                Sim.advance(1500)
+                B.active = false
+                Sim.advance(2000)
+                return done
+            end
             if (not u.dead) and (not u.gone) then
                 if u.side == "enemy" then
                     enemyTurn(u)

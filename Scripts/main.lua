@@ -1666,11 +1666,7 @@ local function worldOf(uid, boss, summoned)
         Fight.summons = Fight.summons or {}
         local party = {}
         for _, a in ipairs(allies) do
-            if (not a.dead) and (not Fight.seenAlly[a.id]) and (not Fight.summons[a.id]) and (a.id ~= uid)
-                and Fight.openIds and (not Fight.openIds[a.id]) then
-                local esper = Espers.lookup and Espers.lookup(a.name)
-                if esper or (#equippedIds(a.id) == 0) then Fight.summons[a.id] = true end
-            end
+            if (a.id ~= uid) and Fight.isSummon then Fight.isSummon(a.id, a.name) end
             if not Fight.summons[a.id] then party[#party + 1] = a end
         end
         if #party > 0 then allies = party end
@@ -1774,6 +1770,19 @@ Fight = {
     slowSince = {}, slowTry = nil, slowTold = {}, slowUsed = {},
     underLine = false,
 }
+
+-- The summon test, wherever the party is read. See worldOf.
+Fight.isSummon = function(id, name)
+    Fight.summons = Fight.summons or {}
+    if Fight.summons[id] then return true end
+    if (not Fight.openIds) or Fight.openIds[id] or (Fight.seenAlly and Fight.seenAlly[id]) then return false end
+    local esper = Espers.lookup and Espers.lookup(name or unitName(id))
+    if esper or (#equippedIds(id) == 0) then
+        Fight.summons[id] = true
+        return true
+    end
+    return false
+end
 
 -- A party slot can read no name, when fallen or on the wheel. The name seen
 -- earlier in the fight is the party member's name.
@@ -2415,10 +2424,38 @@ local function turn(uid, skills, w, phase)
             end
             local choice = raiseFallen(false)
             if choice then return choice end
-            local item = pickRecoveryItem(uid, w, "revive")
-            if item then Fight.claim.revive[dead.id] = #(Fight.actions or {}) return item end
-            choice = raiseFallen(true)
-            if choice then return choice end
+            -- Another ally who can pay a raise spell does it better than an
+            -- item. Leave it to them while they still have a turn this round.
+            -- A raiser who is out of MP, held by a status, or already gone
+            -- this round is not waited on, and anyone spends the item.
+            local raiser = nil
+            for _, a in ipairs(w.allies) do
+                if (a.id ~= uid) and (not a.dead) and (a.acts ~= false) and (not heldOut(a))
+                    and (not (Fight.went and Fight.went[a.id])) then
+                    local kit = unitKit(a.id)
+                    local mp = stat(a.id, PARAM.MP, false) or 0
+                    for _, s in ipairs((kit and kit.spells) or {}) do
+                        if (s.kind == "revive") and ((s.cost or 0) > 0) and ((s.cost or 0) <= mp) then
+                            raiser = a
+                        end
+                    end
+                end
+            end
+            if raiser then
+                Fight.healLeft = Fight.healLeft or {}
+                local key = "raise" .. tostring(uid)
+                if not Fight.healLeft[key] then
+                    Fight.healLeft[key] = true
+                    local line = string.format("raise left to %s, %s waits", raiser.name, unitName(uid))
+                    log("%s", line)
+                    appendLog("  " .. line)
+                end
+            else
+                local item = pickRecoveryItem(uid, w, "revive")
+                if item then Fight.claim.revive[dead.id] = #(Fight.actions or {}) return item end
+                choice = raiseFallen(true)
+                if choice then return choice end
+            end
         end
     end
 
@@ -3505,6 +3542,58 @@ local function turn(uid, skills, w, phase)
         return nil
     end
 
+    -- A stalemate is five rounds of the party's hits on enemies in which
+    -- no enemy loses HP and no bonus phase comes. Turns spent on setup, heals, or items
+    -- do not count. Then the party escapes, when the game allows it. A Pot
+    -- fight is the player's.
+    if phase == 0 then
+        Fight.foeLow = Fight.foeLow or {}
+        local moved, alive = false, {}
+        for _, u in ipairs(w.enemies) do
+            alive[u.id] = true
+            local low = Fight.foeLow[u.id]
+            if low == nil then
+                -- A first reading starts the count. Hits before it do not count.
+                Fight.foeLow[u.id] = u.hp or 1
+                moved = true
+            elseif (u.hp or 1) < (low - 0.001) then
+                Fight.foeLow[u.id] = u.hp or 1
+                moved = true
+            end
+        end
+        for id in pairs(Fight.foeLow) do
+            if not alive[id] then
+                Fight.foeLow[id] = nil
+                moved = true
+            end
+        end
+        -- A bonus phase is the game's word that a gauge broke. The
+        -- planner's own break marks are guesses and do not count.
+        if Fight.afterBonus then moved = true end
+        if moved then Fight.hitsSince = 0 end
+        local party = 0
+        for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
+        if party < 1 then party = 1 end
+        if ((Fight.hitsSince or 0) >= (party * 5)) and (#w.enemies > 0) and (not potFight(w)) then
+            for _, id in ipairs(equippedIds(uid)) do
+                local row = skillOf(id)
+                if row and (row.attr == ATTR.ESCAPE) and (activation(uid, id) ~= false) and commandEnabled(uid, id) then
+                    if not Fight.stalemateTold then
+                        Fight.stalemateTold = true
+                        local line = "stalemate: five rounds of hits and no enemy has lost HP"
+                        log("%s", line)
+                        appendLog("  " .. line)
+                    end
+                    return {
+                        id = row.id, name = row.name, score = 1, cost = 0, kind = "escape",
+                        reason = "escape, stalemate", targets = { uid }, isAll = false,
+                        attr = ATTR.ESCAPE, isItem = false,
+                    }
+                end
+            end
+        end
+    end
+
     local alreadyFell = Fight.fell and #Fight.fell > 0
     -- A paid chip closes the opener and the other setup. It does not close Libra.
     if phase == 0 and not alreadyFell and not allyCritical() and not dead then
@@ -3709,9 +3798,10 @@ end
 local function livingSnapshot()
     local snap = {}
     for _, id in ipairs(friendIds()) do
-        if not (Fight.summons and Fight.summons[id]) then
-            -- A fallen slot reads no HP. Without this it reads full and the fall is missed.
-            local hp = hpRatio(id) or 1
+        if not (Fight.isSummon and Fight.isSummon(id)) then
+            -- A party slot with no living unit is down. Without this it reads
+            -- full, a fall is missed, and an ally who enters down looks like a fall.
+            local hp = hpRatio(id) or 0
             if Fight.unitDown and Fight.unitDown(id) then hp = 0 end
             local name = Fight.nameOf(id)
             snap[id] = { side = "ally", name = name, hp = hp, broken = false }
@@ -4037,6 +4127,7 @@ local function ensureBattle()
     Fight.claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, kit = {}, etherRound = false, guard = false, esper = false, lb = false }
     Fight.kitOn = {}
     Fight.drawSeen, Fight.cureTry, Fight.cureMiss = {}, {}, {}
+    Fight.foeLow, Fight.hitsSince, Fight.stalemateTold = {}, 0, false
     Fight.luckToss = {}
     Fight.debuffOn, Fight.debuffSeen, Fight.debuffTold = {}, {}, {}
     Fight.went, Fight.rounds, Fight.seenFoe = {}, 0, {}
@@ -4435,6 +4526,9 @@ local function act(serial)
     end
     if choice.slow then Fight.slowTry = choice.slow end
     if choice.attr == ATTR.FINISH then Fight.resonanceSent = true end
+    if (choice.kind == "damage") and (not choice.isItem) and (choice.attr ~= ATTR.SUMMON) then
+        Fight.hitsSince = (Fight.hitsSince or 0) + 1
+    end
     if phase == 0 and choice.kind == "damage" and not choice.isItem then
         Fight.line = true
         local reason = choice.reason or ""
@@ -4634,6 +4728,15 @@ local function noteHand(v)
     local cost = 0
     if skill and uid and (uid >= 0) then
         pcall(function() cost = skillCost(uid, actionId, false) or 0 end)
+    end
+    -- Only a hit on an enemy counts toward a stalemate. A confused ally's swing at the party does not.
+    if (kind == "damage") and (not isItem) then
+        for _, tid in ipairs(targets) do
+            if Fight.seenFoe and Fight.seenFoe[tid] then
+                Fight.hitsSince = (Fight.hitsSince or 0) + 1
+                break
+            end
+        end
     end
     if (phase == 0) and (kind == "damage") and (not isItem) and (cost > 0) then
         Fight.line = true
@@ -4916,6 +5019,9 @@ gameLoop(700, function()
     local u = FindFirstOf("CPP_BtlUnit")
     if u and u:IsValid() then
         absent = 0
+        -- A fall between turns is noted here too, so the last one before
+        -- the battle ends, such as a wipe, still reaches the log.
+        pcall(function() noteChanges(livingSnapshot()) end)
         return
     end
     absent = absent + 1
