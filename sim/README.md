@@ -52,6 +52,7 @@ Game facts it copies from the design doc and the battle logs:
 - Sleep, paralysis, petrify, and stop take the turn with no menu. The game decides for a confused, charmed, or berserk ally.
 - A summon is a friend unit in slot 7 with no skill list. It acts on its own.
 - Every bar has Escape. The game refuses it in a boss fight.
+- A hasted ally acts twice every other round. A slowed ally or enemy loses every other turn. Haste and Slow cancel each other, as in the classic games. FFR is not confirmed.
 - The units stay on screen a moment after the last blow.
 - Provoke and Cover show no status.
 

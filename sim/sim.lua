@@ -21,7 +21,7 @@ local REL = { FRIEND = 1, ENEMY = 2 }
 local ST = {
     POISON = 1, BLIND = 2, SLEEP = 3, SILENCE = 4, PARALYSIS = 5, CONFUSE = 6,
     PETRIFY = 7, CHARM = 8, STOP = 9, BERSERK = 10, DOOM = 11, SLOW = 12,
-    PROTECT = 25, SHELL = 27, BREAK = 89,
+    PROTECT = 25, SHELL = 27, HASTE = 30, BREAK = 89,
 }
 Sim.ATTR, Sim.EFF, Sim.TGT, Sim.REL, Sim.ST = ATTR, EFF, TGT, REL, ST
 
@@ -583,8 +583,11 @@ local function strike(actor, row, foe, scale)
     end
 end
 
+-- Haste and Slow cancel each other, as in the classic games. FFR is not confirmed.
 local function applyStatus(u, st, turns)
     if u.dead then return end
+    if st == ST.HASTE and u.statuses[ST.SLOW] then u.statuses[ST.SLOW] = nil return end
+    if st == ST.SLOW and u.statuses[ST.HASTE] then u.statuses[ST.HASTE] = nil return end
     u.statuses[st] = turns or 3
 end
 
@@ -948,6 +951,15 @@ end
 
 local function enemyTurn(foe)
     foe.turns = foe.turns + 1
+    -- A slowed enemy loses every other turn.
+    if foe.statuses[ST.SLOW] then
+        foe.statuses[ST.SLOW] = foe.statuses[ST.SLOW] - 1
+        if foe.statuses[ST.SLOW] <= 0 then foe.statuses[ST.SLOW] = nil end
+        if foe.turns % 2 == 0 then
+            event("%s lost the turn (slow)", foe.name)
+            return
+        end
+    end
     if foe.statuses[ST.BREAK] then
         foe.brokenFor = foe.brokenFor - 1
         if foe.brokenFor <= 0 then
@@ -1176,6 +1188,7 @@ function Sim.play(maxRounds, policy)
                     if not u.dead then
                         local slow = u.statuses[ST.SLOW] and (round % 2 == 0)
                         if anyStatus(u, NO_TURN) or slow then
+                            if slow and not anyStatus(u, NO_TURN) then B.stats.slowLost = (B.stats.slowLost or 0) + 1 end
                             event("%s lost the turn", u.name)
                         elseif anyStatus(u, GAME_PLAYS) then
                             local st = anyStatus(u, GAME_PLAYS)
@@ -1192,6 +1205,12 @@ function Sim.play(maxRounds, policy)
                             B.bonusNext = false
                             if bonus == 1 then B.stats.bonus = B.stats.bonus + 1 end
                             menuTurn(u, bonus, policy)
+                            -- A hasted ally acts again every other round.
+                            if u.statuses[ST.HASTE] and (round % 2 == 1) and (not u.dead) and (not over())
+                                and not anyStatus(u, NO_TURN) and not anyStatus(u, GAME_PLAYS) then
+                                B.stats.hasteTurns = (B.stats.hasteTurns or 0) + 1
+                                menuTurn(u, 0, policy)
+                            end
                         end
                     end
                 end

@@ -144,6 +144,12 @@ pull attacks. One per round, then the chip. The log says draw. A summon
 is not a party member. A round does not wait on an ally whose status
 takes the turn. An Ether goes out when a held heal no longer fits.
 
+Haste is spent from the haste book in kits.lua. A slowed ally gets it
+first, on any field. On a hard field with the bar above half, the healer
+and then the strongest damage dealer get it. One per round. The log says
+haste. Enemy Slow stays the fallback debuff: the sim found no gain from
+ranking it with the others.
+
 An ally who enters the fight down is raised on the
 first round. Doom, a lock, and silence that came in with the party are
 cleared before the opening heal. The log says entry. Poison, blind, and

@@ -110,7 +110,8 @@ support("Protect", 8, TGT.SINGLE, ST.PROTECT)
 support("Protectga", 18, TGT.ALL, ST.PROTECT)
 support("Shell", 8, TGT.SINGLE, ST.SHELL)
 support("Shellga", 18, TGT.ALL, ST.SHELL)
-support("Haste", 10, TGT.SINGLE, 30)
+support("Haste", 10, TGT.SINGLE, ST.HASTE, { turns = 5 })
+support("Hastega", 26, TGT.ALL, ST.HASTE, { turns = 5 })
 support("Bravery", 8, TGT.SINGLE, 31)
 support("Faith", 8, TGT.SINGLE, 32)
 support("Focus Magic", 6, TGT.SELF, 33)
@@ -170,7 +171,7 @@ item("Phoenix Pinion", { effect = EFF.REVIVE, rel = REL.FRIEND, revive = true })
 
 local VISIONS = {
     { key = "white", healer = true, hp = { 600, 760 }, mp = { 220, 290 }, atk = 55, mag = 95,
-        skills = { "Attack", "Cure", "Cura", "Esuna", "Raise", "Shell", "Libra", "Banish" } },
+        skills = { "Attack", "Cure", "Cura", "Esuna", "Raise", "Shell", "Libra", "Banish", "Hastega" } },
     { key = "paladin", healer = true, hp = { 820, 960 }, mp = { 150, 200 }, atk = 85, mag = 70,
         skills = { "Attack", "Cure", "Cura", "Protect", "Protectga", "Multi-Cover", "Provoke", "Soul of Valiance", "Vanguard Glaive", "Defend" } },
     { key = "knight", hp = { 860, 980 }, mp = { 110, 160 }, atk = 95, mag = 40,
@@ -183,7 +184,7 @@ local VISIONS = {
         skills = { "Attack", "Formation: Assail", "Formation: Charge", "Formation: Bulwark", "Tactic: Fluid Warfare",
             "Stratagem", "Water", "Watera", "Cure", "Libra", "Bravery", "Faith", "Slow" } },
     { key = "red", hp = { 650, 780 }, mp = { 180, 230 }, atk = 75, mag = 85,
-        skills = { "Attack", "Cure", "Fire", "Blizzard", "Thunder", "Stone", "Deprotect", "Deshell", "Debrave", "Silence", "Blind", "Esuna" } },
+        skills = { "Attack", "Cure", "Fire", "Blizzard", "Thunder", "Stone", "Deprotect", "Deshell", "Debrave", "Silence", "Blind", "Esuna", "Haste", "Slow" } },
     { key = "summoner", hp = { 580, 700 }, mp = { 220, 280 }, atk = 50, mag = 100,
         skills = { "Attack", "Siren", "Ramuh", "Shiva", "Cure", "Aero", "Stone", "Stonera" } },
     { key = "brawler", hp = { 900, 1000 }, mp = { 30, 50 }, atk = 115, mag = 30,
@@ -429,7 +430,7 @@ local function bump(t, k, field, n)
     t[k] = t[k] or { fights = 0, win = 0, base = 0, baseFights = 0 }
     t[k][field] = t[k][field] + (n or 1)
 end
-local stats = { escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
+local stats = { slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
     gameCommands = 0, modCommands = 0, cures = 0 }
 local items = {}
 local fails = 0
@@ -446,7 +447,8 @@ local MARKS = {
     { "cure does not clear", "does not clear status" }, { "ether heal", "ether so a heal fits" },
     { "ether weak", "ether so the weakness fits" }, { "heal left", "heal left," }, { "fill", "-> fill " },
     { "resonance sent", "resonance " }, { "pot fight", "pot fight" }, { "summon acts", "acts on its own" },
-    { "raise left", "raise left to" }, { "stalemate", "stalemate:" },
+    { "raise left", "raise left to" }, { "stalemate", "stalemate:" }, { "haste", "-> haste " }, { "haste for slow", ", slow" },
+    { "slow debuff", "debuff slow" }, { "slow skipped", "slow cure skipped" }, { "cure slow", "-> cure slow" },
 }
 local marks = {}
 local started = os.clock()
@@ -562,6 +564,7 @@ out("Weakness: a payable weakness hit was on the bar %d times, the planner took 
     stats.weakChance, stats.weakUsed, pct(stats.weakUsed, stats.weakChance))
 out("Phoenix Down while a living ally could pay a raise spell: %d", stats.pdWhileRaise)
 out("Falls: %d in the sim, %d in the planner's battle summaries", stats.falls, stats.fallsLogged)
+out("Haste turns %d, ally turns lost to Slow %d", stats.hasteTurns, stats.slowLost)
 local ml = {}
 for _, m in ipairs(MARKS) do ml[#ml + 1] = string.format("%s %d", m[1], marks[m[1]] or 0) end
 out("Planner lines: %s", table.concat(ml, ", "))

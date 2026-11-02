@@ -2932,6 +2932,53 @@ local function turn(uid, skills, w, phase)
         end
     end
 
+    -- Haste: a slowed ally first, then on a hard field with the bar above
+    -- half, the healer and the strongest damage dealer. Same gate as above.
+    if (phase == 0) and Kits.pickHaste and (not allyCritical()) and (not dead) then
+        local healer = Health.mainHealer and Health.mainHealer(w.allies, unitKit) or nil
+        local dealer, dealt = nil, -1
+        for _, a in ipairs(w.allies) do
+            if (not a.dead) and (a.acts ~= false) then
+                local kit = unitKit(a.id)
+                for _, s in ipairs((kit and kit.spells) or {}) do
+                    if isHit(s, false) then
+                        local pow = offenseOf(s)
+                        if pow and pow > dealt then dealer, dealt = a, pow end
+                    end
+                end
+            end
+        end
+        local own = unitKit(uid)
+        local picked = Kits.pickHaste(skills, {
+            allies = w.allies, selfId = uid,
+            healerId = healer and healer.id or nil, dealerId = dealer and dealer.id or nil,
+            hard = hardField, rich = (band() == "high"),
+            mp = w.mp or 0, pay = (band() ~= "low"),
+            keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
+            claim = Fight.claim.kit, sent = Fight.kitOn,
+        })
+        if picked then
+            local ids, isAll = {}, false
+            if picked.mode == "party" then
+                for _, a in ipairs(w.allies) do
+                    if not a.dead then ids[#ids + 1] = a.id end
+                end
+                isAll = true
+            else
+                ids = { picked.target.id }
+            end
+            local choice = finishChoice(uid, picked.skill, picked.why, ids, isAll)
+            if choice then
+                Fight.claim.kit.haste = true
+                Fight.kitOn = Fight.kitOn or {}
+                for _, k in ipairs(picked.keys or {}) do
+                    Fight.kitOn["haste:" .. tostring(k.ally.id)] = #(Fight.actions or {})
+                end
+                return choice
+            end
+        end
+    end
+
     local foeRows, seenNoted, matterKnown, debuffOwedFlag = nil, false, nil, nil
     local function hitWouldFinish(enemy, remain)
         for _, a in ipairs(w.allies) do

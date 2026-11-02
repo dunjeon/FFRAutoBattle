@@ -39,6 +39,14 @@ local DRAW = {
     ["multicover"] = { kind = "cover", party = true },
 }
 
+-- Haste. It is the answer to Slow, and it speeds the ally a long fight
+-- leans on. Hastega is the party row.
+local HASTE = {
+    ["haste"] = { party = false },
+    ["hastega"] = { party = true },
+}
+local SLOW_ID = 12
+
 local GATED = {
     ["blitzstrahl"] = true,
     ["demolisherrush"] = true,
@@ -83,8 +91,71 @@ end
 
 function M.key(name)
     local k = fold(name)
-    if BOOK[k] or DRAW[k] then return k end
+    if BOOK[k] or DRAW[k] or HASTE[k] then return k end
     return nil
+end
+
+-- Haste for the actor to cast, or nil.
+-- A slowed ally gets it first, on any field: Haste is the answer to Slow.
+-- On a hard field, while the bar is above half, the healer and then the
+-- strongest damage dealer get it. A cast is held while its status is on
+-- that ally. With no status id, each ally gets it once a fight. One per
+-- round. A paid one goes while MP is above the low band, and a carried
+-- heal is kept back. Hastega goes when two or more allies want it.
+-- ctx: allies, selfId, healerId, dealerId, hard, rich, mp, keep, pay,
+-- claim, sent.
+function M.pickHaste(skills, ctx)
+    if (not skills) or (not ctx) then return nil end
+    local claim = ctx.claim or {}
+    local sent = ctx.sent or {}
+    if claim.haste then return nil end
+    local single, party = nil, nil
+    for _, s in ipairs(skills) do
+        local row = HASTE[fold(s.name)]
+        local cost = s.cost or 0
+        local mp = ctx.mp or 0
+        local fits = (cost <= mp) and ((mp - cost) >= (ctx.keep or 0)) and ((cost <= 0) or ctx.pay)
+        if row and fits then
+            if row.party then party = party or s else single = single or s end
+        end
+    end
+    if not (single or party) then return nil end
+    local function hasted(skill, a)
+        local map = skill.friendStatus
+        if listed(map) then return bodyHas(a, map) end
+        return sent["haste:" .. tostring(a.id)] ~= nil
+    end
+    local any = single or party
+    local want, seen = {}, {}
+    local function add(a, why)
+        if a and (not a.dead) and (not seen[a.id]) and (not hasted(any, a)) then
+            seen[a.id] = true
+            want[#want + 1] = { ally = a, why = why }
+        end
+    end
+    local byId = {}
+    for _, a in ipairs(ctx.allies or {}) do
+        if not a.dead then byId[a.id] = a end
+        if (not a.dead) and a.statuses and a.statuses[SLOW_ID] then add(a, "slow") end
+    end
+    if ctx.hard and ctx.rich then
+        add(byId[ctx.healerId], "healer")
+        add(byId[ctx.dealerId], "dealer")
+    end
+    if #want == 0 then return nil end
+    if party and ((#want >= 2) or (not single)) then
+        local names = {}
+        for _, w in ipairs(want) do names[#names + 1] = w.ally.name or "ally" end
+        return {
+            skill = party, mode = "party", keys = want,
+            why = "haste party " .. table.concat(names, ", "),
+        }
+    end
+    local first = want[1]
+    return {
+        skill = single, mode = "ally", target = first.ally, keys = { first },
+        why = "haste " .. (first.ally.name or "ally") .. ((first.why == "slow") and ", slow" or ""),
+    }
 end
 
 -- Provoke, Cover, or Multi-Cover for the actor, or nil.
