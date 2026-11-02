@@ -16,7 +16,7 @@ It has to work for any party size, any character, and any Vision. A change that 
 
 ## Where the files are
 
-The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.25.`
+The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.26.`
 
 `known.lua` is published skill and item facts: element, stagger, and use. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
@@ -24,6 +24,8 @@ This repo is the only copy under git. The installed mod folder, `FFRS/Binaries/W
 
 ## Rules that keep the planner general
 
+- Party size sets how long a round is: one turn for each party member who can take one. It never switches a rule. Where a rule needs "most of the party", it is a share of the living party, the same at any size.
+- A summon is not a party member. It is not healed, raised, counted, or waited on.
 - Score the field that is actually alive. A friend, a matching ally name, a nameless slot, or a body with no HP is not a foe.
 - Plan adds only when the largest open gauge is actually larger than the others. Equal gauges stay on one shared plan.
 - Spend the element on the card. No card means stagger factor 1 and the live stagger number. Libra only when the name is missing or the card says the weakness shifts. A paid chip does not close that scout.

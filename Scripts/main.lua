@@ -2388,15 +2388,15 @@ local function turn(uid, skills, w, phase)
     end
     -- The living come first. A raise waits while a living ally is critical
     -- and not yet healed this round, unless the fallen ally is the party's
-    -- best healer. An ally who fell again
-    -- within a round of a raise is not raised again until no living ally is
-    -- under half, so the party can keep them up. The Timeline is not
+    -- best healer. An ally who fell again within two rounds of a raise is
+    -- not raised again until no living ally is under half, so the party can
+    -- keep them up. That guard holds for the best healer too. The Timeline is not
     -- readable, so these are the signs that the next hit would drop them.
     Fight.refell = Fight.refell or {}
     Fight.raisedRound = Fight.raisedRound or {}
     for _, a in ipairs(w.allies) do
         local at = Fight.raisedRound[a.id]
-        if (not a.dead) and at and (((Fight.rounds or 0) - at) >= 2) then
+        if (not a.dead) and at and (((Fight.rounds or 0) - at) >= 3) then
             Fight.refell[a.id] = nil
             Fight.raisedRound[a.id] = nil
         end
@@ -2427,10 +2427,14 @@ local function turn(uid, skills, w, phase)
             end
         end
         -- The party's best healer is raised at once: they keep the rest up.
+        -- The party's best healer skips the wait on a critical ally. The
+        -- cycle guard holds for everyone: a raise that fell straight back
+        -- is not repeated into the same hits.
         local bestHealer = healWorth(unitKit(dead.id)) > bestLiving
-        if not bestHealer then
-            if critical then raiseHold = "a living ally is critical"
-            elseif Fight.refell[dead.id] and underHalf then raiseHold = dead.name .. " fell again after a raise" end
+        if Fight.refell[dead.id] and underHalf then
+            raiseHold = dead.name .. " fell again after a raise"
+        elseif critical and (not bestHealer) then
+            raiseHold = "a living ally is critical"
         end
         if raiseHold then
             Fight.healLeft = Fight.healLeft or {}
@@ -3942,7 +3946,7 @@ local function noteChanges(now)
             Fight.fell[#Fight.fell + 1] = was.name
             appendLog("  fell: " .. was.name)
             local at = Fight.raisedRound and Fight.raisedRound[id]
-            if at and (((Fight.rounds or 0) - at) <= 1) then
+            if at and (((Fight.rounds or 0) - at) <= 2) then
                 Fight.refell = Fight.refell or {}
                 Fight.refell[id] = true
                 appendLog("  " .. was.name .. " fell again right after a raise")
@@ -5265,7 +5269,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.25. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.26. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

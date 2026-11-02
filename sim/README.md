@@ -58,7 +58,8 @@ Game facts it copies from the design doc and the battle logs:
 - A boss fight offers one retry after a wipe. The defeat screen holds a moment first.
 - Party heal rows (Cura, Curaga) show no magnification, as the game's rows can.
 - A hasted ally acts twice every other round. A slowed ally or enemy loses every other turn. Haste and Slow cancel each other, as in the classic games. FFR is not confirmed.
-- The units stay on screen a moment after the last blow.
+- The units stay on screen a moment after the last blow. Each command and each enemy action takes screen time, so the planner's 0.7 s field check sees a raise land before the next hit.
+- **raise cycle** is checked too: a raise into the same hits right after that ally fell straight back.
 - Provoke and Cover show no status.
 
 Open questions the sim cannot settle:

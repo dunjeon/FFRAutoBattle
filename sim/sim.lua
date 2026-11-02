@@ -526,7 +526,10 @@ local function hurt(u, amount, src)
         u.statuses = {}
         if u.side == "ally" and not u.summon then
             B.stats.falls = B.stats.falls + 1
-            if u.raisedAt and ((B.passes or 0) - u.raisedAt) <= 1 then B.stats.quickRefall = (B.stats.quickRefall or 0) + 1 end
+            if u.raisedAt and ((B.passes or 0) - u.raisedAt) <= 1 then
+                B.stats.quickRefall = (B.stats.quickRefall or 0) + 1
+                u.refellAt = B.passes or 0
+            end
             u.raisedAt = nil
             event("%s fell (%s)", u.name, src or "?")
         end
@@ -826,6 +829,14 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
                 end
             end
             local worth = (healPower(t) > 0) and (healPower(t) * 100 + (canRaise(t) and 10 or 0) + healCount(t)) or 0
+            -- The cycle guard: raised, fell again within a pass, and the party still hurt.
+            local underHalf = false
+            for _, a in ipairs(living("ally")) do
+                if (not a.summon) and (a.hp / a.maxHp) < 0.5 then underHalf = true end
+            end
+            if t.refellAt and (((B.passes or 0) - t.refellAt) <= 1) and underHalf then
+                violate("raise cycle", "%s raised %s again into the same hits", actor.name, t.name)
+            end
             if critical and (healPower(t) == 0 or worth <= bestLiving) then
                 violate("raise before the living", "%s raised %s while a living ally was critical", actor.name, t.name)
             end
@@ -1115,7 +1126,8 @@ local function menuTurn(u, phase, policy)
             { get = function() return { TagName = FNameOf("Delegate.Battle.Cmd.List.End") } end })
     end
     B.menu = nil
-    Sim.advance(100)
+    -- The command plays out on screen before the next unit moves.
+    Sim.advance(800)
 end
 
 local function finisherOf(u)
@@ -1247,6 +1259,8 @@ function Sim.play(maxRounds, policy)
             if (not u.dead) and (not u.gone) then
                 if u.side == "enemy" then
                     enemyTurn(u)
+                    -- An enemy action takes screen time, as the game's animations do.
+                    Sim.advance(900)
                 elseif u.summon then
                     for _, f in ipairs(living("enemy")) do
                         local row = u.row
