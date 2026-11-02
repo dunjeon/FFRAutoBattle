@@ -35,7 +35,7 @@ A broken rule is any of these, in any fight:
 - **wheel**: a normal spell sent on the Resonance wheel.
 - **early escape**: an escape while enemies were still losing HP. The planner escapes only on a stalemate.
 - **false fall**: the planner's battle summary lists more falls than happened.
-- **raise before the living**: a raise while a living ally was under 30%, unless the fallen ally was the only healer.
+- **raise before the living**: a raise while a living ally was under 30% and not healed in the last pass of the party, unless the fallen ally was the party's best healer.
 - **missed retry**: a boss fight was retried after a wipe and the planner kept the old ledger and setup.
 - **stacked draw**: a second Provoke, Cover, or Multi-Cover while another was still up.
 - **easy mode**: with `--easy`, anything but the free basic Attack at an enemy.

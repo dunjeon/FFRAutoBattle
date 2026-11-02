@@ -144,8 +144,9 @@ pull attacks. One per round, then the chip. The log says draw. A summon
 is not a party member. A round does not wait on an ally whose status
 takes the turn. An Ether goes out when a held heal no longer fits.
 
-A raise waits while a living ally is under 30% HP, unless the fallen
-ally is the only healer. An ally who fell again within a round of a raise
+A raise waits while a living ally is under 30% HP and not yet healed this
+round, unless the fallen ally is the party's best healer (heal score, then
+a raise spell, then the number of heals). An ally who fell again within a round of a raise
 waits until no living ally is under half. The log says raise X waits. A
 party heal beats every single heal when most of the party is under half.
 A wipe followed by a party member standing again is a retry, and the

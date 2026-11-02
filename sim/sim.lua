@@ -733,6 +733,23 @@ local function fieldThreat()
     return false
 end
 
+local function healCount(u)
+    local n = 0
+    for _, id in ipairs(u.skillIds or {}) do
+        local s = Sim.skills[id]
+        if s and s.sim.heal and s.skillAttrType ~= ATTR.ITEM and s.skillAttrType ~= ATTR.LB then n = n + 1 end
+    end
+    return n
+end
+
+local function canRaise(u)
+    for _, id in ipairs(u.skillIds or {}) do
+        local s = Sim.skills[id]
+        if s and s.skillEffectType == EFF.REVIVE and s.skillAttrType ~= ATTR.ITEM and s.skillAttrType ~= ATTR.LB then return true end
+    end
+    return false
+end
+
 local function anyBad(u)
     for st in pairs(u.statuses) do if NO_TURN[st] or GAME_PLAYS[st] then return true end end
     return false
@@ -749,6 +766,7 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
             B.passActed, B.roundHeals, B.roundEthers, B.passDone = {}, {}, 0, false
         end
         B.passActed[actor.id] = true
+        B.allyCmds = (B.allyCmds or 0) + 1
     end
     if byMod and B.menu and B.menu.uid ~= actor.id and B.phase ~= 2 then
         violate("wrong actor", "%s sent %s for %s", tag, row.Name, actor.name)
@@ -791,15 +809,24 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
             violate("summon target", "%s spent %s on the summon %s", actor.name, row.Name, t.name)
         end
         if eff == EFF.REVIVE and t.dead and byMod then
-            -- The living come first, unless the fallen ally is the only healer.
-            local critical, livingHealer = false, false
+            -- The living come first: a critical ally not yet healed this round.
+            -- The party's best healer is raised at once.
+            local critical, bestLiving = false, 0
             for _, a in ipairs(living("ally")) do
                 if not a.summon then
-                    if (a.hp / a.maxHp) < 0.30 then critical = true end
-                    if healPower(a) > 0 and not anyBad(a) then livingHealer = true end
+                    -- Healed within the last pass of party commands counts as healed this round.
+                    local at = B.healedAt and B.healedAt[a.id]
+                    local size = 0
+                    for _, x in pairs(B.units) do if x.side == "ally" and not x.summon then size = size + 1 end end
+                    local recent = at and (((B.allyCmds or 0) - at) <= size)
+                    if ((a.hp / a.maxHp) < 0.30) and not recent then critical = true end
+                    if not anyBad(a) and healPower(a) > 0 then
+                        bestLiving = math.max(bestLiving, healPower(a) * 100 + (canRaise(a) and 10 or 0) + healCount(a))
+                    end
                 end
             end
-            if critical and (healPower(t) == 0 or livingHealer) then
+            local worth = (healPower(t) > 0) and (healPower(t) * 100 + (canRaise(t) and 10 or 0) + healCount(t)) or 0
+            if critical and (healPower(t) == 0 or worth <= bestLiving) then
                 violate("raise before the living", "%s raised %s while a living ally was critical", actor.name, t.name)
             end
         end
@@ -823,6 +850,10 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
                 violate("overheal", "%s healed %s again this round at %d%%", actor.name, t.name, math.floor(t.hp * 100 / t.maxHp))
             end
             B.roundHeals[t.id] = true
+        end
+        if spec.heal and t.side == "ally" and (not t.dead) then
+            B.healedAt = B.healedAt or {}
+            B.healedAt[t.id] = B.allyCmds or 0
         end
         if eff == EFF.CURE and t.side == "ally" and byMod then
             local any = false

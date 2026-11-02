@@ -2386,8 +2386,9 @@ local function turn(uid, skills, w, phase)
             Fight.claim.revive[dead.id] = nil
         end
     end
-    -- The living come first. A raise waits while a living ally is critical,
-    -- unless the fallen ally is the only healer. An ally who fell again
+    -- The living come first. A raise waits while a living ally is critical
+    -- and not yet healed this round, unless the fallen ally is the party's
+    -- best healer. An ally who fell again
     -- within a round of a raise is not raised again until no living ally is
     -- under half, so the party can keep them up. The Timeline is not
     -- readable, so these are the signs that the next hit would drop them.
@@ -2402,22 +2403,32 @@ local function turn(uid, skills, w, phase)
     end
     local raiseHold = nil
     if dead and not Fight.claim.revive[dead.id] then
-        local critical, underHalf, livingHealer = false, false, false
+        -- How well a kit does the healing job: the heal score, then a raise
+        -- spell, then the number of real heals.
+        local function healWorth(kit)
+            if (not kit) or ((kit.healScore or 0) < 50) then return 0 end
+            local raise, heals = 0, 0
+            for _, s in ipairs(kit.spells or {}) do
+                if s.kind == "revive" then raise = 1 end
+                if (s.kind == "heal") and not (s.known and s.known.patch) then heals = heals + 1 end
+            end
+            return (kit.healScore or 0) * 100 + raise * 10 + heals
+        end
+        local critical, underHalf, bestLiving = false, false, 0
         for _, a in ipairs(w.allies) do
             if not a.dead then
-                -- HP, not the heal claim: a heal that went out and left them
-                -- under the line has not made them safe.
-                if (a.hp or 1) < 0.30 then critical = true end
+                -- A critical ally this turn can still help: not yet healed this round.
+                if ((a.hp or 1) < 0.30) and (not Fight.claim.heal[a.id]) then critical = true end
                 if (a.hp or 1) < 0.50 then underHalf = true end
-                local kit = unitKit(a.id)
-                if (a.acts ~= false) and (not heldOut(a)) and kit and ((kit.healScore or 0) >= 50) then
-                    livingHealer = true
+                if (a.acts ~= false) and (not heldOut(a)) then
+                    local worth = healWorth(unitKit(a.id))
+                    if worth > bestLiving then bestLiving = worth end
                 end
             end
         end
-        local deadKit = unitKit(dead.id)
-        local onlyHealer = deadKit and ((deadKit.healScore or 0) >= 50) and (not livingHealer)
-        if not onlyHealer then
+        -- The party's best healer is raised at once: they keep the rest up.
+        local bestHealer = healWorth(unitKit(dead.id)) > bestLiving
+        if not bestHealer then
             if critical then raiseHold = "a living ally is critical"
             elseif Fight.refell[dead.id] and underHalf then raiseHold = dead.name .. " fell again after a raise" end
         end
@@ -4438,7 +4449,9 @@ local function noteRound(uid)
     for _, id in ipairs(friendIds()) do
         local ratio = hpRatio(id)
         local summon = Fight.isSummon and Fight.isSummon(id)
-        if (not summon) and ((ratio == nil) or (ratio > 0)) then
+        -- A fallen ally reads no HP. Down is down, so the round does not wait on them.
+        local down = (Fight.unitDown and Fight.unitDown(id)) or ((ratio ~= nil) and (ratio <= 0))
+        if (not summon) and (not down) and (ratio ~= nil) then
             local kit = unitKit(id)
             local held = false
             if Health.OUT then
@@ -5102,7 +5115,8 @@ local function resonanceWatch()
     local names = {}
     for _, uid in ipairs(friendIds()) do
         local ratio = hpRatio(uid)
-        if (ratio == nil or ratio > 0) and not outOfControl(uid) then
+        local down = (Fight.unitDown and Fight.unitDown(uid)) or (ratio == nil) or (ratio <= 0)
+        if (not down) and not outOfControl(uid) then
             names[#names + 1] = unitName(uid)
             local okW, w = pcall(worldOf, uid, Fight.boss, Fight.summoned)
             if okW and w then
