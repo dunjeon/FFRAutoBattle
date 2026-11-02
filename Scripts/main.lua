@@ -661,6 +661,11 @@ local function equippedIds(uid)
     buildSkillIndex()
     local p = paramOf(uid)
     local bfl = battleLib()
+    -- A fallen ally is not in the living list. Its slot still has the bar.
+    if (not p) and bfl and bfl:IsValid() then
+        local ok, q = pcall(function() return bfl:GetBattleUnitParameter(uid, false) end)
+        if ok and q and q.IsValid and q:IsValid() then p = q end
+    end
     local unitId = nil
     if p then
         local ok, v = pcall(function() return p:GetUnitId() end)
@@ -1187,7 +1192,10 @@ unitKit = function(uid)
         end
     end
     kit.healCost = (cureCost > 0) and cureCost or raiseCost
-    if #kit.spells > 0 then Fight.kits[uid] = kit end
+    -- A kit read while the ally is down is not kept. It is read again
+    -- once they stand, so the party knows what they can do.
+    local down = Fight.unitDown and Fight.unitDown(uid)
+    if (#kit.spells > 0) and (not down) then Fight.kits[uid] = kit end
     return kit
 end
 
