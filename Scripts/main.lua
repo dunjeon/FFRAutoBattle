@@ -815,12 +815,15 @@ local function friendIds()
     for _, id in ipairs(members(REL.FRIEND)) do add(id) end
     local bfl = battleLib()
     if bfl and bfl:IsValid() then
+        local function friendSlot(uid, aliveOnly)
+            local ok, p = pcall(function() return bfl:GetBattleUnitParameter(uid, aliveOnly) end)
+            if not (ok and p and p.IsValid and p:IsValid()) then return false end
+            local okR, rel = pcall(function() return p:GetRelation() end)
+            if okR and (num(rel) == REL.FRIEND) then add(uid) return true end
+            return false
+        end
         for uid = 0, 7 do
-            local ok, p = pcall(function() return bfl:GetBattleUnitParameter(uid, true) end)
-            if ok and p and p.IsValid and p:IsValid() then
-                local okR, rel = pcall(function() return p:GetRelation() end)
-                if okR and num(rel) == REL.FRIEND then add(uid) end
-            end
+            if not friendSlot(uid, true) then friendSlot(uid, false) end
         end
     end
     return ids
@@ -1559,16 +1562,83 @@ local function worldOf(uid, boss, summoned)
     end
     if Fight then Fight.gaugeOf = gaugeOf end
     local allies, enemies = {}, {}
-    for _, id in ipairs(friendIds()) do
+    local function yes(v)
+        return v == true or v == 1
+    end
+    local function unitDown(id, param)
+        local p = param or paramOf(id)
+        if not p then
+            local bfl = battleLib()
+            if bfl and bfl:IsValid() then
+                local ok, q = pcall(function() return bfl:GetBattleUnitParameter(id, false) end)
+                if ok and q and q.IsValid and q:IsValid() then p = q end
+            end
+        end
+        if p then
+            local ok, v = pcall(function() return p:isDead() end)
+            if ok and yes(v) then return true end
+            ok, v = pcall(function() return p.isDead end)
+            if ok and yes(v) then return true end
+            ok, v = pcall(function() return p:GetHitPoint() end)
+            v = ok and num(v) or nil
+            if (v ~= nil) and (v <= 0) then return true end
+        end
+        local ratio = hpRatio(id)
+        return (ratio ~= nil) and (ratio <= 0)
+    end
+    if Fight then Fight.unitDown = unitDown end
+    local function addAlly(id, down)
         local r = hpRatio(id)
+        local hp = r or 1
+        if down then hp = 0 end
         allies[#allies + 1] = {
-            id = id, name = unitName(id), hp = r or 1,
-            dead = (r ~= nil and r <= 0) or false, statuses = statuses(id),
+            id = id, name = unitName(id), hp = hp,
+            dead = down and true or false, statuses = statuses(id),
         }
     end
+    local have = {}
+    for _, id in ipairs(friendIds()) do
+        have[id] = true
+        addAlly(id, unitDown(id))
+    end
+    local extra = fill(function(t)
+        local bfl = battleLib()
+        if bfl and bfl:IsValid() then bfl:GetAllBattleUnitPararmeterList(t, false) end
+    end)
+    if extra then
+        for _, p in ipairs(extra) do
+            local id = num(p)
+            local param = nil
+            if (not id) and (type(p) == "userdata") then
+                param = p
+                local ok, v = pcall(function() return p:GetUniqueId() end)
+                id = ok and num(v) or nil
+                if not id then
+                    ok, v = pcall(function() return p.UniqueId end)
+                    id = ok and num(v) or nil
+                end
+            end
+            if id and not have[id] then
+                local rel = nil
+                if param then
+                    local ok, v = pcall(function() return param:GetRelation() end)
+                    rel = ok and num(v) or nil
+                else
+                    local q = paramOf(id)
+                    if q then
+                        local ok, v = pcall(function() return q:GetRelation() end)
+                        rel = ok and num(v) or nil
+                    end
+                end
+                if (rel == REL.FRIEND) and unitDown(id, param) then
+                    have[id] = true
+                    addAlly(id, true)
+                end
+            end
+        end
+    end
     if #allies == 0 then
-        local r = hpRatio(uid)
-        allies[1] = { id = uid, name = unitName(uid), hp = r or 1, dead = false, statuses = statuses(uid) }
+        addAlly(uid, unitDown(uid))
     end
     if Fight then
         if not Fight.seenAlly then Fight.seenAlly = {} end
@@ -2234,6 +2304,14 @@ local function turn(uid, skills, w, phase)
         appendLog("  " .. line)
     end
 
+    if (Fight.rounds or 0) == 0 and not Fight.entryTold and Health.entryNote then
+        Fight.entryTold = true
+        local note = Health.entryNote(w.allies)
+        if note then
+            log("%s", note)
+            appendLog("  " .. note)
+        end
+    end
     Fight.downNow = {}
     for _, a in ipairs(w.allies) do
         if not a.dead then Fight.claim.revive[a.id] = nil
@@ -2258,7 +2336,7 @@ local function turn(uid, skills, w, phase)
             local gauge = gaugeOfEnemy(u)
             if not empty and remain > gauge * 0.25 then calm = false end
         end
-        if not (oneLeft and calm) then
+        if ((Fight.rounds or 0) == 0) or not (oneLeft and calm) then
             local function raiseFallen(allowOne)
                 local downN = #Fight.downNow
                 if (downN < 1) and dead then downN = 1 end
@@ -3662,7 +3740,8 @@ local function consider(uid)
         if s.kind == "revive" then
             for _, id in ipairs(targetsFor(uid, s, REL.FRIEND)) do
                 local ratio = hpRatio(id)
-                if (ratio == nil) or (ratio <= 0) then
+                local down = Fight.unitDown and Fight.unitDown(id)
+                if down or (ratio == nil) or (ratio <= 0) then
                     local seen = false
                     for _, a in ipairs(w.allies) do
                         if a.id == id then
@@ -3674,7 +3753,7 @@ local function consider(uid)
                     if not seen then
                         w.allies[#w.allies + 1] = {
                             id = id, name = unitName(id), hp = 0,
-                            dead = true, statuses = {}, acts = true,
+                            dead = true, statuses = statuses(id), acts = true,
                         }
                     end
                 end
@@ -3809,6 +3888,7 @@ local function ensureBattle()
     Fight.unmarked = false
     Fight.unmarkedTold = false
     Fight.recoverTold = false
+    Fight.entryTold = false
     Fight.finishNote = {}
     Fight.finishScan = nil
     itemsLogged = false
@@ -4734,7 +4814,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.23. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.24. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

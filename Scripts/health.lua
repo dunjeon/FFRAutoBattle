@@ -378,6 +378,27 @@ local function pack(ally, tier, itemFirst, itemOnly, soft)
     }
 end
 
+-- One line for what the party brought in. A downed ally and a lock are
+-- named. A status this file does not rank is left off the line.
+function M.entryNote(allies)
+    local bits = {}
+    for _, a in ipairs(allies or {}) do
+        local name = a.name or "?"
+        if a.dead then
+            bits[#bits + 1] = name .. " down"
+        elseif a.statuses then
+            if hasId(a.statuses, DOOM) then bits[#bits + 1] = name .. " doom" end
+            if hasAny(a.statuses, OUT) then bits[#bits + 1] = name .. " locked" end
+            if hasId(a.statuses, SILENCE) then bits[#bits + 1] = name .. " silence" end
+            if hasId(a.statuses, POISON) then bits[#bits + 1] = name .. " poison" end
+            if hasId(a.statuses, BLIND) then bits[#bits + 1] = name .. " blind" end
+            if hasId(a.statuses, SLOW) then bits[#bits + 1] = name .. " slow" end
+        end
+    end
+    if #bits == 0 then return nil end
+    return "entry: " .. table.concat(bits, ", ")
+end
+
 -- Urgent cures are doom, a healer who cannot act, and the other locks.
 -- Poison and blind are the actor's own item after that, and only when
 -- nothing more urgent is waiting. Slow is chosen by slowFocus.

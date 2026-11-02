@@ -139,15 +139,15 @@ were not in those fights. Tranquility on a high unknown gauge, and one
 sync cast after the bonus had already returned, stay with the stagger
 scorer. Do not retune the quarter cap or the 15/20 lines from that log.
 
-Testing is v0.1.23. Before the party has each acted once, an ally under
-the recover line is healed. The log says opening. After that round the
-50% line still waits for MP above half and for several allies hurt or
-the bonus just ended. The formation kit from testing is in this build.
-Haste and the other generic buffs stay on the bar. main and the public
-zip are still the v0.1.22 release. They do not have the opening heal or
-the formation kit. The zip is FFRAutoBattle.zip on tag v0.1.22. The
-v0.1.22, v0.1.21, v0.1.20, v0.1.19, v0.1.18, v0.1.17, v0.1.14, and
-v0.1.12 downloads stay up. The startup line is "loaded. planner v0.1.23."
+Testing is v0.1.24. An ally who enters the fight down is raised on the
+first round. Doom, a lock, and silence that came in with the party are
+cleared before the opening heal. The log says entry. Poison, blind, and
+slow stay on their own lines. Before the party has each acted once, an
+ally under the recover line is healed, and the log says opening. The
+formation kit is in this build. Haste and the other generic buffs stay
+on the bar. main and the public zip are still the v0.1.22 release. The
+zip is FFRAutoBattle.zip on tag v0.1.22. The startup line is
+"loaded. planner v0.1.24."
 
 Raise and Arise are spent on a fallen ally. A living ally is left
 standing. A raise is still skipped only when one weak enemy with no
@@ -523,11 +523,13 @@ remembered as a clear. main and the public zip are v0.1.22. The zip
 is FFRAutoBattle.zip on tag v0.1.22. The startup line is
 "loaded. planner v0.1.22."
 
-On testing, v0.1.23
+On testing, v0.1.24
 A formation, the buff that sets one up, a stagger mark, one weakness
 on an enemy the book leaves bare, and a luck toss are spent when they
 are equipped and the cost fits. A paid one goes while MP is above the
-low band. Before the party has each acted once, an ally under the
-recover line is healed, and the log says opening. Haste and the other
-generic buffs stay on the bar. The startup line is
-"loaded. planner v0.1.23." main and the public zip do not have this yet.
+low band. An ally who enters down is raised on the first round. Doom,
+a lock, and silence that came in with the party are cleared before the
+opening heal. Before the party has each acted once, an ally under the
+recover line is healed. Haste and the other generic buffs stay on the
+bar. The startup line is "loaded. planner v0.1.24." main and the public
+zip do not have this yet.
