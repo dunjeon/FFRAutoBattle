@@ -144,6 +144,13 @@ pull attacks. One per round, then the chip. The log says draw. A summon
 is not a party member. A round does not wait on an ally whose status
 takes the turn. An Ether goes out when a held heal no longer fits.
 
+A raise waits while a living ally is under 30% HP, unless the fallen
+ally is the only healer. An ally who fell again within a round of a raise
+waits until no living ally is under half. The log says raise X waits. A
+party heal beats every single heal when most of the party is under half.
+A wipe followed by a party member standing again is a retry, and the
+ledger and setup are cleared.
+
 Haste is spent from the haste book in kits.lua. A slowed ally gets it
 first, on any field. On a hard field with the bar above half, the healer
 and then the strongest damage dealer get it. One per round. The log says

@@ -434,7 +434,7 @@ function Sim.newBattle(opts)
             bonus = 0, finish = 0, finishByMod = 0, cures = 0, cureMiss = 0, wasted = 0,
         },
         roundHeals = {}, roundEthers = 0, passActed = {}, pot = opts.pot or false, rules = opts.rules or {},
-        focusHealer = opts.focusHealer or false, easy = opts.easy or false,
+        focusHealer = opts.focusHealer or false, easy = opts.easy or false, retry = opts.retry or false,
     }
     for i, m in ipairs(opts.party) do
         local id = i - 1
@@ -526,6 +526,8 @@ local function hurt(u, amount, src)
         u.statuses = {}
         if u.side == "ally" and not u.summon then
             B.stats.falls = B.stats.falls + 1
+            if u.raisedAt and ((B.passes or 0) - u.raisedAt) <= 1 then B.stats.quickRefall = (B.stats.quickRefall or 0) + 1 end
+            u.raisedAt = nil
             event("%s fell (%s)", u.name, src or "?")
         end
         if u.side == "enemy" then event("%s defeated", u.name) end
@@ -641,6 +643,7 @@ local function resolve(actor, row, targets, isAll, isItem, item)
             if t.dead then
                 t.dead = false
                 t.hp = math.floor(t.maxHp * 0.25)
+                t.raisedAt = B.passes or 0
                 B.stats.raises = B.stats.raises + 1
             end
         end
@@ -667,7 +670,8 @@ local function resolve(actor, row, targets, isAll, isItem, item)
     if row.defaultTargetRelation == REL.FRIEND then
         for _, t in ipairs(list) do
             if spec.heal then
-                local amount = (row.damageCalcType == 3) and row.magnification or ((actor.mag or 60) * row.magnification / 100)
+                local power = spec.healPower or row.magnification
+                local amount = (row.damageCalcType == 3) and row.magnification or ((actor.mag or 60) * power / 100)
                 if spec.full then amount = t.maxHp end
                 heal(t, amount)
             end
@@ -785,6 +789,19 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
         end
         if t.summon and (not isAll) and row.defaultTargetRelation == REL.FRIEND and (spec.heal or eff == EFF.REVIVE or eff == EFF.CURE) then
             violate("summon target", "%s spent %s on the summon %s", actor.name, row.Name, t.name)
+        end
+        if eff == EFF.REVIVE and t.dead and byMod then
+            -- The living come first, unless the fallen ally is the only healer.
+            local critical, livingHealer = false, false
+            for _, a in ipairs(living("ally")) do
+                if not a.summon then
+                    if (a.hp / a.maxHp) < 0.30 then critical = true end
+                    if healPower(a) > 0 and not anyBad(a) then livingHealer = true end
+                end
+            end
+            if critical and (healPower(t) == 0 or livingHealer) then
+                violate("raise before the living", "%s raised %s while a living ally was critical", actor.name, t.name)
+            end
         end
         if eff == EFF.REVIVE and not t.dead then
             violate("wasted revive", "%s spent %s on living %s", actor.name, row.Name, t.name)
@@ -1169,6 +1186,26 @@ function Sim.play(maxRounds, policy)
         table.sort(order, function(a, b) return a.init > b.init end)
         for _, u in ipairs(order) do
             local done = over()
+            -- A boss fight offers one retry after a wipe: the same battle again at full.
+            if done == "loss" and B.retry and not B.retried then
+                -- The defeat screen holds a moment before the retry.
+                Sim.advance(1500)
+                B.retried = true
+                B.retryAt = #B.modLines
+                B.stats.retries = (B.stats.retries or 0) + 1
+                event("retry after the wipe")
+                for _, a in pairs(B.units) do
+                    if a.side == "ally" and not a.summon then
+                        a.dead, a.hp, a.mp, a.statuses, a.lb = false, a.maxHp, a.maxMp, {}, 0
+                    elseif a.side == "enemy" then
+                        a.dead, a.hp, a.statuses, a.poured, a.brokenFor = false, a.maxHp, {}, 0, 0
+                    elseif a.summon then
+                        a.gone, a.dead = true, true
+                    end
+                end
+                B.provoke, B.multiCover = nil, nil
+                done = nil
+            end
             if done then
                 -- The units stay on screen a moment after the last blow.
                 Sim.advance(1500)

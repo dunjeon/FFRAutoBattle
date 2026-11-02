@@ -2386,7 +2386,53 @@ local function turn(uid, skills, w, phase)
             Fight.claim.revive[dead.id] = nil
         end
     end
+    -- The living come first. A raise waits while a living ally is critical,
+    -- unless the fallen ally is the only healer. An ally who fell again
+    -- within a round of a raise is not raised again until no living ally is
+    -- under half, so the party can keep them up. The Timeline is not
+    -- readable, so these are the signs that the next hit would drop them.
+    Fight.refell = Fight.refell or {}
+    Fight.raisedRound = Fight.raisedRound or {}
+    for _, a in ipairs(w.allies) do
+        local at = Fight.raisedRound[a.id]
+        if (not a.dead) and at and (((Fight.rounds or 0) - at) >= 2) then
+            Fight.refell[a.id] = nil
+            Fight.raisedRound[a.id] = nil
+        end
+    end
+    local raiseHold = nil
     if dead and not Fight.claim.revive[dead.id] then
+        local critical, underHalf, livingHealer = false, false, false
+        for _, a in ipairs(w.allies) do
+            if not a.dead then
+                -- HP, not the heal claim: a heal that went out and left them
+                -- under the line has not made them safe.
+                if (a.hp or 1) < 0.30 then critical = true end
+                if (a.hp or 1) < 0.50 then underHalf = true end
+                local kit = unitKit(a.id)
+                if (a.acts ~= false) and (not heldOut(a)) and kit and ((kit.healScore or 0) >= 50) then
+                    livingHealer = true
+                end
+            end
+        end
+        local deadKit = unitKit(dead.id)
+        local onlyHealer = deadKit and ((deadKit.healScore or 0) >= 50) and (not livingHealer)
+        if not onlyHealer then
+            if critical then raiseHold = "a living ally is critical"
+            elseif Fight.refell[dead.id] and underHalf then raiseHold = dead.name .. " fell again after a raise" end
+        end
+        if raiseHold then
+            Fight.healLeft = Fight.healLeft or {}
+            local key = "hold" .. tostring(dead.id)
+            if not Fight.healLeft[key] then
+                Fight.healLeft[key] = true
+                local line = string.format("raise %s waits, %s", dead.name, raiseHold)
+                log("%s", line)
+                appendLog("  " .. line)
+            end
+        end
+    end
+    if dead and not Fight.claim.revive[dead.id] and not raiseHold then
         local oneLeft, calm = #w.enemies == 1, true
         for _, u in ipairs(w.enemies) do
             local card = mobOf(u)
@@ -3869,12 +3915,27 @@ end
 
 local function noteChanges(now)
     local last = Fight.last
+    -- Every party member down is a wipe. A retry may follow in the same battle.
+    local allies, standing = 0, 0
+    for _, cur in pairs(now) do
+        if cur.side == "ally" then
+            allies = allies + 1
+            if cur.hp > 0 then standing = standing + 1 end
+        end
+    end
+    if (allies > 0) and (standing == 0) then Fight.wiped = true end
     for id, was in pairs(Fight.prev) do
         local cur = now[id]
         local summon = Fight.isSummon and Fight.isSummon(id)
         if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon then
             Fight.fell[#Fight.fell + 1] = was.name
             appendLog("  fell: " .. was.name)
+            local at = Fight.raisedRound and Fight.raisedRound[id]
+            if at and (((Fight.rounds or 0) - at) <= 1) then
+                Fight.refell = Fight.refell or {}
+                Fight.refell[id] = true
+                appendLog("  " .. was.name .. " fell again right after a raise")
+            end
         end
         if was.side == "enemy" and not was.broken and cur and cur.broken then
             Fight.downTold = Fight.downTold or {}
@@ -4181,6 +4242,7 @@ local function ensureBattle()
     Fight.claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, kit = {}, etherRound = false, guard = false, esper = false, lb = false }
     Fight.kitOn = {}
     Fight.drawSeen, Fight.cureTry, Fight.cureMiss, Fight.drawRound = {}, {}, {}, {}
+    Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
     Fight.foeLow, Fight.hitsSince, Fight.stalemateTold = {}, 0, false
     Fight.luckToss = {}
     Fight.debuffOn, Fight.debuffSeen, Fight.debuffTold = {}, {}, {}
@@ -4493,9 +4555,21 @@ local function act(serial)
             if on then n = n + 1 end
         end
         for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
+        -- After a wipe nobody is left to raise anyone, so a party member
+        -- standing again means the game restarted the fight: a retry, at any
+        -- HP or MP.
+        local retry = false
+        if Fight.wiped then
+            for id in pairs(Fight.seenAlly or {}) do
+                local r = hpRatio(id)
+                if r and (r > 0) then retry = true end
+            end
+        end
         -- Most of the party back at its opening bar. The same share for any size.
         local need = math.max(1, math.ceil(party * 0.75))
-        if n < need then return end
+        if (n < need) and (not retry) then return end
+        Fight.wiped = false
+        Fight.refell, Fight.raisedRound = {}, {}
         Fight.mpBack = {}
         Fight.mpLow = {}
         Fight.poured, Fight.down, Fight.downTold = {}, {}, {}
@@ -4579,6 +4653,10 @@ local function act(serial)
         end
     end
     if choice.slow then Fight.slowTry = choice.slow end
+    if ((choice.kind == "revive") or (choice.itemUse == "revive")) and choice.targets then
+        Fight.raisedRound = Fight.raisedRound or {}
+        for _, tid in ipairs(choice.targets) do Fight.raisedRound[tid] = Fight.rounds or 0 end
+    end
     if choice.attr == ATTR.FINISH then Fight.resonanceSent = true end
     if (choice.kind == "damage") and (not choice.isItem) and (choice.attr ~= ATTR.SUMMON) then
         Fight.hitsSince = (Fight.hitsSince or 0) + 1
@@ -4759,6 +4837,8 @@ local function noteHand(v)
     if kind == "revive" then
         local ids = (#targets > 0) and targets or eachAlly(function(_, dead) return dead end)
         for _, id in ipairs(ids) do Fight.claim.revive[id] = #Fight.actions end
+        Fight.raisedRound = Fight.raisedRound or {}
+        for _, id in ipairs(ids) do Fight.raisedRound[id] = Fight.rounds or 0 end
     end
     if (kind == "ether") and uid and (uid >= 0) then
         Fight.claim.ether[uid] = true

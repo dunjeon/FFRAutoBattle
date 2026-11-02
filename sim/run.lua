@@ -98,8 +98,9 @@ dmg("Banish", ATTR.MAGIC, 6, 130, 17)
 dmg("Banishra", ATTR.MAGIC, 16, 210, 25)
 
 Sim.addSkill({ name = "Cure", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 6, power = 300, rel = REL.FRIEND, heal = true })
-Sim.addSkill({ name = "Cura", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 14, power = 240, rel = REL.FRIEND, heal = true, target = TGT.ALL })
-Sim.addSkill({ name = "Curaga", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 30, power = 420, rel = REL.FRIEND, heal = true, target = TGT.ALL })
+-- The game's party heal rows can show no magnification. The sim heals by healPower.
+Sim.addSkill({ name = "Cura", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 14, power = 0, healPower = 240, rel = REL.FRIEND, heal = true, target = TGT.ALL })
+Sim.addSkill({ name = "Curaga", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 30, power = 0, healPower = 420, rel = REL.FRIEND, heal = true, target = TGT.ALL })
 Sim.addSkill({ name = "Esuna", attr = ATTR.MAGIC, effect = EFF.CURE, cost = 8, rel = REL.FRIEND })
 Sim.addSkill({ name = "Raise", attr = ATTR.MAGIC, effect = EFF.REVIVE, cost = 20, rel = REL.FRIEND, revive = true })
 Sim.addSkill({ name = "Libra", attr = ATTR.MAGIC, effect = EFF.ANALYZE, cost = 2 })
@@ -382,13 +383,23 @@ local function playSession(sid, withMod)
             if #members > 1 and math.random() < 0.5 then m.hp = 0 else m.statuses = { [pick({ ST.CONFUSE, ST.SLEEP, ST.SILENCE, ST.POISON })] = 3 } end
         end
         local B = Sim.newBattle({ party = members, foes = fight.foes, boss = fight.boss, pot = fight.pot,
-            bag = (i == 1) and sharedBag or nil, focusHealer = fight.focusHealer, easy = EASY and withMod })
+            bag = (i == 1) and sharedBag or nil, focusHealer = fight.focusHealer, easy = EASY and withMod,
+            retry = fight.boss })
         if i > 1 then B.bag = results[i - 1].bag end
         local outcome = Sim.play(40, (not withMod) and Sim.baseline or nil)
         local viol = {}
         for _, v in ipairs(B.violations) do viol[#viol + 1] = v end
         if withMod then
             scanModLines(B.modLines, fight, viol)
+            -- A retry after a wipe should clear the ledger and the setup.
+            if B.retryAt then
+                local saw, acted = false, false
+                for j = B.retryAt + 1, #B.modLines do
+                    if B.modLines[j]:find("party restored", 1, true) then saw = true end
+                    if B.modLines[j]:find(" p0 mp", 1, true) then acted = true end
+                end
+                if acted and not saw then viol[#viol + 1] = { kind = "missed retry", text = "the party came back after a wipe and the ledger was kept" } end
+            end
             -- The planner's battle summary should not list more falls than happened.
             for _, line in ipairs(B.modLines) do
                 local fellPart = line:match("battle %d+ done: .*%.%s([^%.]*)%.$")
@@ -430,7 +441,7 @@ local function bump(t, k, field, n)
     t[k] = t[k] or { fights = 0, win = 0, base = 0, baseFights = 0 }
     t[k][field] = t[k][field] + (n or 1)
 end
-local stats = { partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
+local stats = { retries = 0, quickRefall = 0, partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
     gameCommands = 0, modCommands = 0, cures = 0 }
 local items = {}
 local fails = 0
@@ -447,7 +458,7 @@ local MARKS = {
     { "cure does not clear", "does not clear status" }, { "ether heal", "ether so a heal fits" },
     { "ether weak", "ether so the weakness fits" }, { "heal left", "heal left," }, { "fill", "-> fill " },
     { "resonance sent", "resonance " }, { "pot fight", "pot fight" }, { "summon acts", "acts on its own" },
-    { "raise left", "raise left to" }, { "stalemate", "stalemate:" }, { "haste", "-> haste " }, { "haste for slow", ", slow" },
+    { "raise left", "raise left to" }, { "raise waits", "waits, a living ally" }, { "raise cycle", "fell again after a raise" }, { "stalemate", "stalemate:" }, { "haste", "-> haste " }, { "haste for slow", ", slow" },
     { "slow debuff", "debuff slow" }, { "slow skipped", "slow cure skipped" }, { "cure slow", "-> cure slow" },
 }
 local marks = {}
@@ -566,6 +577,7 @@ out("Weakness: a payable weakness hit was on the bar %d times, the planner took 
 out("Phoenix Down while a living ally could pay a raise spell: %d", stats.pdWhileRaise)
 out("Falls: %d in the sim, %d in the planner's battle summaries", stats.falls, stats.fallsLogged)
 out("Haste turns %d, ally turns lost to Slow %d, party heals in 2-ally fights %d", stats.hasteTurns, stats.slowLost, stats.partyHeals)
+out("Retries after a wipe %d. Raised allies who fell again within a round %d of %d raises", stats.retries, stats.quickRefall, stats.raises)
 local ml = {}
 for _, m in ipairs(MARKS) do ml[#ml + 1] = string.format("%s %d", m[1], marks[m[1]] or 0) end
 out("Planner lines: %s", table.concat(ml, ", "))

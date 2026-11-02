@@ -35,6 +35,9 @@ A broken rule is any of these, in any fight:
 - **wheel**: a normal spell sent on the Resonance wheel.
 - **early escape**: an escape while enemies were still losing HP. The planner escapes only on a stalemate.
 - **false fall**: the planner's battle summary lists more falls than happened.
+- **raise before the living**: a raise while a living ally was under 30%, unless the fallen ally was the only healer.
+- **missed retry**: a boss fight was retried after a wipe and the planner kept the old ledger and setup.
+- **stacked draw**: a second Provoke, Cover, or Multi-Cover while another was still up.
 - **easy mode**: with `--easy`, anything but the free basic Attack at an enemy.
 - **plan mode**: the first plan is `adds` when the gauges are equal, or `sync` when one is at or under 60% of the largest.
 
@@ -52,6 +55,8 @@ Game facts it copies from the design doc and the battle logs:
 - Sleep, paralysis, petrify, and stop take the turn with no menu. The game decides for a confused, charmed, or berserk ally.
 - A summon is a friend unit in slot 7 with no skill list. It acts on its own.
 - Every bar has Escape. The game refuses it in a boss fight.
+- A boss fight offers one retry after a wipe. The defeat screen holds a moment first.
+- Party heal rows (Cura, Curaga) show no magnification, as the game's rows can.
 - A hasted ally acts twice every other round. A slowed ally or enemy loses every other turn. Haste and Slow cancel each other, as in the classic games. FFR is not confirmed.
 - The units stay on screen a moment after the last blow.
 - Provoke and Cover show no status.

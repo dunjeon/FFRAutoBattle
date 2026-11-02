@@ -88,6 +88,13 @@ end
 
 function M.spellRank(skill, missing, hurtN, party, need)
     need = need or 3
+    -- With most of the party hurt, a party heal wins over every single heal,
+    -- including a party row with no magnification. Among party heals the
+    -- usual rank decides.
+    if party and ((hurtN or 0) >= need) then
+        local inner = M.spellRank(skill, missing, 0, false, need)
+        return 1000 + inner
+    end
     local cost = skill.cost or 0
     if cost < 1 then cost = 1 end
     local power = skill.power or 0
