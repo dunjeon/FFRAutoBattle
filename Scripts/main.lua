@@ -2656,10 +2656,12 @@ local function turn(uid, skills, w, phase)
     end
     Fight.underLine = false
     local halfN, halfWho = underMark()
-    local recoverGate = recoverAt > 0.50 or (band() == "high"
-        and (Fight.afterBonus or (style == "defensive" and halfN >= 2)))
+    local opening = (Fight.rounds or 0) == 0
+    local recoverGate = opening or (recoverAt > 0.50) or ((band() == "high")
+        and (Fight.afterBonus or ((style == "defensive") and (halfN >= 2))))
     if halfWho and phase ~= PHASE_BONUS and not deferHeal() and recoverGate then
-        local choice = healNow(halfWho, "recover", recoverAt > 0.50 and recoverAt or 0.50)
+        local choice = healNow(halfWho, opening and "opening" or "recover",
+            recoverAt > 0.50 and recoverAt or 0.50)
         if choice then return choice end
     end
     local softer = curePass(false)
@@ -4732,7 +4734,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.22. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.23. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
