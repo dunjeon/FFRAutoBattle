@@ -1654,6 +1654,21 @@ local function worldOf(uid, boss, summoned)
     end
     if Fight then
         if not Fight.seenAlly then Fight.seenAlly = {} end
+        -- The party is on the field when the fight begins. A friend that
+        -- arrives later with no skill list, or one the Esper book names, is
+        -- a summon: it is not healed, raised, counted, or waited on, and it
+        -- stays one for the fight.
+        Fight.summons = Fight.summons or {}
+        local party = {}
+        for _, a in ipairs(allies) do
+            if (not a.dead) and (not Fight.seenAlly[a.id]) and (not Fight.summons[a.id]) and (a.id ~= uid)
+                and Fight.openIds and (not Fight.openIds[a.id]) then
+                local esper = Espers.lookup and Espers.lookup(a.name)
+                if esper or (#equippedIds(a.id) == 0) then Fight.summons[a.id] = true end
+            end
+            if not Fight.summons[a.id] then party[#party + 1] = a end
+        end
+        if #party > 0 then allies = party end
         for _, a in ipairs(allies) do
             if not a.dead then Fight.seenAlly[a.id] = a.name end
         end
@@ -3458,12 +3473,22 @@ local function turn(uid, skills, w, phase)
         end
         return false
     end
-    if band() == "low" and not Fight.claim.ether[uid] and not Fight.claim.etherRound then
+    -- One Ether on the actor's own turn: a heal they hold no longer fits, or
+    -- the bar is low and a known weakness no longer fits.
+    if not Fight.claim.ether[uid] and not Fight.claim.etherRound then
         local list = #pool > 0 and pool or open
-        if unpaidWeakness(list) then
+        local holds, fits = false, false
+        for _, s in ipairs(skills) do
+            if realCure(s) then
+                holds = true
+                if pay(s) then fits = true end
+            end
+        end
+        local healGone = holds and not fits
+        if healGone or ((band() == "low") and unpaidWeakness(list)) then
             local ether = pickRecoveryItem(uid, w, "mp")
             if ether then
-                ether.reason = "ether so the weakness fits"
+                ether.reason = healGone and "ether so a heal fits" or "ether so the weakness fits"
                 Fight.claim.ether[uid] = true
                 Fight.claim.etherRound = true
                 return ether
@@ -3570,12 +3595,14 @@ end
 local function livingSnapshot()
     local snap = {}
     for _, id in ipairs(friendIds()) do
-        -- A fallen slot reads no HP. Without this it reads full and the fall is missed.
-        local hp = hpRatio(id) or 1
-        if Fight.unitDown and Fight.unitDown(id) then hp = 0 end
-        local name = unitName(id)
-        if name:find("^Unit ") and Fight.seenAlly and Fight.seenAlly[id] then name = Fight.seenAlly[id] end
-        snap[id] = { side = "ally", name = name, hp = hp, broken = false }
+        if not (Fight.summons and Fight.summons[id]) then
+            -- A fallen slot reads no HP. Without this it reads full and the fall is missed.
+            local hp = hpRatio(id) or 1
+            if Fight.unitDown and Fight.unitDown(id) then hp = 0 end
+            local name = unitName(id)
+            if name:find("^Unit ") and Fight.seenAlly and Fight.seenAlly[id] then name = Fight.seenAlly[id] end
+            snap[id] = { side = "ally", name = name, hp = hp, broken = false }
+        end
     end
     for _, id in ipairs(members(REL.ENEMY)) do
         snap[id] = { side = "enemy", name = unitName(id), hp = hpRatio(id) or 1, broken = broken(id) }
@@ -3880,6 +3907,9 @@ local function ensureBattle()
     Fight.summoned = false
     Fight.usedSupport = {}
     Fight.actions, Fight.casts, Fight.castOrder = {}, {}, {}
+    Fight.summons = {}
+    Fight.openIds = {}
+    for _, id in ipairs(friendIds()) do Fight.openIds[id] = true end
     Fight.broke, Fight.fell, Fight.prev = {}, {}, livingSnapshot()
     Fight.scanned, Fight.elemRun, Fight.seenAlly = {}, {}, {}
     Fight.resonanceSent = false
@@ -3913,6 +3943,7 @@ local function ensureBattle()
     Fight.lbGaugeApi = {}
     -- A low bar from the last fight is not a wipe in this one.
     Fight.mpAnchor, Fight.mpLow, Fight.mpBack = {}, {}, {}
+    Fight.roundAt = 0
     Fight.unmarked = false
     Fight.unmarkedTold = false
     Fight.recoverTold = false
@@ -4078,18 +4109,31 @@ end
 local function noteRound(uid)
     Fight.went = Fight.went or {}
     if uid and (uid >= 0) then Fight.went[uid] = true end
+    -- A round is one turn for every party member who can take one. A summon
+    -- and an ally whose status takes the turn are not waited on. A round
+    -- never runs past two passes of the party, so nothing can hold it open.
     local actors, went = 0, 0
     for _, id in ipairs(friendIds()) do
         local ratio = hpRatio(id)
-        if (ratio == nil) or (ratio > 0) then
+        local summon = Fight.summons and Fight.summons[id]
+        if (not summon) and ((ratio == nil) or (ratio > 0)) then
             local kit = unitKit(id)
-            if kit and kit.spells and (#kit.spells > 0) then
+            local held = false
+            if Health.OUT then
+                local set = statuses(id)
+                for sid in pairs(Health.OUT) do
+                    if set[sid] then held = true end
+                end
+            end
+            if kit and kit.spells and (#kit.spells > 0) and ((not held) or Fight.went[id]) then
                 actors = actors + 1
                 if Fight.went[id] then went = went + 1 end
             end
         end
     end
-    if (actors > 0) and (went >= actors) then
+    local since = #(Fight.actions or {}) - (Fight.roundAt or 0)
+    if (actors > 0) and ((went >= actors) or (since >= actors * 2)) then
+        Fight.roundAt = #(Fight.actions or {})
         Fight.went = {}
         Fight.healLeft = {}
         Fight.rounds = (Fight.rounds or 0) + 1
@@ -4189,8 +4233,8 @@ local function act(serial)
             if on then n = n + 1 end
         end
         for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
-        local need = 3
-        if party == 2 then need = 2 end
+        -- Most of the party back at its opening bar. The same share for any size.
+        local need = math.max(1, math.ceil(party * 0.75))
         if n < need then return end
         Fight.mpBack = {}
         Fight.mpLow = {}
@@ -4351,8 +4395,10 @@ local function noteHand(v)
     if not Fight.active then return end
     pcall(function() noteChanges(livingSnapshot()) end)
     pcall(settleGauges)
-    local uid = Menu.actor
-    if (not uid) or (uid < 0) then uid = currentActor() end
+    -- The unit whose turn it is. The game also decides for an ally whose
+    -- status takes the turn, with no menu, so the last menu is only a fallback.
+    local uid = currentActor()
+    if (not uid) or (uid < 0) then uid = Menu.actor end
     local actionId, isItem, targets, rowObj = nil, false, {}, nil
     local function readIds(list)
         local out = {}

@@ -57,6 +57,7 @@ local CURE_ITEM = {
 local M = {}
 M.HEAVY = HEAVY
 M.FIXED = FIXED
+M.OUT = OUT
 
 function M.recoverAt(boss, rows)
     local at, small = 0.50, false
