@@ -4,9 +4,7 @@ For the next agent working in this repo. Read this before the fix list.
 The player is Dunjeon. Grok, by xAI, is the lead programmer. The public name is
 FFR:AutoBattle. The license is MIT. Do not commit battle_log.txt, UE4SS.log, or
 state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
-After a Lua change, copy Scripts/main.lua, Scripts/known.lua, and Scripts/mobs.lua
-to the game-root wip/ folder when that folder exists, and parse with
-luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
+After a Lua change, parse with luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
 a Steam launch. The startup line is "loaded. planner v0.1.22."
 
 2026-10-31 party health. The 65% recover line is only a boss fight, or a

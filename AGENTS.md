@@ -20,8 +20,6 @@ The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. 
 
 `known.lua` is published skill and item facts: element, stagger, and use. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
-If a `wip/` folder exists beside the game, copy the three scripts there after a change so the readable copies match.
-
 ## Rules that keep the planner general
 
 - Score the field that is actually alive. A friend, a matching ally name, a nameless slot, or a body with no HP is not a foe.
