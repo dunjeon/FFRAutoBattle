@@ -248,7 +248,7 @@ local function foe(e, scale, boss, statusChance, statusList)
     }
 end
 
-local KINDS = { "trash", "mixed", "equal", "danger", "boss", "status", "counter", "absorb", "pot", "entry" }
+local KINDS = { "trash", "mixed", "equal", "danger", "boss", "status", "counter", "absorb", "pot", "entry", "nophys", "hidden" }
 
 local function makeFight(kind, size)
     local scale = (size / 4) ^ 0.8
@@ -282,6 +282,20 @@ local function makeFight(kind, size)
     elseif kind == "pot" then
         f.pot = true
         f.foes[1] = { name = "Pot", hp = math.floor(400 * scale), atk = 20, spd = 5, statusChance = 0 }
+    elseif kind == "nophys" then
+        -- A book card that nulls physical hits and deals magic damage.
+        local e = { name = "shoggoth", card = Mobs["shoggoth"] }
+        f.boss = math.random() < 0.5
+        f.foes[1] = foe(e, scale, f.boss)
+        if math.random() < 0.5 then f.foes[2] = foe(pick(SOFT), scale) end
+    elseif kind == "hidden" then
+        -- An enemy that nulls a kind the book does not list. The planner has to learn it.
+        local e = pick(math.random() < 0.5 and MID or DANGER)
+        local x = foe(e, scale)
+        x.hidden = (math.random() < 0.7) and "physical" or "magic"
+        x.hitKind = (math.random() < 0.5) and "magic" or "physical"
+        f.foes[1] = x
+        if math.random() < 0.5 then f.foes[2] = foe(pick(SOFT), scale) end
     elseif kind == "entry" then
         f.foes[1] = foe(pick(MID), scale)
         f.foes[2] = foe(pick(SOFT), scale)
@@ -441,7 +455,7 @@ local function bump(t, k, field, n)
     t[k] = t[k] or { fights = 0, win = 0, base = 0, baseFights = 0 }
     t[k][field] = t[k][field] + (n or 1)
 end
-local stats = { retries = 0, quickRefall = 0, partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
+local stats = { hiddenHits = 0, retries = 0, quickRefall = 0, partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
     gameCommands = 0, modCommands = 0, cures = 0 }
 local items = {}
 local fails = 0
@@ -458,7 +472,7 @@ local MARKS = {
     { "cure does not clear", "does not clear status" }, { "ether heal", "ether so a heal fits" },
     { "ether weak", "ether so the weakness fits" }, { "heal left", "heal left," }, { "fill", "-> fill " },
     { "resonance sent", "resonance " }, { "pot fight", "pot fight" }, { "summon acts", "acts on its own" },
-    { "raise left", "raise left to" }, { "raise waits", "waits, a living ally" }, { "raise cycle", "fell again after a raise" }, { "stalemate", "stalemate:" }, { "haste", "-> haste " }, { "haste for slow", ", slow" },
+    { "raise left", "raise left to" }, { "null learned", "takes no damage from" }, { "refresh guard", "-> refresh guard" }, { "ether hit", "ether so a hit lands" }, { "raise waits", "waits, a living ally" }, { "raise cycle", "fell again after a raise" }, { "stalemate", "stalemate:" }, { "haste", "-> haste " }, { "haste for slow", ", slow" },
     { "slow debuff", "debuff slow" }, { "slow skipped", "slow cure skipped" }, { "cure slow", "-> cure slow" },
 }
 local marks = {}
@@ -496,6 +510,15 @@ for sid = 1, sessions do
                 end
             end
             local b = okB and base[i] or nil
+            if b and KEEP["baseline"] and b.outcome == "win" and r.outcome ~= "win" then
+                local who, foes = describe(party, r)
+                local path = string.format("%s/kept/s%04d_f%d_%s_baseline-won.txt", OUT, sid, i, r.kind)
+                local f = io.open(path, "w")
+                f:write(string.format("session %d fight %d (%s): planner %s in %d rounds, baseline won in %d\nparty: %s\nfoes: %s\n\nPLANNER LOG\n",
+                    sid, i, r.kind, r.outcome, r.rounds, b.rounds, who, foes))
+                for _, line in ipairs(r.modLines) do f:write("  ", line, "\n") end
+                f:close()
+            end
             if b then
                 tally.baseFights = tally.baseFights + 1
                 tally.baseRounds = tally.baseRounds + b.rounds
@@ -578,6 +601,7 @@ out("Phoenix Down while a living ally could pay a raise spell: %d", stats.pdWhil
 out("Falls: %d in the sim, %d in the planner's battle summaries", stats.falls, stats.fallsLogged)
 out("Haste turns %d, ally turns lost to Slow %d, party heals in 2-ally fights %d", stats.hasteTurns, stats.slowLost, stats.partyHeals)
 out("Retries after a wipe %d. Raised allies who fell again within a round %d of %d raises", stats.retries, stats.quickRefall, stats.raises)
+out("Hits into a hidden null: %d", stats.hiddenHits)
 local ml = {}
 for _, m in ipairs(MARKS) do ml[#ml + 1] = string.format("%s %d", m[1], marks[m[1]] or 0) end
 out("Planner lines: %s", table.concat(ml, ", "))

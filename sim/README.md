@@ -59,6 +59,8 @@ Game facts it copies from the design doc and the battle logs:
 - Party heal rows (Cura, Curaga) show no magnification, as the game's rows can.
 - A hasted ally acts twice every other round. A slowed ally or enemy loses every other turn. Haste and Slow cancel each other, as in the classic games. FFR is not confirmed.
 - The units stay on screen a moment after the last blow. Each command and each enemy action takes screen time, so the planner's 0.7 s field check sees a raise land before the next hit.
+- Enemies deal physical or magic damage. Protect softens physical, Shell softens magic. A card's `no.physical` or `no.magic` makes that kind do nothing. The `nophys` fight is Shoggoth from the book. The `hidden` fight gives an enemy a null the book does not list, so the planner has to learn it.
+- **null hit**, **kept hitting a null**, **wrong guard** are checked: a hit into a book null while another kind would land, more than three hits into a hidden null, and a guard of the wrong kind when the card names the damage. A hit that lands before the planner has seen two misses (a confused swing, a blind miss) can push a fight past three; about one fight in four hundred.
 - **raise cycle** is checked too: a raise into the same hits right after that ally fell straight back.
 - Provoke and Cover show no status.
 

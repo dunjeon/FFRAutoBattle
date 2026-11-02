@@ -464,6 +464,8 @@ function Sim.newBattle(opts)
             maxHp = f.hp, hp = f.hp, maxMp = 0, mp = 0, atk = f.atk, mag = f.atk, spd = f.spd,
             statuses = {}, gauge = (f.card and tonumber(f.card.gauge)) or 100, poured = 0,
             brokenFor = 0, turns = 0, statusChance = f.statusChance or 0, statusList = f.statusList,
+            -- hitKind: the damage it deals. hidden: a kind it nulls that the book does not list.
+            hitKind = (f.card and f.card.hits) or f.hitKind or "physical", hidden = f.hidden,
         }
     end
     -- Duplicate names get the game's letter suffix: GoblinB, GoblinC.
@@ -552,6 +554,12 @@ local function strike(actor, row, foe, scale)
     local power = (row.magnification or 0)
     if power <= 0 and row.skillAttrType == ATTR.FIGHT then power = 100 end
     local base = (magic and actor.mag or actor.atk) * power / 100 * (scale or 1)
+    -- A kind the enemy nulls, from the book or hidden, does nothing at all.
+    local kind = magic and "magic" or "physical"
+    if foe.side == "enemy" and ((c and c.no and c.no[kind]) or (foe.hidden == kind)) then
+        event("%s %s did nothing (%s null)", actor.name, row.Name, kind)
+        return
+    end
     if (not magic) and actor.statuses and actor.statuses[ST.BLIND] and math.random() < 0.5 then
         event("%s %s missed (blind)", actor.name, row.Name)
         return
@@ -915,6 +923,59 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
             violate("easy mode", "%s sent %s in Take it Easy", actor.name, isItem and item.Name or row.Name)
         end
     end
+    -- Hits into a kind the target nulls. The book's null is never fed; a
+    -- hidden one may be tried twice to learn it, then not again while a
+    -- hit that lands is on the bar.
+    if byMod and (not B.easy) and (not isItem) and (not isAll) and (#targets == 1) and row.defaultTargetRelation == REL.ENEMY
+        and ((row.magnification or 0) > 0 or row.skillAttrType == ATTR.FIGHT)
+        and row.skillAttrType ~= ATTR.SUMMON and row.skillAttrType ~= ATTR.LB then
+        local kind = ((row.skillAttrType == ATTR.MAGIC) or spec.magic) and "magic" or "physical"
+        for _, tid in ipairs(targets) do
+            local t = unitById(tid)
+            if t and t.side == "enemy" then
+                if t.card and t.card.no and t.card.no[kind] then
+                    -- Only when the ally had a payable hit of another kind.
+                    local other = false
+                    for _, id in ipairs(actor.skillIds or {}) do
+                        local r = Sim.skills[id]
+                        if r and r.defaultTargetRelation == REL.ENEMY and ((r.magnification or 0) > 0) and r.skillAttrType ~= ATTR.SUMMON
+                            and r.skillAttrType ~= ATTR.LB and r.skillAttrType ~= ATTR.FINISH and ((r.Cost or 0) <= actor.mp) and not sealed(actor, r) then
+                            local k2 = ((r.skillAttrType == ATTR.MAGIC) or r.sim.magic) and "magic" or "physical"
+                            if (k2 ~= kind) and (select(1, factors(r, t)) > 0) then other = true end
+                        end
+                    end
+                    if other then violate("null hit", "%s sent %s into %s, which the book says nulls %s", actor.name, row.Name, t.name, kind) end
+                elseif t.hidden == kind then
+                    t.nullHits = (t.nullHits or 0) + 1
+                    B.stats.hiddenHits = (B.stats.hiddenHits or 0) + 1
+                    if t.nullHits > 3 then
+                        local other = false
+                        for _, id in ipairs(actor.skillIds or {}) do
+                            local r = Sim.skills[id]
+                            if r and r.defaultTargetRelation == REL.ENEMY and ((r.magnification or 0) > 0) and r.skillAttrType ~= ATTR.SUMMON
+                                and r.skillAttrType ~= ATTR.LB and r.skillAttrType ~= ATTR.FINISH and ((r.Cost or 0) <= actor.mp) and not sealed(actor, r) then
+                                local k2 = ((r.skillAttrType == ATTR.MAGIC) or r.sim.magic) and "magic" or "physical"
+                                if (k2 ~= kind) and (select(1, factors(r, t)) > 0) then other = true end
+                            end
+                        end
+                        if other then violate("kept hitting a null", "%s sent %s into %s after it had shown no damage", actor.name, row.Name, t.name) end
+                    end
+                end
+            end
+        end
+    end
+    -- The guard should match the danger's kind of damage when the book gives it.
+    if byMod and (row.statusCondition == ST.PROTECT or row.statusCondition == ST.SHELL) then
+        local gk = (row.statusCondition == ST.SHELL) and "magic" or "physical"
+        local wanted, known = false, false
+        for _, f in ipairs(living("enemy")) do
+            if f.card and f.card.danger and f.card.danger[1] and f.card.hits then
+                known = true
+                if f.card.hits == gk then wanted = true end
+            end
+        end
+        if known and not wanted then violate("wrong guard", "%s cast %s against a %s threat", actor.name, row.Name, gk == "magic" and "physical" or "magic") end
+    end
     if row.skillAttrType == ATTR.ESCAPE and byMod then
         B.stats.escapes = (B.stats.escapes or 0) + 1
         if (B.round - (B.lastProgress or 0)) < 4 then
@@ -1045,7 +1106,8 @@ local function enemyTurn(foe)
         event("%s used %s", foe.name, c.danger[1])
         for _, a in ipairs(allies) do
             local dmg = atk * 1.8
-            if a.statuses[ST.PROTECT] or a.statuses[ST.SHELL] then dmg = dmg * 0.6 end
+            -- Protect softens physical, Shell softens magic.
+            if (foe.hitKind == "magic" and a.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and a.statuses[ST.PROTECT]) then dmg = dmg * 0.6 end
             hurt(a, dmg, foe.name .. " " .. c.danger[1])
         end
         return
@@ -1064,7 +1126,7 @@ local function enemyTurn(foe)
         if c2 and not c2.dead then target = c2 end
     end
     local dmg = atk * (0.85 + math.random() * 0.3)
-    if target.statuses[ST.PROTECT] then dmg = dmg * 0.7 end
+    if (foe.hitKind == "magic" and target.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and target.statuses[ST.PROTECT]) then dmg = dmg * 0.7 end
     hurt(target, dmg, foe.name)
     if (not target.dead) and foe.statusChance > 0 and math.random() < foe.statusChance then
         local list = foe.statusList or { ST.POISON }

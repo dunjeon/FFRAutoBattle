@@ -10,7 +10,8 @@
 --   break     fill the gauge
 --   cash      save for the bonus phase and the Resonance
 --   opener    cast once before the first swing (Hone Senses)
---   guardbuff Shell or Protect, once, and only in a boss fight
+--   guardbuff Shell or Protect, once, and only in a boss fight.
+--             guards: the kind of damage it softens, magic or physical
 --   guard     Defend. Last resort, never an opener
 --   heal      restore HP
 --   party     the heal is published as hitting all allies
@@ -48,10 +49,10 @@ return {
         ["sakura's ultima"] = { stagger = 55, magic = true, use = "lb-cash", gauges = 2 },
         ["glücksschmied"] = { stagger = 30, phys = true, use = "lb-cash", gauges = 2 },
         ["hone senses"] = { use = "opener" },
-        ["shell"] = { use = "guardbuff" },
-        ["protect"] = { use = "guardbuff" },
-        ["shellga"] = { use = "guardbuff" },
-        ["protectga"] = { use = "guardbuff" },
+        ["shell"] = { use = "guardbuff", guards = "magic" },
+        ["protect"] = { use = "guardbuff", guards = "physical" },
+        ["shellga"] = { use = "guardbuff", guards = "magic" },
+        ["protectga"] = { use = "guardbuff", guards = "physical" },
         ["defend"] = { use = "guard" },
         ["guard"] = { use = "guard" },
         ["blind"] = { use = "debuff", effect = "blind" },

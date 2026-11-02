@@ -64,14 +64,29 @@ do
     -- Names already in known.lua keep their stagger and use. The catalog only fills gaps.
     local catOk, catalog = pcall(dofile, DIR .. "/Scripts/catalog.lua")
     if catOk and type(catalog) == "table" and type(catalog.skills) == "table" and type(Known.skills) == "table" then
-        local added = 0
+        -- A name known.lua lists keeps its values; a field it leaves out, such
+        -- as whether the hit is physical, comes from the catalog.
+        local added, filled = 0, 0
         for name, row in pairs(catalog.skills) do
-            if Known.skills[name] == nil and type(row) == "table" then
-                Known.skills[name] = row
-                added = added + 1
+            if type(row) == "table" then
+                local mine = Known.skills[name]
+                if mine == nil then
+                    Known.skills[name] = row
+                    added = added + 1
+                elseif type(mine) == "table" then
+                    -- The kind of hit is one fact: known.lua's phys or magic is not joined by the other.
+                    local kinded = mine.phys or mine.magic
+                    for k, v in pairs(row) do
+                        if (mine[k] == nil) and not (kinded and ((k == "phys") or (k == "magic"))) then
+                            mine[k] = v
+                            filled = filled + 1
+                        end
+                    end
+                end
             end
         end
         log("catalog %d added", added)
+        if filled > 0 then log("catalog %d fields filled", filled) end
     elseif not catOk then
         log("catalog unavailable: %s", tostring(catalog))
     end
@@ -846,6 +861,10 @@ end
 -- Skill math. The live row has stagger and no element. known.lua names the element.
 --------------------------------------------------------------------------------
 
+-- Declared here so the skill math below can read what a fight has learned.
+local Fight
+local unitKit
+
 local function hitsOf(skill)
     local h = skill.hits or 1
     if h < 1 then h = 1 end
@@ -874,12 +893,32 @@ local function offenseOf(skill)
     return power * h, br * h
 end
 
+-- The kind of hit: physical, magic, or nil when the row is both or neither.
+local function kindOf(skill)
+    if not skill then return nil end
+    local info = skill.known or knownOf(skill)
+    local phys = (skill.attr == ATTR.FIGHT) or (info and info.phys)
+    local magic = (skill.attr == ATTR.MAGIC) or (info and info.magic)
+    if phys and not magic then return "physical" end
+    if magic and not phys then return "magic" end
+    return nil
+end
+
+-- A kind the card nulls, or one this fight has seen do no damage twice, is
+-- a miss, the same as a nulled element.
 local function elementFactor(skill, enemy)
     local ok, factor = pcall(function()
         local info = skill and (skill.known or knownOf(skill))
         local el = info and info.element
-        if not el or not enemy then return 1 end
+        if not enemy then return 1 end
         local card = mobOf(enemy)
+        local kind = kindOf(skill)
+        if kind then
+            if card and card.no and card.no[kind] then return 0 end
+            local learned = Fight and Fight.kindNull and Fight.kindNull[enemy.id]
+            if learned and learned[kind] then return 0 end
+        end
+        if not el then return 1 end
         if not card then return 1 end
         if card.absorb and card.absorb[el] then return 0 end
         if card.no and card.no[el] then return 0 end
@@ -910,8 +949,6 @@ local function counterScale(skill, enemy)
     return scale
 end
 
-local Fight
-local unitKit
 -- A friend, a nameless slot, or a body with no HP is not a foe.
 -- The enemy-target list has included the actor. The book also has a Lasswell card at gauge 9999.
 local function keepFoe(id)
@@ -1993,7 +2030,8 @@ local function pickFinish(uid, finishes, w)
             end
         end
     end
-    if not best then best, bestR = list[1], 10 end
+    -- No finisher lands on the field: the wheel is left for the player.
+    if not best then return nil end
     local support = best.kind == "heal" or best.kind == "buff" or best.kind == "revive"
     local foe = nil
     for _, u in ipairs(w.enemies or {}) do
@@ -2389,8 +2427,8 @@ local function turn(uid, skills, w, phase)
     -- The living come first. A raise waits while a living ally is critical
     -- and not yet healed this round, unless the fallen ally is the party's
     -- best healer. An ally who fell again within two rounds of a raise is
-    -- not raised again until no living ally is under half, so the party can
-    -- keep them up. That guard holds for the best healer too. The Timeline is not
+    -- not raised again for three rounds, or sooner once no living ally is
+    -- under half. That guard holds for the best healer too. The Timeline is not
     -- readable, so these are the signs that the next hit would drop them.
     Fight.refell = Fight.refell or {}
     Fight.raisedRound = Fight.raisedRound or {}
@@ -2431,7 +2469,10 @@ local function turn(uid, skills, w, phase)
         -- cycle guard holds for everyone: a raise that fell straight back
         -- is not repeated into the same hits.
         local bestHealer = healWorth(unitKit(dead.id)) > bestLiving
-        if Fight.refell[dead.id] and underHalf then
+        -- The guard lasts three rounds from the fall, so no ally is left down for the whole fight.
+        local fellAt = Fight.refell[dead.id]
+        local cycling = (type(fellAt) == "number") and (((Fight.rounds or 0) - fellAt) < 3)
+        if cycling and underHalf then
             raiseHold = dead.name .. " fell again after a raise"
         elseif critical and (not bestHealer) then
             raiseHold = "a living ally is critical"
@@ -3180,8 +3221,32 @@ local function turn(uid, skills, w, phase)
         end
         return false
     end
+    -- The guard follows the danger's kind of damage: Shell for magic,
+    -- Protect for physical. With no kind on the card, one guard of any kind.
+    -- Each kind goes out once a fight. The sim found that casting it again
+    -- as it wore off cost more turns than it saved.
+    Fight.guardOn = Fight.guardOn or {}
+    local function guardKind(s) return (s.known and s.known.guards) or "any" end
+    local function guardFits(s)
+        if useOf(s) ~= "guardbuff" then return false end
+        local k = guardKind(s)
+        if Fight.guardOn[k] then return false end
+        local want, known = {}, false
+        for _, u in ipairs(w.enemies) do
+            local card = mobOf(u)
+            if card and card.danger and card.danger[1] and card.hits then
+                want[card.hits] = true
+                known = true
+            end
+        end
+        if (not known) or (k == "any") then return next(Fight.guardOn) == nil end
+        return want[k] and true or false
+    end
+    local function markGuard(s)
+        Fight.guardOn[guardKind(s)] = { map = s.friendStatus or {}, seen = false }
+    end
     local function guardOwed()
-        if phase ~= 0 or not hardField or style == "aggressive" or Fight.claim.guard then return false end
+        if phase ~= 0 or not hardField or style == "aggressive" then return false end
         if Fight.fell and #Fight.fell > 0 then return false end
         if allyCritical() then return false end
         for _, a in ipairs(w.allies) do
@@ -3193,7 +3258,7 @@ local function turn(uid, skills, w, phase)
                 local mp = stat(a.id, PARAM.MP, false) or 0
                 if kit then
                     for _, s in ipairs(kit.spells or {}) do
-                        if useOf(s) == "guardbuff" and (s.cost or 0) <= mp then
+                        if guardFits(s) and (s.cost or 0) <= mp then
                             return true
                         end
                     end
@@ -3283,6 +3348,20 @@ local function turn(uid, skills, w, phase)
     local function castDamage(pool, cashing, why)
         if not pool or #pool == 0 then return nil end
         local bestS, bestU, bestScore, bestSpread = nil, nil, -1e9, false
+        -- The MP band keeps a free hit in reserve for the weakness. When no
+        -- free hit can land on a body, a paid hit that lands is allowed.
+        local freeLands = {}
+        local function freeOn(u)
+            if freeLands[u.id] == nil then
+                freeLands[u.id] = false
+                for _, x in ipairs(skills) do
+                    if isHit(x, false) and ((x.cost or 0) <= 0) and (elementFactor(x, u) > 0) then
+                        freeLands[u.id] = true
+                    end
+                end
+            end
+            return freeLands[u.id]
+        end
         local function considerSkill(s, targets, spread)
             if not pay(s) then return end
             local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
@@ -3305,7 +3384,14 @@ local function turn(uid, skills, w, phase)
                     return
                 end
             end
-            if (not cashing) and (debuffOwed() or guardOwed() or lbOwed()) and ((s.cost or 0) > 0) then return end
+            -- A paid chip waits for the setup, unless no free hit can land on these targets.
+            if (not cashing) and (debuffOwed() or guardOwed() or lbOwed()) and ((s.cost or 0) > 0) then
+                local free = false
+                for _, u in ipairs(targets) do
+                    if freeOn(u) then free = true end
+                end
+                if free then return end
+            end
             local b = band()
             local useful, pts, weak, finishes, early = 0, 0, false, false, false
             for _, u in ipairs(targets) do
@@ -3318,6 +3404,7 @@ local function turn(uid, skills, w, phase)
                     if br >= 25 then heavy = true end
                     local allowed = cashing or b == "high" or (s.cost or 0) <= 0 or f >= 3 or heavy
                     if not cashing and b == "low" then allowed = ((s.cost or 0) <= 0) or (f >= 3) end
+                    if (not allowed) and ((s.cost or 0) > 0) and (not freeOn(u)) then allowed = true end
                     if allowed then
                         useful = useful + 1
                         if cashing then pts = pts + (pow or 0) * f
@@ -3740,12 +3827,12 @@ local function turn(uid, skills, w, phase)
             end
         end
         local bossFight = hardField
-        if bossFight and style ~= "aggressive" and not Fight.claim.guard then
-            local s = firstSkill(function(x) return useOf(x) == "guardbuff" end)
+        if bossFight and style ~= "aggressive" then
+            local s = firstSkill(guardFits)
             if s then
                 local spread = aoeOf(s)
                 local choice = finishChoice(uid, s, "setup guard", spread and idsOf(w.allies) or { uid }, spread)
-                if choice then Fight.claim.guard = true return choice end
+                if choice then markGuard(s) return choice end
             end
         end
         if bossFight and (style ~= "aggressive") then
@@ -3803,10 +3890,22 @@ local function turn(uid, skills, w, phase)
             end
         end
         local healGone = holds and not fits
-        if healGone or ((band() == "low") and unpaidWeakness(list)) then
+        -- Nothing payable lands on the pool, and a hit on the bar would.
+        local paidLands, unpaidLands = false, false
+        for _, x in ipairs(skills) do
+            if isHit(x, false) then
+                for _, u in ipairs(list) do
+                    if elementFactor(x, u) > 0 then
+                        if pay(x) then paidLands = true else unpaidLands = true end
+                    end
+                end
+            end
+        end
+        local hitGone = (not paidLands) and unpaidLands
+        if healGone or hitGone or ((band() == "low") and unpaidWeakness(list)) then
             local ether = pickRecoveryItem(uid, w, "mp")
             if ether then
-                ether.reason = healGone and "ether so a heal fits" or "ether so the weakness fits"
+                ether.reason = (healGone and "ether so a heal fits") or (hitGone and "ether so a hit lands") or "ether so the weakness fits"
                 Fight.claim.ether[uid] = true
                 Fight.claim.etherRound = true
                 return ether
@@ -3814,7 +3913,23 @@ local function turn(uid, skills, w, phase)
         end
     end
 
-    if Fight.chipped and (phase == 0) and (not allyCritical()) and (not dead) then
+    -- Once the fight is underway, a support turn is followed by a hit when
+    -- the actor has one that lands, so a kit or a refresh does not crowd
+    -- out the damage.
+    local function supportRested()
+        if not Fight.chipped then return false end
+        Fight.supportRun = Fight.supportRun or {}
+        if (Fight.supportRun[uid] or 0) < 1 then return false end
+        for _, x in ipairs(skills) do
+            if isHit(x, false) and pay(x) then
+                for _, u in ipairs((#pool > 0) and pool or open) do
+                    if elementFactor(x, u) > 0 then return true end
+                end
+            end
+        end
+        return false
+    end
+    if Fight.chipped and (phase == 0) and (not allyCritical()) and (not dead) and (not supportRested()) then
         local again = castDebuff(true)
         if again then return again end
     end
@@ -3893,7 +4008,7 @@ local function turn(uid, skills, w, phase)
         Fight.claim.kit[picked.key] = true
         return choice
     end
-    if phase == 0 and not alreadyFell and not allyCritical() and not dead then
+    if phase == 0 and not alreadyFell and not allyCritical() and not dead and not supportRested() then
         local choice = castKit()
         if choice then return choice end
     end
@@ -3948,7 +4063,7 @@ local function noteChanges(now)
             local at = Fight.raisedRound and Fight.raisedRound[id]
             if at and (((Fight.rounds or 0) - at) <= 2) then
                 Fight.refell = Fight.refell or {}
-                Fight.refell[id] = true
+                Fight.refell[id] = Fight.rounds or 0
                 appendLog("  " .. was.name .. " fell again right after a raise")
             end
         end
@@ -4059,6 +4174,18 @@ local function kitFallback(uid)
         end)
     end
     if not tid then return nil end
+    -- A hit the target nulls is not swung there. Another enemy it lands on is tried.
+    pcall(function()
+        if elementFactor(best, { id = tid, name = unitName(tid) }) <= 0 then
+            for _, id in ipairs(members(REL.ENEMY)) do
+                if keepFoe(id) and (elementFactor(best, { id = id, name = unitName(id) }) > 0) then
+                    tid = id
+                    return
+                end
+            end
+        end
+    end)
+    if not tid then return nil end
     return finishChoice(uid, best, "kit " .. unitName(tid), { tid }, false)
 end
 
@@ -4159,22 +4286,51 @@ local function consider(uid)
         choice = nil
     end
     if choice then return choice end
+    -- The fallback swing is a payable hit that can land, on a body it lands
+    -- on. A hit every enemy nulls is not swung.
     local foe = w.enemies and w.enemies[1]
     if foe then
-        local swing, swingR = nil, -1
+        local swing, swingR, swingU = nil, -1, nil
         for _, s in ipairs(usable) do
             local playerOnly = s.known and s.known.use == "skip"
             local damage = (s.kind == "damage" or s.attr == ATTR.FIGHT) and not playerOnly
             if damage and s.kind ~= "heal" and s.kind ~= "buff" and s.attr ~= ATTR.FINISH
-                and (s.cost or 0) <= (w.mp or 0)
-                and not (Fight.deferChip and ((s.cost or 0) > 0)) then
-                local _, br = offenseOf(s)
-                local score = (br or 0) * 1000 + (s.power or 0)
-                if score > swingR then swing, swingR = s, score end
+                and (s.cost or 0) <= (w.mp or 0) then
+                local target = nil
+                for _, e in ipairs(w.enemies) do
+                    if (not target) and (elementFactor(s, e) > 0) then target = e end
+                end
+                -- While the setup is owed, a paid swing waits if a free one lands there.
+                if target and Fight.deferChip and ((s.cost or 0) > 0) then
+                    for _, x in ipairs(usable) do
+                        if (x.attr == ATTR.FIGHT) and ((x.cost or 0) <= 0) and (x.kind ~= "defend")
+                            and (elementFactor(x, target) > 0) then
+                            target = nil
+                            break
+                        end
+                    end
+                end
+                if target then
+                    local _, br = offenseOf(s)
+                    local score = (br or 0) * 1000 + (s.power or 0)
+                    if score > swingR then swing, swingR, swingU = s, score, target end
+                end
             end
         end
         if swing then
-            return finishChoice(uid, swing, "kit " .. foe.name, { foe.id }, false)
+            return finishChoice(uid, swing, "kit " .. swingU.name, { swingU.id }, false)
+        end
+        -- Nothing on the bar lands on anyone: guard the turn instead. With
+        -- no guard, the turn still goes out, so the menu is never left open.
+        for _, s in ipairs(usable) do
+            if s.kind == "defend" and (s.cost or 0) <= (w.mp or 0) then
+                return finishChoice(uid, s, "defend, no hit lands", { uid }, false)
+            end
+        end
+        for _, s in ipairs(usable) do
+            if (s.attr == ATTR.FIGHT) and ((s.cost or 0) <= 0) and (s.kind ~= "defend") then
+                return finishChoice(uid, s, "kit " .. foe.name .. ", nothing lands", { foe.id }, false)
+            end
         end
     end
     if Fight.deferChip then
@@ -4258,6 +4414,9 @@ local function ensureBattle()
     Fight.kitOn = {}
     Fight.drawSeen, Fight.cureTry, Fight.cureMiss, Fight.drawRound = {}, {}, {}, {}
     Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
+    Fight.kindMiss, Fight.kindNull, Fight.hitProbe = {}, {}, nil
+    Fight.guardOn = {}
+    Fight.supportRun = {}
     Fight.foeLow, Fight.hitsSince, Fight.stalemateTold = {}, 0, false
     Fight.luckToss = {}
     Fight.debuffOn, Fight.debuffSeen, Fight.debuffTold = {}, {}, {}
@@ -4598,6 +4757,7 @@ local function act(serial)
         Fight.claim = Fight.claim or {}
         Fight.claim.lb = false
         Fight.claim.guard = false
+        Fight.guardOn = {}
         Fight.claim.hone = {}
         Fight.claim.esper = false
         Fight.esperOut = nil
@@ -4621,6 +4781,35 @@ local function act(serial)
     if finishingEarly and Fight.resonanceSent then return end
     pcall(function() noteChanges(livingSnapshot()) end)
     pcall(settleGauges)
+    -- The last hit's targets: a kind that twice in a row took no HP is
+    -- treated as nulled on that enemy for the fight. A hit that lands clears
+    -- the count.
+    pcall(function()
+        local probe = Fight.hitProbe
+        Fight.hitProbe = nil
+        if not probe then return end
+        Fight.kindMiss = Fight.kindMiss or {}
+        Fight.kindNull = Fight.kindNull or {}
+        for id, before in pairs(probe.hp) do
+            local now = hpRatio(id)
+            if now and (now > 0) then
+                Fight.kindMiss[id] = Fight.kindMiss[id] or {}
+                if now >= (before - 0.0005) then
+                    local n = (Fight.kindMiss[id][probe.kind] or 0) + 1
+                    Fight.kindMiss[id][probe.kind] = n
+                    if (n >= 2) and not (Fight.kindNull[id] and Fight.kindNull[id][probe.kind]) then
+                        Fight.kindNull[id] = Fight.kindNull[id] or {}
+                        Fight.kindNull[id][probe.kind] = true
+                        local line = string.format("%s takes no damage from %s hits", unitName(id), probe.kind)
+                        log("%s", line)
+                        appendLog("  " .. line)
+                    end
+                else
+                    Fight.kindMiss[id][probe.kind] = 0
+                end
+            end
+        end
+    end)
     Fight.deferChip = false
     local okPlan, choice = pcall(consider, uid)
     if not okPlan then
@@ -4655,6 +4844,17 @@ local function act(serial)
         log("(not sent) %s", line)
         return
     end
+    -- The targets' HP before the hit goes out, to learn a kind the enemy nulls.
+    local probeHp = nil
+    if (choice.kind == "damage") and (not choice.isItem) and (choice.attr ~= ATTR.SUMMON) and choice.targets then
+        probeHp = {}
+        for _, tid in ipairs(choice.targets) do
+            if Fight.seenFoe and Fight.seenFoe[tid] then
+                local r = hpRatio(tid)
+                if r and (r > 0) then probeHp[tid] = r end
+            end
+        end
+    end
     local ok, sent = pcall(send, uid, choice, phase)
     if not ok then
         log("send failed: %s", tostring(sent))
@@ -4670,6 +4870,19 @@ local function act(serial)
         end
     end
     if choice.slow then Fight.slowTry = choice.slow end
+    -- A support turn in the fight, then a hit: see supportRested.
+    Fight.supportRun = Fight.supportRun or {}
+    local why = choice.reason or ""
+    if (why:find("^setup") or why:find("^refresh")) and Fight.chipped then
+        Fight.supportRun[uid] = (Fight.supportRun[uid] or 0) + 1
+    elseif choice.kind == "damage" then
+        Fight.supportRun[uid] = 0
+    end
+    -- Watch this hit's targets, to learn a kind the enemy nulls.
+    if probeHp and next(probeHp) then
+        local kind = kindOf(choice)
+        if kind then Fight.hitProbe = { kind = kind, hp = probeHp } end
+    end
     if ((choice.kind == "revive") or (choice.itemUse == "revive")) and choice.targets then
         Fight.raisedRound = Fight.raisedRound or {}
         for _, tid in ipairs(choice.targets) do Fight.raisedRound[tid] = Fight.rounds or 0 end
@@ -4866,7 +5079,11 @@ local function noteHand(v)
             for _, id in ipairs(targets) do markDebuff(id, info.effect) end
         end
     end
-    if use == "guardbuff" then Fight.claim.guard = true end
+    if use == "guardbuff" then
+        Fight.guardOn = Fight.guardOn or {}
+        local copy = { known = info, friendStatus = skill and skill.friendStatus or {} }
+        Fight.guardOn[(info and info.guards) or "any"] = { map = copy.friendStatus, seen = false }
+    end
     if (use == "opener") and uid and (uid >= 0) then Fight.claim.hone[uid] = true end
     if use == "lb-setup" then Fight.claim.lb = true end
     if Kits.key and Kits.key(name) then
@@ -5269,7 +5486,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.26. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.27. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

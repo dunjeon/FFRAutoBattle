@@ -3,6 +3,8 @@
 -- danger is the move to break before. gauge is the Normal stagger gauge.
 -- evade: hits miss until it breaks. counter: do not feed that kind of hit.
 -- shift: the weakness changes, so Libra again. call: it replaces escorts.
+-- no.physical / no.magic: that kind of hit does nothing. hits: the kind of
+-- damage its danger moves deal, magic or physical, so the guard can match.
 -- GoblinC matches Goblin. Apostrophes are folded when the name is read.
 return {
     ["a-type magitek armor+"] = { weak = { ["thunder"] = true }, gauge = 540 },
@@ -331,7 +333,7 @@ return {
     ["shiva"] = { weak = { ["fire"] = true }, half = { ["water"] = true }, absorb = { ["ice"] = true }, gauge = 1400, danger = { "Blizzaga Barrage", "Whiteout" }, ail = { ["poison"] = true, ["sleep"] = true, ["silence"] = true, ["confuse"] = true, ["petrify"] = true, ["charm"] = true, ["berserk"] = true, ["instant death"] = true, ["gravity"] = true } },
     ["shiva's elemental"] = { weak = { ["fire"] = true }, no = { ["ice"] = true }, gauge = 120, danger = { "The elemental explodes!" }, ail = { ["blind"] = true, ["confuse"] = true, ["petrify"] = true, ["charm"] = true, ["berserk"] = true, ["instant death"] = true } },
     ["shock trooper"] = { weak = { ["earth"] = true }, gauge = 100 },
-    ["shoggoth"] = { weak = { ["earth"] = true, ["water"] = true }, gauge = 800, danger = { "Gigavolt" }, ail = { ["poison"] = true, ["confuse"] = true, ["petrify"] = true, ["charm"] = true, ["instant death"] = true, ["gravity"] = true } },
+    ["shoggoth"] = { weak = { ["earth"] = true, ["water"] = true }, no = { ["physical"] = true }, hits = "magic", gauge = 800, danger = { "Gigavolt" }, ail = { ["poison"] = true, ["confuse"] = true, ["petrify"] = true, ["charm"] = true, ["instant death"] = true, ["gravity"] = true } },
     ["shut"] = { weak = { ["water"] = true, ["light"] = true }, half = { ["dark"] = true }, gauge = 270 },
     ["simurgh"] = { weak = { ["wind"] = true }, half = { ["earth"] = true }, gauge = 190 },
     ["siren"] = { weak = { ["thunder"] = true }, half = { ["water"] = true }, gauge = 550, danger = { "Allure" }, ail = { ["poison"] = true, ["silence"] = true, ["confuse"] = true, ["petrify"] = true, ["charm"] = true, ["berserk"] = true, ["instant death"] = true, ["gravity"] = true } },
