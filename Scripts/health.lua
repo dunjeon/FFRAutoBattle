@@ -79,7 +79,15 @@ end
 
 -- A flat restore is the row's power when the calc type is Fixed. A magic
 -- heal's power is a coefficient, not HP, so it keeps the power-per-MP rank.
-function M.spellRank(skill, missing, hurtN, party)
+-- need is how many hurt allies make a party heal the pick: most of the
+-- living party, the same share at any size. It is 3 when not given.
+function M.partyNeed(living)
+    local n = tonumber(living) or 0
+    return math.max(2, math.ceil(n * 0.75))
+end
+
+function M.spellRank(skill, missing, hurtN, party, need)
+    need = need or 3
     local cost = skill.cost or 0
     if cost < 1 then cost = 1 end
     local power = skill.power or 0
@@ -92,15 +100,15 @@ function M.spellRank(skill, missing, hurtN, party)
         else
             r = amount / (amount + missing)
         end
-        if (hurtN >= 3) and party then r = r * 3 end
+        if (hurtN >= need) and party then r = r * 3 end
         return r + (0.01 / cost)
     end
     if power > 0 then
         local r = power / cost
-        if (hurtN >= 3) and party then r = r * 3 end
+        if (hurtN >= need) and party then r = r * 3 end
         return r
     end
-    if (hurtN >= 3) and party then
+    if (hurtN >= need) and party then
         return 3 + (0.01 / cost)
     end
     if party then

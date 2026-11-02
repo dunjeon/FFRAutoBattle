@@ -430,7 +430,7 @@ local function bump(t, k, field, n)
     t[k] = t[k] or { fights = 0, win = 0, base = 0, baseFights = 0 }
     t[k][field] = t[k][field] + (n or 1)
 end
-local stats = { slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
+local stats = { partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
     gameCommands = 0, modCommands = 0, cures = 0 }
 local items = {}
 local fails = 0
@@ -469,6 +469,7 @@ for sid = 1, sessions do
             if r.outcome == "win" then bump(byKind, r.kind, "win") bump(bySize, r.size, "win") end
             for k in pairs(stats) do stats[k] = stats[k] + (r.stats[k] or 0) end
             for name, n in pairs(r.stats.items) do items[name] = (items[name] or 0) + n end
+            if r.size == 2 then for _, line in ipairs(r.modLines) do if line:find(": Cura %-> ") or line:find(": Curaga %-> ") then stats.partyHeals = stats.partyHeals + 1 end end end
             for _, line in ipairs(r.modLines) do
                 local summary = line:match("battle %d+ done: (.*)$")
                 if summary then
@@ -564,7 +565,7 @@ out("Weakness: a payable weakness hit was on the bar %d times, the planner took 
     stats.weakChance, stats.weakUsed, pct(stats.weakUsed, stats.weakChance))
 out("Phoenix Down while a living ally could pay a raise spell: %d", stats.pdWhileRaise)
 out("Falls: %d in the sim, %d in the planner's battle summaries", stats.falls, stats.fallsLogged)
-out("Haste turns %d, ally turns lost to Slow %d", stats.hasteTurns, stats.slowLost)
+out("Haste turns %d, ally turns lost to Slow %d, party heals in 2-ally fights %d", stats.hasteTurns, stats.slowLost, stats.partyHeals)
 local ml = {}
 for _, m in ipairs(MARKS) do ml[#ml + 1] = string.format("%s %d", m[1], marks[m[1]] or 0) end
 out("Planner lines: %s", table.concat(ml, ", "))

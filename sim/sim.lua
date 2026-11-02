@@ -869,6 +869,12 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
     end
     if (spec.provoke or eff == EFF.COVER) and byMod then
         B.stats.draws = B.stats.draws + 1
+        -- One draw at a time: each one pulls the hits onto the caster.
+        -- Counted in passes of the party, as the planner counts its rounds.
+        if B.lastDraw and ((B.passes or 0) - B.lastDraw) < 2 then
+            violate("stacked draw", "%s cast %s while another draw was still up", actor.name, row.Name)
+        end
+        B.lastDraw = B.passes or 0
         local mine = healPower(actor)
         local best = 0
         for _, a in ipairs(living("ally")) do
@@ -925,6 +931,7 @@ function Sim.onDecide(obj, byMod)
                 end
             end
             B.passDone = (actors > 0) and (went >= actors)
+            if B.passDone then B.passes = (B.passes or 0) + 1 end
         end
         if row.skillAttrType == ATTR.FINISH and byMod then B.stats.finishByMod = B.stats.finishByMod + 1 end
         if row.skillEffectType == EFF.CURE then B.stats.cures = B.stats.cures + 1 end

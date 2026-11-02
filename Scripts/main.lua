@@ -2486,10 +2486,14 @@ local function turn(uid, skills, w, phase)
             end
         end
         local skill, rank = nil, -1
-        local hurtN = 0
+        -- A party heal is the pick when most of the living party is under
+        -- half. The same share at any party size.
+        local hurtN, living = 0, 0
         for _, a in ipairs(w.allies) do
+            if not a.dead then living = living + 1 end
             if not a.dead and (a.hp or 1) < 0.50 then hurtN = hurtN + 1 end
         end
+        local need = Health.partyNeed and Health.partyNeed(living) or 3
         local missing = nil
         local maxv = stat(hurt.id, PARAM.HP, true)
         local ratio = hurt.hp or 1
@@ -2499,15 +2503,15 @@ local function turn(uid, skills, w, phase)
                 local party = partyOf(s)
                 local r
                 if Health.spellRank then
-                    r = Health.spellRank(s, missing, hurtN, party)
+                    r = Health.spellRank(s, missing, hurtN, party, need)
                 else
                     local cost = s.cost or 0
                     if cost < 1 then cost = 1 end
                     local power = s.power or 0
                     if power > 0 then
                         r = power / cost
-                        if (hurtN >= 3) and party then r = r * 3 end
-                    elseif (hurtN >= 3) and party then
+                        if (hurtN >= need) and party then r = r * 3 end
+                    elseif (hurtN >= need) and party then
                         r = 3 + (0.01 / cost)
                     elseif party then
                         r = 0.5 + (0.01 / cost)
@@ -2911,6 +2915,7 @@ local function turn(uid, skills, w, phase)
             mp = w.mp or 0, pay = (band() ~= "low"),
             keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
             claim = Fight.claim.kit, sent = Fight.kitOn, actions = #(Fight.actions or {}),
+            round = Fight.rounds or 0, drawRound = Fight.drawRound,
         })
         if picked then
             local ids, isAll = { uid }, false
@@ -2927,6 +2932,8 @@ local function turn(uid, skills, w, phase)
             if choice then
                 choice.kitKey = picked.key
                 Fight.claim.kit.draw = true
+                Fight.drawRound = Fight.drawRound or {}
+                Fight.drawRound[picked.key] = Fight.rounds or 0
                 return choice
             end
         end
@@ -3864,7 +3871,7 @@ local function noteChanges(now)
     local last = Fight.last
     for id, was in pairs(Fight.prev) do
         local cur = now[id]
-        local summon = Fight.summons and Fight.summons[id]
+        local summon = Fight.isSummon and Fight.isSummon(id)
         if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon then
             Fight.fell[#Fight.fell + 1] = was.name
             appendLog("  fell: " .. was.name)
@@ -4173,7 +4180,7 @@ local function ensureBattle()
     Fight.kits = {}
     Fight.claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, kit = {}, etherRound = false, guard = false, esper = false, lb = false }
     Fight.kitOn = {}
-    Fight.drawSeen, Fight.cureTry, Fight.cureMiss = {}, {}, {}
+    Fight.drawSeen, Fight.cureTry, Fight.cureMiss, Fight.drawRound = {}, {}, {}, {}
     Fight.foeLow, Fight.hitsSince, Fight.stalemateTold = {}, 0, false
     Fight.luckToss = {}
     Fight.debuffOn, Fight.debuffSeen, Fight.debuffTold = {}, {}, {}
@@ -4368,7 +4375,7 @@ local function noteRound(uid)
     local actors, went = 0, 0
     for _, id in ipairs(friendIds()) do
         local ratio = hpRatio(id)
-        local summon = Fight.summons and Fight.summons[id]
+        local summon = Fight.isSummon and Fight.isSummon(id)
         if (not summon) and ((ratio == nil) or (ratio > 0)) then
             local kit = unitKit(id)
             local held = false
@@ -4768,6 +4775,8 @@ local function noteHand(v)
     if Kits.key and Kits.key(name) then
         Fight.kitOn = Fight.kitOn or {}
         Fight.kitOn[Kits.key(name)] = #(Fight.actions or {})
+        Fight.drawRound = Fight.drawRound or {}
+        Fight.drawRound[Kits.key(name)] = Fight.rounds or 0
     end
     if skill and (skill.attr == ATTR.SUMMON) then markSummon(skill) end
     if skill and (skill.attr == ATTR.FINISH) then Fight.resonanceSent = true end

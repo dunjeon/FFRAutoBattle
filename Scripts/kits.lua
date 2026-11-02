@@ -165,7 +165,7 @@ end
 -- There has to be someone else to protect. One of them per round, then
 -- the chip. A paid one goes while MP is above the low band.
 -- ctx: allies, selfId, healerId, recoverAt, danger, mp, keep, pay,
--- claim, sent, actions.
+-- claim, sent, round, drawRound.
 function M.pickDraw(skills, ctx)
     if (not skills) or (not ctx) then return nil end
     local claim = ctx.claim or {}
@@ -205,10 +205,14 @@ function M.pickDraw(skills, ctx)
     -- is treated as no status: Provoke is up for its turns, and a Cover
     -- is spent once a fight.
     local seen = ctx.seen or {}
+    -- Draw timing is in the planner's rounds, one turn for each party
+    -- member, so Haste and extra turns do not shorten it.
+    local castAt = ctx.drawRound or {}
+    local round = ctx.round or 0
     local function up(skill, row, key)
-        local at = sent[key]
-        local now = ctx.actions or 0
-        local span = (row.turns or 0) * party
+        local at = castAt[key]
+        local now = round
+        local span = row.turns or 0
         local map = skill.friendStatus
         if listed(map) then
             for _, a in ipairs(ctx.allies or {}) do
@@ -222,6 +226,22 @@ function M.pickDraw(skills, ctx)
         if type(at) ~= "number" then return false end
         if row.kind == "provoke" then return (now - at) < span end
         return true
+    end
+
+    -- One draw at a time. Provoke, Cover, and Multi-Cover all pull the hits
+    -- onto the caster, so a second one waits while another is up: its
+    -- status is on an ally, or it went out within three rounds.
+    for key in pairs(DRAW) do
+        local at = castAt[key]
+        if (type(at) == "number") and ((round - at) < 3) then return nil end
+    end
+    for _, s in ipairs(skills) do
+        local row = DRAW[fold(s.name)]
+        if row and listed(s.friendStatus) then
+            for _, a in ipairs(ctx.allies or {}) do
+                if (not a.dead) and bodyHas(a, s.friendStatus) then return nil end
+            end
+        end
     end
 
     local found = {}
