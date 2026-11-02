@@ -2,9 +2,11 @@
 -- Element, use, and effect. Cost, power, stagger, and target stay on the live row.
 -- A name that known.lua already lists is left unchanged.
 -- A support skill is a buff, so it is not swung as an attack. The opening
--- still spends only the one guard. A luck-gated skill, a submenu command,
--- a random cast, a hit that also strikes allies, and a mastery activator
--- stay skip. The site marks these rows availability-unconfirmed.
+-- still spends only the one guard. kits.lua spends a formation, the buff
+-- that sets a kit up, a stagger mark, a one-time weakness, and a luck toss.
+-- Haste and the other generic buffs stay on the bar. A luck-gated skill, a
+-- submenu command, a random cast, a hit that also strikes allies, and a
+-- mastery activator stay skip. The site marks these rows availability-unconfirmed.
 return {
     skills = {
         ["absolving hailstorm"] = { element = "ice", use = "break", phys = true },
@@ -76,7 +78,7 @@ return {
         ["chaotic convergence"] = { element = "dark", use = "break", magic = true },
         ["cheer"] = { use = "buff" },
         ["climax edge"] = { element = "wind", use = "break", magic = true },
-        ["coin toss"] = { use = "skip" },
+        ["coin toss"] = { use = "buff" },
         ["colossal shantotto ii"] = { element = "dark", use = "break", magic = true },
         ["concentrate"] = { use = "buff" },
         ["confluence"] = { use = "buff" },
@@ -150,10 +152,10 @@ return {
         ["flare blade"] = { use = "break", phys = true },
         ["focus"] = { use = "buff" },
         ["focus magic"] = { use = "buff" },
-        ["formation: assail"] = { use = "buff" },
-        ["formation: bulwark"] = { use = "buff" },
-        ["formation: charge"] = { use = "buff" },
-        ["formation: regroup"] = { use = "buff" },
+        ["formation: assail"] = { use = "buff", party = true },
+        ["formation: bulwark"] = { use = "buff", party = true },
+        ["formation: charge"] = { use = "buff", party = true },
+        ["formation: regroup"] = { use = "buff", party = true },
         ["foul of the seventh dawn"] = { use = "break", magic = true },
         ["free energy"] = { element = "water", use = "break", magic = true },
         ["free energy+"] = { element = "water", use = "break", magic = true },

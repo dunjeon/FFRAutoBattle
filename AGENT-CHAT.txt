@@ -139,11 +139,15 @@ were not in those fights. Tranquility on a high unknown gauge, and one
 sync cast after the bonus had already returned, stay with the stagger
 scorer. Do not retune the quarter cap or the 15/20 lines from that log.
 
-The game folder, testing, main, and the public zip are v0.1.22. The zip
-is FFRAutoBattle.zip on tag v0.1.22. It uses the same
-FFRS\Binaries\Win64\... folders as the v0.1.21 zip, and it includes the
-script files the planner loads. The v0.1.21, v0.1.20, v0.1.19, v0.1.18,
-v0.1.17, v0.1.14, and v0.1.12 downloads stay up.
+Testing spends a formation, and the other role skills, when that skill
+is equipped and the cost fits. A paid one goes while MP is still above
+the low band. Haste and the other generic buffs stay on the bar. The
+startup line stays "loaded. planner v0.1.22." main and the public zip
+are still the v0.1.22 release. They do not have that yet. The zip is
+FFRAutoBattle.zip on tag v0.1.22. It uses the same
+FFRS\Binaries\Win64\... folders as the v0.1.21 zip. The v0.1.21,
+v0.1.20, v0.1.19, v0.1.18, v0.1.17, v0.1.14, and v0.1.12 downloads stay
+up.
 
 Raise and Arise are spent on a fallen ally. A living ally is left
 standing. A raise is still skipped only when one weak enemy with no
@@ -518,3 +522,11 @@ stays open until that ally acts again. A Slow that ends is not
 remembered as a clear. main and the public zip are v0.1.22. The zip
 is FFRAutoBattle.zip on tag v0.1.22. The startup line is
 "loaded. planner v0.1.22."
+
+On testing, after v0.1.22
+A formation, the buff that sets one up, a stagger mark, one weakness
+on an enemy the book leaves bare, and a luck toss are spent when they
+are equipped and the cost fits. A paid one goes while MP is above the
+low band. Haste and the other generic buffs stay on the bar. The
+startup line stays "loaded. planner v0.1.22." main and the public zip
+do not have this yet.

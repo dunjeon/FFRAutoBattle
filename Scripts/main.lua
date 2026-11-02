@@ -137,6 +137,15 @@ do
         log("limits unavailable: %s", tostring(loaded))
     end
 end
+local Kits = {}
+do
+    local ok, loaded = pcall(dofile, DIR .. "/Scripts/kits.lua")
+    if ok and type(loaded) == "table" then
+        Kits = loaded
+    else
+        log("kits unavailable: %s", tostring(loaded))
+    end
+end
 local function foldName(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
@@ -709,6 +718,34 @@ local function equippedIds(uid)
         log("skill list for unit %s via %s -> %s", tostring(uid),
             (#notes > 0) and table.concat(notes, ", ") or "nothing",
             (#names > 0) and table.concat(names, ", ") or "(empty)")
+        local ready, held, unmatched = {}, {}, {}
+        for _, id in ipairs(ids) do
+            local s = skillOf(id)
+            local name = s and s.name
+            if name and (name ~= "") then
+                local key = Kits.key and Kits.key(name) or nil
+                local low = name:lower()
+                local looks = low:find("formation", 1, true) or low:find("tactic", 1, true)
+                if key then
+                    local blocked = SKIP[s.attr] and true or false
+                    if not blocked then
+                        local okSeal, isSealed = pcall(sealed, uid, id)
+                        if okSeal and isSealed then blocked = true end
+                    end
+                    local list = blocked and held or ready
+                    list[#list + 1] = name
+                elseif looks then
+                    unmatched[#unmatched + 1] = name
+                end
+            end
+        end
+        local mpNow = stat(uid, PARAM.MP, false)
+        local mpMax = stat(uid, PARAM.MP, true)
+        log("kit bar %s mp %s/%s ready %s; sealed %s; unmatched %s",
+            unitName(uid), tostring(mpNow or "?"), tostring(mpMax or "?"),
+            (#ready > 0) and table.concat(ready, ", ") or "none",
+            (#held > 0) and table.concat(held, ", ") or "none",
+            (#unmatched > 0) and table.concat(unmatched, ", ") or "none")
     end
     local ids = {}
     for id in pairs(found) do ids[#ids + 1] = id end
@@ -1089,6 +1126,9 @@ local function tagSkill(uid, id, borrowed)
         copy.lbCost = gauges
         copy.cost = 0
         if (not borrowed) and (not limitReady(uid, copy)) then return nil end
+    end
+    if (not copy.kind) and Kits.lookup and Kits.lookup(copy.name) then
+        copy.kind = "buff"
     end
     if not copy.kind then return nil end
     return copy
@@ -1620,7 +1660,7 @@ Fight = {
     poured = {}, down = {}, downTold = {}, relax = {}, gaugeScale = {}, brokeOn = {}, gaugeSure = {}, gaugeWas = {},
     downSince = nil, phaseSeen = 0, bonusSeen = false, lastHit = nil, line = false,
     prevHit = nil, building = nil, kits = {},
-    claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, esper = false, lb = false },
+    claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, kit = {}, etherRound = false, guard = false, esper = false, lb = false },
     debuffOn = {}, debuffSeen = {}, debuffTold = {},
     went = {}, rounds = 0, seenFoe = {}, planTag = nil, afterBonus = false,
     fieldTold = false, chipped = false,
@@ -2016,7 +2056,7 @@ local function turn(uid, skills, w, phase)
     w.usedSupport = w.usedSupport or {}
     Fight.claim = Fight.claim or {
         heal = {}, revive = {}, hone = {}, ether = {},
-        guard = false, esper = false, lb = false, scan = {},
+        guard = false, esper = false, lb = false, scan = {}, kit = {},
         etherRound = false,
     }
     Fight.debuffOn = Fight.debuffOn or {}
@@ -2028,6 +2068,8 @@ local function turn(uid, skills, w, phase)
     Fight.relax = Fight.relax or {}
     Fight.gaugeScale = Fight.gaugeScale or {}
     Fight.brokeOn = Fight.brokeOn or {}
+    Fight.kitOn = Fight.kitOn or {}
+    Fight.claim.kit = Fight.claim.kit or {}
 
     local function pay(s)
         return (s.cost or 0) <= (w.mp or 0)
@@ -3333,6 +3375,85 @@ local function turn(uid, skills, w, phase)
         if again then return again end
     end
 
+    local function castKit()
+        if not Kits.pick then return nil end
+        if phase ~= 0 then return nil end
+        local keep, healer = 0, false
+        local uk = unitKit(uid)
+        if uk and ((uk.healScore or 0) >= 50) then
+            healer = true
+            keep = uk.healCost or 0
+        end
+        local list = (#pool > 0) and pool or open
+        if #list == 0 then list = w.enemies end
+        local foes = {}
+        for _, u in ipairs(list) do
+            local card = mobOf(u)
+            local bare = true
+            if card and (type(card.weak) == "table") then
+                for _ in pairs(card.weak) do
+                    bare = false
+                    break
+                end
+            end
+            local magicWeak = false
+            for _, s in ipairs(skills) do
+                local info = s.known
+                if info and info.magic and info.element and isHit(s, false)
+                    and (elementFactor(s, u) >= 3) and pay(s) then
+                    magicWeak = true
+                end
+            end
+            foes[#foes + 1] = {
+                id = u.id, name = u.name, statuses = u.statuses,
+                bare = bare, magicWeak = magicWeak, gauge = gaugeOfEnemy(u),
+            }
+        end
+        local locked, hitting = false, false
+        for _, id in ipairs(equippedIds(uid)) do
+            local row = skillOf(id)
+            if row and Kits.gated(row.name) and (activation(uid, id) == false) then
+                locked = true
+            end
+        end
+        for _, s in ipairs(skills) do
+            if isHit(s, false) and pay(s) and (foldName(s.name) ~= "attack") and (not Kits.gated(s.name)) then
+                hitting = true
+            end
+        end
+        local tosses = (Fight.luckToss and Fight.luckToss[uid]) or 0
+        local picked = Kits.pick(skills, {
+            allies = w.allies, foes = foes, selfId = uid,
+            actions = #(Fight.actions or {}), mp = w.mp or 0,
+            keep = keep, pay = (band() ~= "low"), healer = healer,
+            claim = Fight.claim.kit, sent = Fight.kitOn,
+            tossOk = locked and (not hitting) and (not Fight.chipped) and (tosses < 2),
+        })
+        if not picked then return nil end
+        local ids, isAll
+        if (picked.mode == "foe") and picked.foe then
+            ids, isAll = { picked.foe.id }, false
+        elseif picked.mode == "party" then
+            ids = {}
+            for _, a in ipairs(w.allies) do
+                if not a.dead then ids[#ids + 1] = a.id end
+            end
+            isAll = true
+        else
+            ids, isAll = { uid }, false
+        end
+        local choice = finishChoice(uid, picked.skill, picked.why, ids, isAll)
+        if not choice then return nil end
+        choice.kitKey = picked.key
+        choice.kitLuck = picked.luck and true or false
+        Fight.claim.kit[picked.key] = true
+        return choice
+    end
+    if phase == 0 and not alreadyFell and not allyCritical() and not dead then
+        local choice = castKit()
+        if choice then return choice end
+    end
+
     local chip = castDamage(#pool > 0 and pool or open, false, mode)
     if chip then return chip end
     if mode == "adds" and bossU then
@@ -3662,7 +3783,9 @@ local function ensureBattle()
     Fight.prevHit = nil
     Fight.building = nil
     Fight.kits = {}
-    Fight.claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, etherRound = false, guard = false, esper = false, lb = false }
+    Fight.claim = { heal = {}, revive = {}, hone = {}, ether = {}, scan = {}, kit = {}, etherRound = false, guard = false, esper = false, lb = false }
+    Fight.kitOn = {}
+    Fight.luckToss = {}
     Fight.debuffOn, Fight.debuffSeen, Fight.debuffTold = {}, {}, {}
     Fight.went, Fight.rounds, Fight.seenFoe = {}, 0, {}
     Fight.planTag, Fight.afterBonus = nil, false
@@ -3864,6 +3987,7 @@ local function noteRound(uid)
             Fight.claim.heal = {}
             Fight.claim.ether = {}
             Fight.claim.etherRound = false
+            Fight.claim.kit = {}
         end
         Fight.afterBonus = false
     end
@@ -3973,6 +4097,8 @@ local function act(serial)
         Fight.claim.esper = false
         Fight.esperOut = nil
         Fight.debuffOn, Fight.debuffSeen = {}, {}
+        Fight.kitOn, Fight.luckToss = {}, {}
+        if Fight.claim then Fight.claim.kit = {} end
         local line = "party restored. ledger cleared"
         log("%s", line)
         appendLog("  " .. line)
@@ -4030,6 +4156,14 @@ local function act(serial)
         return
     end
     if not sent then return end
+    if choice.kitKey then
+        Fight.kitOn = Fight.kitOn or {}
+        Fight.kitOn[choice.kitKey] = #(Fight.actions or {})
+        if choice.kitLuck and uid and (uid >= 0) then
+            Fight.luckToss = Fight.luckToss or {}
+            Fight.luckToss[uid] = (Fight.luckToss[uid] or 0) + 1
+        end
+    end
     if choice.slow then Fight.slowTry = choice.slow end
     if choice.attr == ATTR.FINISH then Fight.resonanceSent = true end
     if phase == 0 and choice.kind == "damage" and not choice.isItem then
@@ -4215,6 +4349,10 @@ local function noteHand(v)
     if use == "guardbuff" then Fight.claim.guard = true end
     if (use == "opener") and uid and (uid >= 0) then Fight.claim.hone[uid] = true end
     if use == "lb-setup" then Fight.claim.lb = true end
+    if Kits.key and Kits.key(name) then
+        Fight.kitOn = Fight.kitOn or {}
+        Fight.kitOn[Kits.key(name)] = #(Fight.actions or {})
+    end
     if skill and (skill.attr == ATTR.SUMMON) then markSummon(skill) end
     if skill and (skill.attr == ATTR.FINISH) then Fight.resonanceSent = true end
     if phase == PHASE_FINISH then Fight.resonanceSent = true end
