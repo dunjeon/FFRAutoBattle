@@ -20,6 +20,8 @@ The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. 
 
 `known.lua` is published skill and item facts: element, stagger, and use. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
+This repo is the only copy under git. The installed mod folder, `FFRS/Binaries/Win64/ue4ss/Mods/FFRAutoBattle/` in the game, holds only `Scripts/`, `config.ini`, `enabled.txt`, and the runtime files. Do not put a git repo or the docs there. After a change, parse, then copy `Scripts/*.lua` into the installed `Scripts/`. Read `battle_log.txt` from the installed folder.
+
 ## Rules that keep the planner general
 
 - Score the field that is actually alive. A friend, a matching ally name, a nameless slot, or a body with no HP is not a foe.
