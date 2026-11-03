@@ -656,9 +656,27 @@ end
 
 -- true when the game says this unit can activate it, false when it says no,
 -- nil when the call is missing. The MP check is separate: a short bar is not a seal.
+-- CanUnitActivateSkill(unit, actionId, IsItem, hierarchySkills, IsAll) has
+-- five arguments (C++ header dump). The two-argument call answers some rows
+-- and returns nothing for others, so a sealed skill (Silence) was never seen.
+-- The five-argument false is trusted once that call has said true for some
+-- row this launch; until then the old two-argument answer stands.
+local ACT = { fiveWorks = false }
+local function activateFive(bfl, uid, id)
+    local ok, v = pcall(function() return bfl:CanUnitActivateSkill(uid, id, false, {}, false) end)
+    if ok and type(v) == "boolean" then
+        if v then ACT.fiveWorks = true end
+        return v
+    end
+    return nil
+end
+
 local function activation(uid, id)
     local bfl = battleLib()
     if not (bfl and bfl:IsValid()) then return nil end
+    local five = activateFive(bfl, uid, id)
+    if five == true then return true end
+    if five == false and ACT.fiveWorks then return false end
     local ok, v = pcall(function() return bfl:CanUnitActivateSkill(uid, id) end)
     if ok and v == false then return false end
     if v == true then return true end
@@ -2287,8 +2305,12 @@ local function finishList(uid)
     if bfl and bfl:IsValid() then
         for id, s in pairs(SkillIdx) do
             if s.attr == ATTR.FINISH then
-                local ok, can = pcall(function() return bfl:CanUnitActivateSkill(uid, id) end)
-                if ok and can == true then
+                local can = activateFive(bfl, uid, id)
+                if can ~= true then
+                    local ok, two = pcall(function() return bfl:CanUnitActivateSkill(uid, id) end)
+                    can = ok and two or nil
+                end
+                if can == true then
                     found[#found + 1] = id
                     add(id)
                 end
@@ -6357,7 +6379,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.39. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.40. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

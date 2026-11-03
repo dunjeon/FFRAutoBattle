@@ -268,7 +268,19 @@ function BFL:GetDefaultSkillTargetUnitUniqueId(uid, skillId)
     local rel = s and s.defaultTargetRelation or REL.ENEMY
     return legalTargets(uid, skillId, rel)[1] or -1
 end
-function BFL:CanUnitActivateSkill(uid, id)
+-- The game's call has five arguments (unit, actionId, IsItem, hierarchySkills,
+-- IsAll). Called with two, it returned nothing for ordinary rows in game
+-- (probe v1.1) and false for Limit rows (v0.1.x notes). The stand-in does the
+-- same, so a planner that never makes the five-argument call cannot see a seal.
+function BFL:CanUnitActivateSkill(uid, id, isItem, hierarchy, isAll)
+    if isAll == nil then
+        local s2 = Sim.skills[id]
+        if s2 and s2.skillAttrType == ATTR.LB then return false end
+        return nil
+    end
+    return BFL.activateFull(self, uid, id)
+end
+function BFL:activateFull(uid, id)
     local u = unitById(uid)
     local s = Sim.skills[id]
     if not (u and s) then return false end
@@ -281,7 +293,7 @@ function BFL:IsEnableCommand(uid, id)
     local s = Sim.skills[id]
     if not (u and s) then return false end
     if s.skillAttrType == ATTR.ESCAPE and B and B.boss then return false end
-    return BFL.CanUnitActivateSkill(self, uid, id) and (u.mp >= (s.Cost or 0) or s.skillAttrType == ATTR.LB)
+    return BFL.activateFull(self, uid, id) and (u.mp >= (s.Cost or 0) or s.skillAttrType == ATTR.LB)
 end
 function BFL:GetUnitLimitBurstPoint(uid) local u = unitById(uid) return u and u.lb or 0 end
 -- The game answers neither call ("slots nil" in every log), so the sim does not either.
