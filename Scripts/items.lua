@@ -53,13 +53,14 @@ local BOOK = {
         ["ice scroll i"] = { element = "ice", magic = true, rank = 1 },
         ["wind scroll i"] = { element = "wind", magic = true, rank = 1 },
         ["earth scroll i"] = { element = "earth", magic = true, rank = 1 },
-        ["lightning scroll i"] = { element = "lightning", magic = true, rank = 1 },
+        -- Lightning is thunder, to match the book (mobs.lua and known.lua).
+        ["lightning scroll i"] = { element = "thunder", magic = true, rank = 1 },
         ["water scroll i"] = { element = "water", magic = true, rank = 1 },
         ["flame scroll ii"] = { element = "fire", magic = true, rank = 2 },
         ["ice scroll ii"] = { element = "ice", magic = true, rank = 2 },
         ["wind scroll ii"] = { element = "wind", magic = true, rank = 2 },
         ["earth scroll ii"] = { element = "earth", magic = true, rank = 2 },
-        ["lightning scroll ii"] = { element = "lightning", magic = true, rank = 2 },
+        ["lightning scroll ii"] = { element = "thunder", magic = true, rank = 2 },
         ["water scroll ii"] = { element = "water", magic = true, rank = 2 },
         ["shuriken"] = { phys = true, rank = 1 },
         ["knife of blind"] = { phys = true, status = "blind", rank = 1 },
@@ -100,7 +101,7 @@ local CURE_ITEM = {
 -- A scroll or knife the book does not list still reads by its name.
 local SCROLL_WORDS = {
     flame = "fire", fire = "fire", ice = "ice", blizzard = "ice", wind = "wind",
-    earth = "earth", lightning = "lightning", thunder = "lightning", water = "water",
+    earth = "earth", lightning = "thunder", thunder = "thunder", water = "water",
 }
 
 local function fold(name)

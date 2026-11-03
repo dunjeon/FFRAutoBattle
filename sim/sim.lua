@@ -467,6 +467,8 @@ function Sim.newBattle(opts)
             brokenFor = 0, turns = 0, statusChance = f.statusChance or 0, statusList = f.statusList,
             -- hitKind: the damage it deals. hidden: a kind it nulls that the book does not list.
             hitKind = (f.card and f.card.hits) or f.hitKind or "physical", hidden = f.hidden,
+            -- respawn: rounds after it falls before it comes back, as a called add does.
+            respawn = f.respawn, downFor = 0,
         }
     end
     -- Duplicate names get the game's letter suffix: GoblinB, GoblinC.
@@ -1322,7 +1324,8 @@ local function over()
     for _, u in pairs(B.units) do
         if not u.dead and not u.gone then
             if u.side == "ally" and not u.summon then a = a + 1 end
-            if u.side == "enemy" then e = e + 1 end
+            -- An add that comes back does not hold the fight open.
+            if u.side == "enemy" and not u.respawn then e = e + 1 end
         end
     end
     if B.fled then return "fled" end
@@ -1385,6 +1388,15 @@ function Sim.play(maxRounds, policy)
     maxRounds = maxRounds or 40
     for round = 1, maxRounds do
         B.round = round
+        for _, u in pairs(B.units) do
+            if u.side == "enemy" and u.respawn and u.dead then
+                u.downFor = (u.downFor or 0) + 1
+                if u.downFor >= u.respawn then
+                    u.dead, u.hp, u.poured, u.brokenFor, u.statuses, u.downFor = false, u.maxHp, 0, 0, {}, 0
+                    event("%s came back", u.name)
+                end
+            end
+        end
         local order = {}
         for _, u in pairs(B.units) do
             if not u.dead and not u.gone then order[#order + 1] = u end

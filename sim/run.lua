@@ -24,12 +24,14 @@ local seed0 = tonumber(arg[2]) or 1
 local only = nil
 -- --hard 1.0 is the default difficulty. Higher hits harder and lasts longer.
 HARD = 1.0
+HIT = 1.0
 KEEP = {}
 EASY = false
 for i = 1, #arg do
     if arg[i] == "--echo" then Sim.echo = true end
     if arg[i] == "--only" then only = arg[i + 1] end
     if arg[i] == "--hard" then HARD = tonumber(arg[i + 1]) or 1.0 end
+    if arg[i] == "--hit" then HIT = tonumber(arg[i + 1]) or 1.0 end
     -- --easy plays Take it Easy: only the free basic Attack may go out.
     if arg[i] == "--easy" then EASY = true end
     -- --keep loss,timeout also writes those fights to sim/out/kept.
@@ -177,7 +179,7 @@ item("X-Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, full = tr
 item("Turbo Ether", { effect = EFF.DAMAGE, rel = REL.FRIEND, mp = true, full = true, calc = 3, power = 999 })
 item("Phoenix Pinion", { effect = EFF.REVIVE, rel = REL.FRIEND, revive = true })
 -- Thrown attack items. Not flagged rare, so the planner knows them by name.
-for _, e in ipairs({ { "Flame", "fire" }, { "Ice", "ice" }, { "Wind", "wind" }, { "Earth", "earth" }, { "Lightning", "lightning" }, { "Water", "water" } }) do
+for _, e in ipairs({ { "Flame", "fire" }, { "Ice", "ice" }, { "Wind", "wind" }, { "Earth", "earth" }, { "Lightning", "thunder" }, { "Water", "water" } }) do
     item(e[1] .. " Scroll I", { effect = EFF.DAMAGE, rel = REL.ENEMY, element = e[2], magic = true, calc = 3, power = 180, stagger = 12 })
 end
 item("Knife of Blind", { effect = EFF.DAMAGE, rel = REL.ENEMY, phys = true, calc = 3, power = 120, stagger = 8, status = ST.BLIND })
@@ -223,6 +225,29 @@ local REPLAY_PARTY = {
     { name = "Rain", vision = "red", maxHp = 780, maxMp = 55, atk = 80, mag = 80, spd = 12,
         skills = { "Escape", "Attack", "Fire", "Fira", "Provoke", "Cure", "Defend", "Crystal Braver" } },
 }
+-- The tide party, from the kit bars and casts in the battle log of
+-- 2026-11-03. MP is read from the log; HP, attack, and magic are guesses.
+local TIDE_PARTY = {
+    { name = "Nichol", vision = "tactician", maxHp = 700, maxMp = 213, mp = 177, atk = 60, mag = 90, spd = 11,
+        skills = { "Escape", "Attack", "Formation: Assail", "Formation: Charge", "Formation: Bulwark", "Stratagem",
+            "Tactic: Fluid Warfare", "Watera", "Cure", "Defend" } },
+    { name = "Rain", vision = "knight", maxHp = 880, maxMp = 191, mp = 82, atk = 95, mag = 60, spd = 12,
+        skills = { "Escape", "Attack", "Provoke", "Flame Sword", "Fire", "Protect", "Debrave", "Soul of Valiance", "Defend" } },
+    { name = "Lasswell", vision = "sword", maxHp = 760, maxMp = 267, mp = 235, atk = 105, mag = 70, spd = 13,
+        skills = { "Escape", "Attack", "Haste", "Hastega", "Hone Senses", "Placidity", "Tranquility in Tumult",
+            "Thundara", "Fira", "Fire" } },
+    { name = "Fina", vision = "white", healer = true, maxHp = 680, maxMp = 281, mp = 271, atk = 55, mag = 95, spd = 10,
+        skills = { "Escape", "Attack", "Cure", "Raise", "Esuna", "Fire", "Siren", "Ramuh" } },
+}
+local function tideBag()
+    return {
+        ["Potion"] = 9, ["Ether"] = 17, ["Phoenix Down"] = 20, ["Antidote"] = 5, ["Eye Drops"] = 5,
+        ["Unicorn Horn"] = 5, ["Gold Needle"] = 5, ["Mist Potion"] = 9, ["Mist Hi-Potion"] = 1,
+        ["Flame Scroll I"] = 5, ["Ice Scroll I"] = 2, ["Wind Scroll I"] = 4, ["Earth Scroll I"] = 2,
+        ["Lightning Scroll I"] = 3, ["Water Scroll I"] = 5,
+    }
+end
+
 local function replayBag()
     return {
         ["Potion"] = 10, ["Mist Potion"] = 10, ["Ether"] = 12, ["Phoenix Down"] = 6,
@@ -283,12 +308,12 @@ local function foe(e, scale, boss, statusChance, statusList)
     local hp = (boss and (1100 + g * 7) or (300 + g * 6)) * scale * HARD
     return {
         name = (e.name:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b end)), card = e.card,
-        hp = math.floor(hp), atk = math.floor(((boss and 95 or 62) + g * 0.07) * (0.55 + 0.45 * scale) * HARD),
+        hp = math.floor(hp), atk = math.floor(((boss and 95 or 62) + g * 0.07) * (0.55 + 0.45 * scale) * HARD * HIT),
         spd = math.random(6, 14), statusChance = statusChance or 0, statusList = statusList,
     }
 end
 
-local KINDS = { "trash", "mixed", "equal", "danger", "boss", "status", "counter", "absorb", "pot", "entry", "nophys", "hidden", "locked" }
+local KINDS = { "trash", "mixed", "equal", "danger", "boss", "status", "counter", "absorb", "pot", "entry", "nophys", "hidden", "locked", "adds" }
 
 local function makeFight(kind, size)
     local scale = (size / 4) ^ 0.8
@@ -322,6 +347,21 @@ local function makeFight(kind, size)
     elseif kind == "pot" then
         f.pot = true
         f.foes[1] = { name = "Pot", hp = math.floor(400 * scale), atk = 20, spd = 5, statusChance = 0 }
+    elseif kind == "adds" then
+        -- A boss with a dangerous attack that keeps calling one small add.
+        -- The add comes back two rounds after it falls.
+        f.boss = true
+        f.foes[1] = foe(pick(DANGER), scale, true)
+        f.foes[2] = foe(pick(SOFT), scale)
+        f.foes[2].respawn = 2
+    elseif kind == "tide" then
+        -- The battle log of 2026-11-03: Leviathan and the Orbs of Light it
+        -- calls back, a wipe twice. A test of the rules, not a script.
+        f.boss = true
+        f.foes[1] = foe({ name = "leviathan", card = Mobs["leviathan"] }, 1, true)
+        f.foes[1].hitKind = "magic"
+        f.foes[2] = foe({ name = "orbs of light", card = Mobs["orbs of light"] }, 1)
+        f.foes[2].respawn = 2
     elseif kind == "replay" then
         -- The battle log's last fight: Shoggoth as a boss, alone.
         f.boss = true
@@ -430,11 +470,14 @@ local function playSession(sid, withMod)
     if only == "replay" then
         size, party, nFights = #REPLAY_PARTY, copyParty(REPLAY_PARTY), 1
     end
+    if only == "tide" then
+        size, party, nFights = #TIDE_PARTY, copyParty(TIDE_PARTY), 1
+    end
     local plan = {}
     for i = 1, nFights do
         local kind = only or pick(KINDS)
         plan[i] = makeFight(kind, size)
-        plan[i].bag = (kind == "replay") and replayBag() or bag()
+        plan[i].bag = (kind == "replay") and replayBag() or ((kind == "tide") and tideBag()) or bag()
     end
     Sim.install()
     if withMod then

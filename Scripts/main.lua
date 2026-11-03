@@ -3581,6 +3581,17 @@ local function turn(uid, skills, w, phase)
     end
 
     if phase == PHASE_BONUS then
+        -- An add broke and the large gauge is still open: a weakness the actor
+        -- can pay goes on the large gauge. The add has already lost its turn.
+        if (mode == "adds") and bossU and (not bossU.broken) then
+            for _, s in ipairs(skills) do
+                if isHit(s, false) and pay(s) and (elementFactor(s, bossU) >= 3) then
+                    local hit = castDamage({ bossU }, false, "bonus on")
+                    if hit then return hit end
+                    break
+                end
+            end
+        end
         return castDamage(burstTargets(), true, "burst")
     end
     if #open == 0 and #brokenPool > 0 then
@@ -4134,6 +4145,35 @@ local function turn(uid, skills, w, phase)
         if choice then return choice end
     end
 
+    -- Adds plan: the only ally who can pay the large gauge's weakness keeps
+    -- chipping it while someone else can pay a weakness on the adds.
+    if (mode == "adds") and bossU and (phase == 0) then
+        local function paysOn(spells, mp, list)
+            for _, s in ipairs(spells) do
+                if isHit(s, false) and ((s.cost or 0) <= mp) then
+                    for _, u in ipairs(list) do
+                        if elementFactor(s, u) >= 3 then return true end
+                    end
+                end
+            end
+            return false
+        end
+        if paysOn(skills, w.mp or 0, { bossU }) then
+            local rival, cover = false, false
+            for _, a in ipairs(w.allies) do
+                if (a.id ~= uid) and (not a.dead) and (a.acts ~= false) and (not heldOut(a)) then
+                    local kit = unitKit(a.id)
+                    local mp = stat(a.id, PARAM.MP, false) or 0
+                    if kit and paysOn(kit.spells or {}, mp, { bossU }) then rival = true end
+                    if kit and paysOn(kit.spells or {}, mp, pool) then cover = true end
+                end
+            end
+            if (not rival) and cover then
+                local held = castDamage({ bossU }, false, "only payer")
+                if held then return held end
+            end
+        end
+    end
     local chip = castDamage(#pool > 0 and pool or open, false, mode)
     if chip then return chip end
     if mode == "adds" and bossU then
@@ -5619,7 +5659,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.30. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.31. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

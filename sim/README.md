@@ -3,13 +3,14 @@
 The sim loads the real `Scripts/*.lua` under Lua 5.4, unchanged, against a stand-in for the game and UE4SS. It plays random parties against random fights and checks the design doc's rules.
 
 ```
-lua5.4 sim/run.lua [sessions] [seed] [--only kind] [--hard 1.0] [--keep loss,timeout,fled] [--easy] [--scripts DIR] [--echo]
+lua5.4 sim/run.lua [sessions] [seed] [--only kind] [--hard 1.0] [--hit 1.0] [--keep loss,timeout,fled] [--easy] [--scripts DIR] [--echo]
 ```
 
 - `sessions` is how many game launches to play. Each one loads `main.lua` once and plays one to three fights in a row, with HP, MP, and falls carried between them. The default is 200. 1000 takes about 45 seconds.
 - `seed` makes a run repeatable. The same seed plays the same fights.
-- `--only kind` plays one kind of fight: `trash`, `mixed`, `equal`, `danger`, `boss`, `status`, `counter`, `absorb`, `pot`, `entry`, `nophys`, `hidden`, `locked`. `replay` plays the battle log's boss Shoggoth of 2026-11-02 with that fight's party and bag. It is only played when asked for.
+- `--only kind` plays one kind of fight: `trash`, `mixed`, `equal`, `danger`, `boss`, `status`, `counter`, `absorb`, `pot`, `entry`, `nophys`, `hidden`, `locked`, `adds`. `adds` is a boss with a danger card that calls one small add, which comes back two rounds after it falls. `tide` plays the battle log's Leviathan and the Orbs of Light it calls back, of 2026-11-03, with that fight's party and bag. It is only played when asked for; the game wiped there twice, so play it with `--hit 2.0`. `replay` plays the battle log's boss Shoggoth of 2026-11-02 with that fight's party and bag. It is only played when asked for.
 - `--hard` scales enemy HP and attack. 1.0 is the default.
+- `--hit` scales enemy attack alone, to make a fight as deadly as the game's without making it longer.
 - `--keep loss,timeout,fled` also writes those fights to `sim/out/kept`.
 - `--easy` plays Take it Easy instead of No Mercy, and flags anything but the free basic Attack. Every other run, and every test, is No Mercy.
 - `--scripts DIR` plays another copy of the scripts. Use it to check that the sim catches a rule you broke on purpose.

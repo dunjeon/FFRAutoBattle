@@ -285,11 +285,17 @@ function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf, went)
     for _, a in ipairs(best) do
         if a.id == actorId then return false end
     end
-    local payable = false
+    -- A healer who already took this round's turn will not get there before
+    -- the enemies act again, so a critical ally is not left to them.
+    local payable, still = false, false
     for _, a in ipairs(best) do
-        if M.available(a, a.statuses, kitOf, mpOf) then payable = true end
+        if M.available(a, a.statuses, kitOf, mpOf) then
+            payable = true
+            if not (went and went[a.id]) then still = true end
+        end
     end
     if not payable then return false end
+    if (why == "critical") and (not still) then return false end
     local healer = best[1]
     local late = healer and hasId(healer.statuses, SLOW)
     if why ~= "critical" then

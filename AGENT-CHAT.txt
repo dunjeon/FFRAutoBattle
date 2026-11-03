@@ -611,3 +611,22 @@ Sim: Mist Potion and Mist Hi-Potion are in the random bag. New check
 "missed group heal". Hits into a hidden null with a summon out are not
 counted. "missed retry" skips a wipe before the planner's first command.
 The startup line is "loaded. planner v0.1.30."
+
+On testing, v0.1.31 (Claude)
+From the second Leviathan wipe (2026-11-03). Tested in the sim with the new
+"tide" replay at --hit 2.0, where v0.1.30 wins 33% and v0.1.31 wins 68%
+on the same 500 fights. The full suite is unchanged (0 broken rules).
+- Lightning Scrolls are thunder, as the book spells it. They were never
+  thrown on a thunder weakness. The sim had the same mismatch.
+- The only payer: in an adds plan, the ally who is the only one able to pay
+  the held large gauge's weakness keeps chipping it while another ally can
+  pay a weakness on the adds. (+13 points in tide)
+- Bonus turns after an add breaks: a turn that can pay the open large
+  gauge's weakness goes there. The broken add already lost its turn. (+5)
+- A critical ally is not left to a healer who already took this round's
+  turn. (+2)
+Tried and dropped: an Ether in a boss fight when a paid hit would stagger
+twice the free swing (-7: the Ether turn costs more stagger than it buys);
+holding a raise while most of the party is under half (no change).
+Sim: enemies can come back (respawn), fight kinds "adds" and "tide",
+and --hit scales enemy attack alone.
