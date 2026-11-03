@@ -32,6 +32,7 @@ A broken rule is any of these, in any fight:
 - **second ether**: two Ethers in one round, as the planner counts a round, unless a boss fight is in dire need. An Elixir spent on a heal is not an Ether.
 - **missed group heal**: a single heal (an item that also restores MP is not counted, since it may be spent as an Ether) while most of the living party is under half and a common party heal item (one whose row targets every ally, like the sim's Mist Potion) is in the bag.
 - **buff still up**, **debuff still up**: a buff or debuff cast again while its status still shows on every body it would land on.
+- **enemy recorded**: an enemy's own command, which the game's decide hook also reports, logged by the planner as a party command. The sim fires that hook on every enemy turn.
 - **false retry**: the planner logged `party restored` with no wipe, and threw away its ledger, buffs, and setup mid-fight.
 - **overheal**: a second single heal in the round on an ally already above 65%.
 - **summon target**: a single heal, cure, or raise on a summon.
@@ -51,7 +52,9 @@ The report also gives the win rate against the doc's baseline (attack with the s
 
 ## What it does not know
 
-Kit buffs have invented effects so a setup turn is not counted as pure loss: Formation: Charge +20% damage, Formation: Assail +30% stagger, Hone Senses and Placidity +20% stagger on the caster, Formation: Bulwark a quarter less damage taken. The game's numbers are not known.
+Each enemy's real gauge is its book gauge times 0.9 to 1.25, since the game logs show Leviathan breaking under its book 1000 in one fight and holding past 1068 in another. The planner's stagger book has to find the real size.
+
+Kit buffs have invented effects so a setup turn is not counted as pure loss: Formation: Charge +20% damage, Formation: Assail +30% stagger, Hone Senses and Placidity +20% stagger on the caster, Formation: Bulwark a quarter less damage taken, and Stratagem's mark 30% more stagger on the marked enemy. The game's numbers are not known.
 
 
 The battle model is invented. Damage, HP, enemy attacks, status chances, and how long Cover and Provoke last are rough numbers chosen to make fights last about nine rounds. Win rates compare the planner with the baseline on the same fights. They are not a prediction of the game. Do not tune the planner's lines from them.

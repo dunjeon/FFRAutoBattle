@@ -653,3 +653,25 @@ Sim: the tide Orbs break and recover but never fall, as in the game log.
 Invented kit effects (formations, Hone Senses, Placidity). New checks:
 buff still up, debuff still up, false retry. On tide, v0.1.31 vs v0.1.32:
 77% vs 85% at --hit 1.6, 15% vs 28% at --hit 2.0.
+
+On testing, v0.1.33 (Claude)
+From an expert loss and a normal win against Leviathan (no one fell on
+normal). v0.1.32's kit fix showed: Fluid Warfare, all three Formations,
+and Stratagem went out. All changes general.
+- A break the stagger book predicts but the game does not give is released
+  at the very next ally turn. A real break gives that turn the bonus (p1)
+  in every log. Before, the phantom break held for a pass of the party and
+  moved the pool off the boss ("broke: Leviathan" with no bonus, then
+  "released, no bonus phase"). The release code is now releaseGauge().
+- The decide hook also reports enemy commands. The recorder reads the
+  command's own unit and skips an enemy's. "player Leviathan p0: Esuna"
+  was counted as a party action and listed in the summary.
+- A mark (Stratagem) may go on any open body, so it lands on the largest
+  gauge, not only on the adds pool.
+Sim: real gauges sit at 0.9 to 1.25 of the book; enemy turns fire the
+decide hook; Stratagem's mark has an invented +30% stagger; new check
+"enemy recorded" (582 of 601 fights on v0.1.32).
+Tide, v0.1.32 vs v0.1.33 on seed 2: 85% vs 87% at --hit 1.6, 23% vs 20%
+at --hit 2.0. The survival case drops because the phantom break used to
+send turns to the Orbs, and breaking the Orbs stops their hits in the sim.
+How hard the Orbs hit in the game is unknown.

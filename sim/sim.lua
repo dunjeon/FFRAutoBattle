@@ -463,7 +463,8 @@ function Sim.newBattle(opts)
         B.units[id] = {
             id = id, unitId = 900 + id, side = "enemy", name = name, card = f.card,
             maxHp = f.hp, hp = f.hp, maxMp = 0, mp = 0, atk = f.atk, mag = f.atk, spd = f.spd,
-            statuses = {}, gauge = (f.card and tonumber(f.card.gauge)) or 100, poured = 0,
+            -- f.gauge: the real gauge, which the game logs show can sit off the book's.
+            statuses = {}, gauge = f.gauge or (f.card and tonumber(f.card.gauge)) or 100, poured = 0,
             brokenFor = 0, turns = 0, statusChance = f.statusChance or 0, statusList = f.statusList,
             -- hitKind: the damage it deals. hidden: a kind it nulls that the book does not list.
             hitKind = (f.card and f.card.hits) or f.hitKind or "physical", hidden = f.hidden,
@@ -594,7 +595,9 @@ local function strike(actor, row, foe, scale)
     if foe.side == "enemy" and (not foe.statuses[ST.BREAK]) and stagF > 0 then
         local br = row.breakDamageValue or 0
         if br <= 0 and row.skillAttrType == ATTR.FIGHT then br = 25 end
-        foe.poured = foe.poured + br * stagF * (row.hitCount or 1) * kitStag
+        -- Stratagem's mark (90), invented: the marked body takes 30% more stagger.
+        local marked = (foe.statuses and foe.statuses[90]) and 1.3 or 1
+        foe.poured = foe.poured + br * stagF * (row.hitCount or 1) * kitStag * marked
         if (not foe.dead) and foe.poured >= foe.gauge then
             foe.statuses[ST.BREAK] = 1
             foe.brokenFor = 2
@@ -1245,6 +1248,18 @@ local function enemyTurn(foe)
     local allies = {}
     for _, a in ipairs(living("ally")) do if not a.summon then allies[#allies + 1] = a end end
     if #allies == 0 then return end
+    -- The game's decide hook fires for an enemy's command too, with the
+    -- enemy as the acting unit. The planner must not record it as the party's.
+    do
+        SUBSYSTEM.CurrentActionUnitUniqueId = foe.id
+        local obj = newDecide()
+        local atk = Sim.skillByName["attack"]
+        obj.cmdDecideDataList[1] = { actionId = atk and atk.ID or 0, actionUnitUniqueId = foe.id }
+        local d = obj.cmdDecideDataList[1]
+        d.isUseItem, d.IsAll = false, false
+        d.targetUnitUniqueIdList[1] = allies[1].id
+        fireHooks("/Script/mucha.CPP_BtlDelEventCmd:OnExecuteDecideCommand", { get = function() return obj end })
+    end
     local c = foe.card
     local atk = foe.atk
     if foe.debuffed and foe.debuffed.attack then atk = atk * 0.75 end

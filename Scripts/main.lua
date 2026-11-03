@@ -4057,7 +4057,9 @@ local function turn(uid, skills, w, phase)
             healer = true
             keep = uk.healCost or 0
         end
-        local list = (#pool > 0) and pool or open
+        -- Every open body, not just the pool: a mark belongs on the largest
+        -- gauge, where stagger is the bottleneck, even while the adds go first.
+        local list = (#open > 0) and open or pool
         if #list == 0 then list = w.enemies end
         local foes = {}
         for _, u in ipairs(list) do
@@ -4630,6 +4632,34 @@ local function rememberCast(who, skill)
     rec.n[skill] = (rec.n[skill] or 0) + 1
 end
 
+-- The stagger book called a break the game did not give. The gauge is
+-- larger than the estimate, or the proven size held.
+local function releaseGauge(id)
+    Fight.down[id] = nil
+    Fight.downTold[id] = nil
+    Fight.relax[id] = true
+    local sure = Fight.gaugeSure and Fight.gaugeSure[id]
+    if (type(sure) == "number") then
+        Fight.poured[id] = 0
+        log("%s break held. working gauge stays %d", unitName(id), sure)
+    else
+        local poured = Fight.poured[id] or 0
+        local card = mobOf({ id = id, name = unitName(id) })
+        local book = (card and tonumber(card.gauge)) or 100
+        local grown = math.floor((poured / 0.72) + 0.5)
+        if grown < (book + 1) then grown = book + 1 end
+        if Gauges.rise then grown = Gauges.rise(book, poured) end
+        local prev = Fight.gaugeScale[id] or book
+        if grown > prev then
+            Fight.gaugeWas = Fight.gaugeWas or {}
+            Fight.gaugeWas[id] = { size = prev, at = #(Fight.actions or {}) }
+            Fight.gaugeScale[id] = grown
+        end
+        log("%s gauge estimate released, no bonus phase. working gauge %d",
+            unitName(id), Fight.gaugeScale[id] or grown)
+    end
+end
+
 local function settleGauges()
     Fight.poured = Fight.poured or {}
     Fight.down = Fight.down or {}
@@ -4731,6 +4761,26 @@ local function settleGauges()
             end
         end
     end
+    -- A break gives the very next ally turn the bonus. A hit that filled the
+    -- book's gauge, followed by a normal turn, did not break: release it now
+    -- rather than plan a whole pass around a break that is not there.
+    local check = Fight.pourCheck
+    Fight.pourCheck = nil
+    if check and (phaseNow == 0) and (prevPhase == 0) then
+        for _, id in ipairs(check) do
+            local poured = Fight.poured[id] or 0
+            local card = mobOf({ id = id, name = unitName(id) })
+            local gauge = (card and tonumber(card.gauge)) or nil
+            local scaled = Fight.gaugeScale[id]
+            if scaled and ((not gauge) or (scaled > gauge)) then gauge = scaled end
+            if gauge and (gauge > 0) and (poured >= gauge) and (not broken(id)) then
+                releaseGauge(id)
+                local open = false
+                for _ in pairs(Fight.down) do open = true end
+                if not open then Fight.downSince = nil end
+            end
+        end
+    end
     Fight.phaseSeen = phaseNow
     if not Fight.bonusSeen and Fight.downSince then
         local allies = 0
@@ -4739,31 +4789,7 @@ local function settleGauges()
         if (#Fight.actions - Fight.downSince) >= allies then
             local ids = {}
             for id in pairs(Fight.down) do ids[#ids + 1] = id end
-            for _, id in ipairs(ids) do
-                Fight.down[id] = nil
-                Fight.downTold[id] = nil
-                Fight.relax[id] = true
-                local sure = Fight.gaugeSure and Fight.gaugeSure[id]
-                if (type(sure) == "number") then
-                    Fight.poured[id] = 0
-                    log("%s break held. working gauge stays %d", unitName(id), sure)
-                else
-                    local poured = Fight.poured[id] or 0
-                    local card = mobOf({ id = id, name = unitName(id) })
-                    local book = (card and tonumber(card.gauge)) or 100
-                    local grown = math.floor((poured / 0.72) + 0.5)
-                    if grown < (book + 1) then grown = book + 1 end
-                    if Gauges.rise then grown = Gauges.rise(book, poured) end
-                    local prev = Fight.gaugeScale[id] or book
-                    if grown > prev then
-                        Fight.gaugeWas = Fight.gaugeWas or {}
-                        Fight.gaugeWas[id] = { size = prev, at = #(Fight.actions or {}) }
-                        Fight.gaugeScale[id] = grown
-                    end
-                    log("%s gauge estimate released, no bonus phase. working gauge %d",
-                        unitName(id), Fight.gaugeScale[id] or grown)
-                end
-            end
+            for _, id in ipairs(ids) do releaseGauge(id) end
             Fight.downSince = nil
         end
     end
@@ -5125,6 +5151,8 @@ local function act(serial)
                     local factor = elementFactor(row or choice, enemy)
                     if gauge and gauge > 0 and factor > 0 then
                         Fight.poured[tid] = (Fight.poured[tid] or 0) + br * factor
+                        Fight.pourCheck = Fight.pourCheck or {}
+                        Fight.pourCheck[#Fight.pourCheck + 1] = tid
                     end
                 end
             end
@@ -5204,6 +5232,22 @@ local function noteHand(v)
         end)
     end
     if not actionId then return end
+    -- The command names its own unit. A command the game made for an enemy
+    -- is the enemy's turn, not the party's: it is not recorded.
+    local actorId = nil
+    pcall(function() actorId = num(rowObj.actionUnitUniqueId) end)
+    if actorId and (actorId >= 0) and not (Menu.fromMenu or onWheel) then uid = actorId end
+    if uid and (uid >= 0) then
+        local foe = Fight.seenFoe and Fight.seenFoe[uid]
+        if not foe then
+            local p = paramOf(uid)
+            if p then
+                local okR, rel = pcall(function() return p:GetRelation() end)
+                if okR and (num(rel) == REL.ENEMY) then foe = true end
+            end
+        end
+        if foe then return end
+    end
     local skill = (not isItem) and skillOf(actionId) or nil
     local name = (skill and skill.name) or ("command " .. tostring(actionId))
     if isItem then
@@ -5335,6 +5379,8 @@ local function noteHand(v)
                     local factor = elementFactor(skill, enemy)
                     if gauge and (gauge > 0) and (factor > 0) then
                         Fight.poured[tid] = (Fight.poured[tid] or 0) + (br * factor)
+                        Fight.pourCheck = Fight.pourCheck or {}
+                        Fight.pourCheck[#Fight.pourCheck + 1] = tid
                     end
                 end
             end
@@ -5690,7 +5736,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.32. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.33. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

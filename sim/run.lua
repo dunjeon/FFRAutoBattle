@@ -305,9 +305,12 @@ local ABSORB = cards(function(c) return (c.absorb or c.no) and c.gauge <= 800 en
 
 local function foe(e, scale, boss, statusChance, statusList)
     local g = e.card.gauge
+    -- The real gauge sits off the book's: Leviathan broke under its book 1000
+    -- in one log and held past 1068 in another.
+    local real = math.floor(tonumber(g) * (0.9 + math.random() * 0.35) + 0.5)
     local hp = (boss and (1100 + g * 7) or (300 + g * 6)) * scale * HARD
     return {
-        name = (e.name:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b end)), card = e.card,
+        name = (e.name:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b end)), card = e.card, gauge = real,
         hp = math.floor(hp), atk = math.floor(((boss and 95 or 62) + g * 0.07) * (0.55 + 0.45 * scale) * HARD * HIT),
         spd = math.random(6, 14), statusChance = statusChance or 0, statusList = statusList,
     }
@@ -507,6 +510,17 @@ local function playSession(sid, withMod)
         if withMod then
             scanModLines(B.modLines, fight, viol)
             -- A retry after a wipe should clear the ledger and the setup.
+            -- An enemy's own command recorded as the party's.
+            for j = 1, #B.modLines do
+                local who = B.modLines[j]:match("%] player (.-) p%d")
+                if who then
+                    for _, u in pairs(B.units) do
+                        if u.side == "enemy" and u.name == who then
+                            viol[#viol + 1] = { kind = "enemy recorded", text = B.modLines[j] }
+                        end
+                    end
+                end
+            end
             -- "party restored" with no wipe: the planner threw away its ledger,
             -- its buffs, and its setup in the middle of a fight.
             for j = 1, #B.modLines do
