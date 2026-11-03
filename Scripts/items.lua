@@ -44,6 +44,12 @@ local BOOK = {
         ["megalixir"] = { use = "both", rank = 9 },
         ["tent"] = { use = "out" },
         ["healing spring"] = { use = "out" },
+        -- From the game's item rows, 2026-11-03. Smoke Bomb is an escape
+        -- (skill effect Escape); the golden shells have no battle skill.
+        ["smoke bomb"] = { use = "out" },
+        ["small golden shell"] = { use = "out" },
+        ["golden shell"] = { use = "out" },
+        ["large golden shell"] = { use = "out" },
     },
     -- Thrown attack items, from the public item list read 2026-11-02. Scrolls
     -- are single-target magic of their element. Knives and blades are physical;

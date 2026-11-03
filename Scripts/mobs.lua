@@ -416,4 +416,14 @@ return {
     ["zombie warrior"] = { weak = { ["fire"] = true, ["light"] = true }, half = { ["dark"] = true }, gauge = 60, danger = { "Death Claw" }, soft = true },
     ["zone eater"] = { weak = { ["wind"] = true, ["light"] = true }, absorb = { ["earth"] = true, ["dark"] = true }, gauge = 2100, danger = { "Swallow" }, ail = { ["poison"] = true, ["sleep"] = true, ["paralysis"] = true, ["confuse"] = true, ["petrify"] = true, ["charm"] = true, ["berserk"] = true, ["instant death"] = true, ["gravity"] = true } },
     ["zuu"] = { weak = { ["wind"] = true }, no = { ["earth"] = true }, gauge = 350 },
+    -- From the game's own unit rows (DT_UnitParameter), 2026-11-03: names the
+    -- book did not have. Archwitch Fina is the game's name for Dark Fina and
+    -- keeps that card's danger and ailments.
+    ["archwitch fina"] = { weak = { ["water"] = true, ["light"] = true }, half = { ["dark"] = true }, gauge = 800, danger = { "Dystopia" }, ail = { ["poison"] = true, ["sleep"] = true, ["silence"] = true, ["confuse"] = true, ["petrify"] = true, ["charm"] = true, ["berserk"] = true, ["instant death"] = true, ["gravity"] = true } },
+    ["bloodsaurus"] = { weak = { ["fire"] = true, ["light"] = true }, half = { ["earth"] = true }, gauge = 900 },
+    ["bone dragon"] = { weak = { ["fire"] = true, ["light"] = true }, gauge = 540 },
+    ["fire hydra"] = { weak = { ["water"] = true }, no = { ["fire"] = true }, gauge = 700 },
+    ["hessian elite"] = { weak = { ["ice"] = true, ["dark"] = true }, gauge = 90 },
+    ["primeval reptile"] = { weak = { ["ice"] = true }, half = { ["wind"] = true, ["thunder"] = true }, gauge = 270 },
+    ["terrarat"] = { weak = { ["earth"] = true, ["dark"] = true }, gauge = 750 },
 }
