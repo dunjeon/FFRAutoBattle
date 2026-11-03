@@ -676,7 +676,16 @@ local function activation(uid, id)
     if not (bfl and bfl:IsValid()) then return nil end
     local five = activateFive(bfl, uid, id)
     if five == true then return true end
-    if five == false and ACT.fiveWorks then return false end
+    -- In game the five-argument false also means "not enough MP" (probe
+    -- v1.3: every false on a costed row was cost over MP; on Escape it was a
+    -- boss fight). A short bar is not a seal, so that false is a seal only
+    -- when the bar covers the cost.
+    if five == false and ACT.fiveWorks then
+        local cost = skillCost(uid, id, false) or 0
+        local mp = stat(uid, PARAM.MP, false)
+        if (cost <= 0) or ((mp ~= nil) and (mp >= cost)) then return false end
+        return nil
+    end
     local ok, v = pcall(function() return bfl:CanUnitActivateSkill(uid, id) end)
     if ok and v == false then return false end
     if v == true then return true end
