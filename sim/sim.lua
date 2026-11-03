@@ -469,6 +469,9 @@ function Sim.newBattle(opts)
             hitKind = (f.card and f.card.hits) or f.hitKind or "physical", hidden = f.hidden,
             -- respawn: rounds after it falls before it comes back, as a called add does.
             respawn = f.respawn, downFor = 0,
+            -- called: an add the boss keeps on the field. It breaks and recovers
+            -- but does not fall, and it does not hold the fight open.
+            called = f.called,
         }
     end
     -- Duplicate names get the game's letter suffix: GoblinB, GoblinC.
@@ -521,7 +524,10 @@ local function hurt(u, amount, src)
     if u.dead or u.gone then return end
     amount = math.max(0, math.floor(amount + 0.5))
     if u.defending then amount = math.floor(amount / 2) end
+    -- Formation: Bulwark (82), invented: a quarter less damage taken.
+    if u.side == "ally" and u.statuses[82] then amount = math.floor(amount * 0.75) end
     u.hp = u.hp - amount
+    if u.called then u.hp = math.max(1, u.hp) end
     if u.side == "enemy" and amount > 0 then B.lastProgress = B.round end
     if u.side == "ally" then u.lb = math.min(u.lbMax or 200, (u.lb or 0) + math.floor(amount * 60 / u.maxHp)) end
     if u.statuses[ST.SLEEP] then u.statuses[ST.SLEEP] = nil end
@@ -573,6 +579,12 @@ local function strike(actor, row, foe, scale)
     end
     if foe.statuses[ST.BREAK] then base = base * 2 end
     if actor.statuses and actor.statuses[97] then base = base * 1.5 end
+    -- Invented kit effects, so a setup turn is not counted as pure loss:
+    -- Formation: Charge (81) +20% damage, Formation: Assail (80) +30%
+    -- stagger, Hone Senses (41) and Placidity (76) +20% stagger.
+    local kit = actor.statuses or {}
+    if kit[81] then base = base * 1.2 end
+    local kitStag = (kit[80] and 1.3 or 1) * ((kit[41] or kit[76]) and 1.2 or 1)
     base = base * (0.9 + math.random() * 0.2)
     if dmgF < 0 then
         heal(foe, base)
@@ -582,7 +594,7 @@ local function strike(actor, row, foe, scale)
     if foe.side == "enemy" and (not foe.statuses[ST.BREAK]) and stagF > 0 then
         local br = row.breakDamageValue or 0
         if br <= 0 and row.skillAttrType == ATTR.FIGHT then br = 25 end
-        foe.poured = foe.poured + br * stagF * (row.hitCount or 1)
+        foe.poured = foe.poured + br * stagF * (row.hitCount or 1) * kitStag
         if (not foe.dead) and foe.poured >= foe.gauge then
             foe.statuses[ST.BREAK] = 1
             foe.brokenFor = 2
@@ -940,7 +952,8 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
         end
         -- Most of the living party under half and a common party item in the
         -- bag: a single heal is the wrong pick. A group heal beats it.
-        if spec.heal and t.side == "ally" and byMod and (not t.dead) and (not isAll) and (#targets == 1)
+        -- An item that also restores MP (Elixir) may be spent as an Ether.
+        if spec.heal and (not (isItem and spec.mp)) and t.side == "ally" and byMod and (not t.dead) and (not isAll) and (#targets == 1)
             and (B.phase ~= 2) and (not B.pot) and spreadNow() then
             for id, n in pairs(B.bag) do
                 local it = Sim.items[id]
@@ -1058,6 +1071,35 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
                     end
                 end
             end
+        end
+    end
+    -- A buff or debuff with a timer is not cast again while its status still
+    -- shows on every body it would land on. The planner can read statuses.
+    if byMod and (B.phase ~= 2) and (eff == EFF.PARAM) and ((row.statusCondition or 0) > 0) and (not isItem) then
+        local bodies = {}
+        if row.defaultTargetRelation == REL.FRIEND then
+            if isAll or (row.TargetType == TGT.ALL) then
+                for _, a in ipairs(living("ally")) do if not a.summon then bodies[#bodies + 1] = a end end
+            else
+                for _, tid in ipairs(targets) do
+                    local t = unitById(tid)
+                    if t and not t.dead then bodies[#bodies + 1] = t end
+                end
+            end
+        else
+            for _, tid in ipairs(targets) do
+                local t = unitById(tid)
+                if t and not t.dead then bodies[#bodies + 1] = t end
+            end
+            if isAll then bodies = living("enemy") end
+        end
+        local up = #bodies > 0
+        for _, t in ipairs(bodies) do
+            if not t.statuses[row.statusCondition] then up = false end
+        end
+        if up then
+            local kindName = (row.defaultTargetRelation == REL.FRIEND) and "buff still up" or "debuff still up"
+            violate(kindName, "%s cast %s while status %d still showed on every target", actor.name, row.Name, row.statusCondition)
         end
     end
     -- The guard should match the danger's kind of damage when the book gives it.
@@ -1325,7 +1367,7 @@ local function over()
         if not u.dead and not u.gone then
             if u.side == "ally" and not u.summon then a = a + 1 end
             -- An add that comes back does not hold the fight open.
-            if u.side == "enemy" and not u.respawn then e = e + 1 end
+            if u.side == "enemy" and not u.respawn and not u.called then e = e + 1 end
         end
     end
     if B.fled then return "fled" end

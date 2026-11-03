@@ -56,8 +56,24 @@ end
 -- No status id means the claim lasts the fight.
 -- A claimed status that has never been seen stays claimed, so a resist
 -- is not cast every turn. Seen, then gone, is a refresh.
-function M.up(effect, foe, on, seen)
+-- skill: the live row. When it lists the status it puts on the enemy, that
+-- status showing is the timer: held while it shows, refreshed once it is gone.
+local function rowStatus(skill)
+    local map = skill and skill.enemyStatus
+    if type(map) ~= "table" then return nil end
+    for _ in pairs(map) do return map end
+    return nil
+end
+
+function M.up(effect, foe, on, seen, skill)
     if (not effect) or (not foe) then return false end
+    local map = rowStatus(skill)
+    if map then
+        for sid in pairs(map) do
+            if foe.statuses and foe.statuses[sid] then return true end
+        end
+        return false
+    end
     local id = STATUS[effect]
     local statuses = foe.statuses
     if id and statuses and statuses[id] then return true end
@@ -115,7 +131,7 @@ function M.choose(skills, foes, on, seen, fallback)
         if rank > 0 then
             for _, foe in ipairs(foes or {}) do
                 if openFoe(foe) and classOk(effect, foe, fallback) and (not immune(effect, foe))
-                    and (not M.up(effect, foe, on, seen)) then
+                    and (not M.up(effect, foe, on, seen, skill)) then
                     if better(rank, foe, bestRank, bestF) then
                         bestS, bestF, bestRank = skill, foe, rank
                     end
@@ -128,7 +144,7 @@ function M.choose(skills, foes, on, seen, fallback)
     local claimed = on and on[bestF.id] and on[bestF.id][effect]
     local saw = seen and seen[bestF.id] and seen[bestF.id][effect]
     local why = "setup"
-    if claimed and saw then why = "refresh" end
+    if claimed and (saw or rowStatus(bestS)) then why = "refresh" end
     return bestS, bestF, why
 end
 

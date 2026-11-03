@@ -8,7 +8,7 @@ lua5.4 sim/run.lua [sessions] [seed] [--only kind] [--hard 1.0] [--hit 1.0] [--k
 
 - `sessions` is how many game launches to play. Each one loads `main.lua` once and plays one to three fights in a row, with HP, MP, and falls carried between them. The default is 200. 1000 takes about 45 seconds.
 - `seed` makes a run repeatable. The same seed plays the same fights.
-- `--only kind` plays one kind of fight: `trash`, `mixed`, `equal`, `danger`, `boss`, `status`, `counter`, `absorb`, `pot`, `entry`, `nophys`, `hidden`, `locked`, `adds`. `adds` is a boss with a danger card that calls one small add, which comes back two rounds after it falls. `tide` plays the battle log's Leviathan and the Orbs of Light it calls back, of 2026-11-03, with that fight's party and bag. It is only played when asked for; the game wiped there twice, so play it with `--hit 2.0`. `replay` plays the battle log's boss Shoggoth of 2026-11-02 with that fight's party and bag. It is only played when asked for.
+- `--only kind` plays one kind of fight: `trash`, `mixed`, `equal`, `danger`, `boss`, `status`, `counter`, `absorb`, `pot`, `entry`, `nophys`, `hidden`, `locked`, `adds`. `adds` is a boss with a danger card that calls one small add, which comes back two rounds after it falls. `tide` plays the battle log's Leviathan and the Orbs of Light it keeps on the field, of 2026-11-03 (the Orbs break and recover but never fall, as in the game log), with that fight's party and bag. It is only played when asked for; the game wiped there twice, so play it with `--hit 2.0`. `replay` plays the battle log's boss Shoggoth of 2026-11-02 with that fight's party and bag. It is only played when asked for.
 - `--hard` scales enemy HP and attack. 1.0 is the default.
 - `--hit` scales enemy attack alone, to make a fight as deadly as the game's without making it longer.
 - `--keep loss,timeout,fled` also writes those fights to `sim/out/kept`.
@@ -30,7 +30,9 @@ A broken rule is any of these, in any fight:
 - **premium item**: Elixir, Megalixir, X-Potion, Turbo Ether, Phoenix Pinion, a tent, a scroll, a knife, or a shuriken outside a boss fight. In a boss fight: a tent at all, a rare heal or MP item with no dire need, or a rare item while a common one of the same use is in the bag. These rows are not flagged rare, so the planner has to know them by name.
 - **pot item**: any item spent in a Pot fight.
 - **second ether**: two Ethers in one round, as the planner counts a round, unless a boss fight is in dire need. An Elixir spent on a heal is not an Ether.
-- **missed group heal**: a single heal while most of the living party is under half and a common party heal item (one whose row targets every ally, like the sim's Mist Potion) is in the bag.
+- **missed group heal**: a single heal (an item that also restores MP is not counted, since it may be spent as an Ether) while most of the living party is under half and a common party heal item (one whose row targets every ally, like the sim's Mist Potion) is in the bag.
+- **buff still up**, **debuff still up**: a buff or debuff cast again while its status still shows on every body it would land on.
+- **false retry**: the planner logged `party restored` with no wipe, and threw away its ledger, buffs, and setup mid-fight.
 - **overheal**: a second single heal in the round on an ally already above 65%.
 - **summon target**: a single heal, cure, or raise on a summon.
 - **blocked heal**: a single white-magic heal on an ally whose stance (Witching Hour) blocks it. The sim marks the stance status 97, lifts that ally's hits by half, and lets items through.
@@ -48,6 +50,9 @@ A broken rule is any of these, in any fight:
 The report also gives the win rate against the doc's baseline (attack with the strongest payable skill, on the same seed), by fight kind and by party size, how often each planner rule fired, how often a payable weakness was taken, and how often a Phoenix Down went out while a living ally could pay a raise spell.
 
 ## What it does not know
+
+Kit buffs have invented effects so a setup turn is not counted as pure loss: Formation: Charge +20% damage, Formation: Assail +30% stagger, Hone Senses and Placidity +20% stagger on the caster, Formation: Bulwark a quarter less damage taken. The game's numbers are not known.
+
 
 The battle model is invented. Damage, HP, enemy attacks, status chances, and how long Cover and Provoke last are rough numbers chosen to make fights last about nine rounds. Win rates compare the planner with the baseline on the same fights. They are not a prediction of the game. Do not tune the planner's lines from them.
 

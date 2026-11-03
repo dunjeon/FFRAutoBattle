@@ -356,12 +356,13 @@ local function makeFight(kind, size)
         f.foes[2].respawn = 2
     elseif kind == "tide" then
         -- The battle log of 2026-11-03: Leviathan and the Orbs of Light it
-        -- calls back, a wipe twice. A test of the rules, not a script.
+        -- keeps on the field, wipes on every try. The Orbs break and recover
+        -- in the game log and never fall. A test of the rules, not a script.
         f.boss = true
         f.foes[1] = foe({ name = "leviathan", card = Mobs["leviathan"] }, 1, true)
         f.foes[1].hitKind = "magic"
         f.foes[2] = foe({ name = "orbs of light", card = Mobs["orbs of light"] }, 1)
-        f.foes[2].respawn = 2
+        f.foes[2].called = true
     elseif kind == "replay" then
         -- The battle log's last fight: Shoggoth as a boss, alone.
         f.boss = true
@@ -506,6 +507,14 @@ local function playSession(sid, withMod)
         if withMod then
             scanModLines(B.modLines, fight, viol)
             -- A retry after a wipe should clear the ledger and the setup.
+            -- "party restored" with no wipe: the planner threw away its ledger,
+            -- its buffs, and its setup in the middle of a fight.
+            for j = 1, #B.modLines do
+                if B.modLines[j]:find("party restored", 1, true) and ((not B.retryAt) or (j <= B.retryAt)) then
+                    viol[#viol + 1] = { kind = "false retry", text = "the planner cleared its ledger with no wipe" }
+                    break
+                end
+            end
             -- A wipe before the planner's first command in the fight left no
             -- ledger to clear, so only a fight it had already acted in counts.
             local before = false

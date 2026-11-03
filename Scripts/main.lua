@@ -1571,7 +1571,8 @@ local function pickRecoveryItem(uid, w, want, focus)
             factorOf = elementFactor, itemAttr = ATTR.ITEM,
         })
         if not best then return nil end
-        local fake = { id = best.id, name = best.name, kind = "item", attr = ATTR.ITEM, target = TGT.SINGLE, cost = 0 }
+        local fake = { id = best.id, name = best.name, kind = "item", attr = ATTR.ITEM, target = TGT.SINGLE, cost = 0,
+            known = best.attack }
         local why = (bestF >= 3) and ("throw " .. best.name .. " on " .. bestU.name .. " weakness")
             or ("throw " .. best.name .. " on " .. bestU.name .. ", nothing payable lands")
         local choice = finishChoice(uid, fake, why, { bestU.id }, false, true)
@@ -4026,25 +4027,6 @@ local function turn(uid, skills, w, phase)
         end
     end
 
-    -- Boss fight: an item from the bag carries the hit the bar cannot pay.
-    if w.boss and (phase == 0) and not allyCritical() then
-        local list = #pool > 0 and pool or open
-        local paidLands, paidWeak = false, false
-        for _, x in ipairs(skills) do
-            if isHit(x, false) and pay(x) then
-                for _, u in ipairs(list) do
-                    local f = elementFactor(x, u)
-                    if f > 0 then paidLands = true end
-                    if f >= 3 then paidWeak = true end
-                end
-            end
-        end
-        if not paidWeak then
-            local thrown = pickRecoveryItem(uid, w, "attack", { list = list, landing = not paidLands })
-            if thrown then return thrown end
-        end
-    end
-
     -- Once the fight is underway, a support turn is followed by a hit when
     -- the actor has one that lands, so a kit or a refresh does not crowd
     -- out the damage.
@@ -4140,10 +4122,33 @@ local function turn(uid, skills, w, phase)
         Fight.claim.kit[picked.key] = true
         return choice
     end
-    if phase == 0 and not alreadyFell and not allyCritical() and not dead and not supportRested() then
+    -- A kit waits while someone is critical or a fallen ally is still down.
+    -- A fall earlier in the fight does not end it.
+    if phase == 0 and not allyCritical() and not dead and not supportRested() then
         local choice = castKit()
         if choice then return choice end
     end
+
+    -- The kit is setup and comes before the chip, so a thrown item waits for it.
+    -- Boss fight: an item from the bag carries the hit the bar cannot pay.
+    if w.boss and (phase == 0) and not allyCritical() then
+        local list = #pool > 0 and pool or open
+        local paidLands, paidWeak = false, false
+        for _, x in ipairs(skills) do
+            if isHit(x, false) and pay(x) then
+                for _, u in ipairs(list) do
+                    local f = elementFactor(x, u)
+                    if f > 0 then paidLands = true end
+                    if f >= 3 then paidWeak = true end
+                end
+            end
+        end
+        if not paidWeak then
+            local thrown = pickRecoveryItem(uid, w, "attack", { list = list, landing = not paidLands })
+            if thrown then return thrown end
+        end
+    end
+
 
     -- Adds plan: the only ally who can pay the large gauge's weakness keeps
     -- chipping it while someone else can pay a weakness on the adds.
@@ -4600,7 +4605,7 @@ local function ensureBattle()
     Fight.lbRead = {}
     Fight.lbGaugeApi = {}
     -- A low bar from the last fight is not a wipe in this one.
-    Fight.mpAnchor, Fight.mpLow, Fight.mpBack = {}, {}, {}
+    Fight.mpAnchor, Fight.mpLow, Fight.mpBack, Fight.mpFed = {}, {}, {}, {}
     Fight.roundAt = 0
     Fight.unmarked = false
     Fight.unmarkedTold = false
@@ -4882,6 +4887,13 @@ local function act(serial)
             Fight.mpAnchor[who] = mp
             anchor = mp
         end
+        -- An item put this MP back (an Ether, an Elixir): not a retry.
+        Fight.mpFed = Fight.mpFed or {}
+        if Fight.mpFed[who] and (mp >= (anchor * 0.8)) then
+            Fight.mpFed[who] = nil
+            Fight.mpLow[who] = nil
+            Fight.mpBack[who] = nil
+        end
         if mp < (anchor * 0.8) then
             Fight.mpLow[who] = true
             Fight.mpBack[who] = nil
@@ -5074,14 +5086,30 @@ local function act(serial)
         local use = choice.known.use
         if (use == "lb-setup") or (use == "lb-cash") or (use == "lb-revive") then limitCast = true end
     end
-    if phase == 0 and choice.targets and ((choice.kind == "damage") or limitCast) and not choice.isItem
-        and (choice.attr ~= ATTR.SUMMON) then
+    -- An item that may refill MP is remembered on its targets, so the MP it
+    -- puts back is not read as a retry.
+    if choice.isItem and choice.targets then
+        Fight.mpFed = Fight.mpFed or {}
+        for _, tid in ipairs(choice.targets) do Fight.mpFed[tid] = true end
+    end
+    -- A thrown item pours the stagger on its own skill row, in its element.
+    local thrownRow = nil
+    if choice.isItem and (choice.itemUse == "attack") then
+        local irow = ItemIdx and ItemIdx[choice.id] or nil
+        local srow = irow and irow.skillId and skillOf(irow.skillId) or nil
+        if srow then
+            thrownRow = { breakPower = srow.breakPower, hits = srow.hits, power = srow.power,
+                attr = ATTR.ITEM, known = choice.known, name = choice.name }
+        end
+    end
+    if phase == 0 and choice.targets and ((choice.kind == "damage") or limitCast or thrownRow)
+        and ((not choice.isItem) or thrownRow) and (choice.attr ~= ATTR.SUMMON) then
         Fight.poured = Fight.poured or {}
         Fight.down = Fight.down or {}
         Fight.relax = Fight.relax or {}
         Fight.gaugeScale = Fight.gaugeScale or {}
         Fight.lastHit = choice.targets
-        local row = skillOf(choice.id)
+        local row = thrownRow or skillOf(choice.id)
         local _, br = offenseOf(row or choice)
         if br > 0 then
             for _, tid in ipairs(choice.targets) do
@@ -5190,6 +5218,9 @@ local function noteHand(v)
         if okKind then kind = got end
     end
     if isItem then
+        Fight.mpFed = Fight.mpFed or {}
+        for _, tid in ipairs(targets) do Fight.mpFed[tid] = true end
+        if (#targets == 0) and uid and (uid >= 0) then Fight.mpFed[uid] = true end
         local listed = Items.listed and Items.listed(name)
         if listed == "hp" then kind = "heal" end
         if listed == "mp" then kind = "ether" end
@@ -5659,7 +5690,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.31. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.32. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

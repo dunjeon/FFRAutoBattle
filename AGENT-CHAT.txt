@@ -630,3 +630,26 @@ twice the free swing (-7: the Ether turn costs more stagger than it buys);
 holding a raise while most of the party is under half (no change).
 Sim: enemies can come back (respawn), fight kinds "adds" and "tide",
 and --hit scales enemy attack alone.
+
+On testing, v0.1.32 (Claude)
+From three more Leviathan losses (one battle, two retries). All general.
+- False retry: the backup retry signal (most of the party's MP back at
+  its opening bar) fired on an Ether or Elixir. In a small party one Ether
+  is most of the party. The planner then cleared its ledger, buffs,
+  debuffs, and setup mid-fight and cast them all again. 60 of 1983 sim
+  fights on v0.1.31. An ally whose MP an item refilled no longer counts.
+- Kit: the kit waited for the whole fight after any fall. The doc says it
+  waits while someone is critical or a fallen ally is still down. Fixed.
+  The boss-fight throw now comes after the kit, since a throw is a chip
+  and setup comes first. Nichol never cast a formation in the game log.
+- Thrown items pour stagger into the ledger from the item's own skill row
+  and element. Scrolls broke the Orbs in the game while the ledger did not
+  count them.
+- Debuffs: a stat-down with a status on its live row is held while that
+  status shows and refreshed when it is gone. Before, it was claimed once
+  per fight.
+Haste, kits, and guards were already held by their live status.
+Sim: the tide Orbs break and recover but never fall, as in the game log.
+Invented kit effects (formations, Hone Senses, Placidity). New checks:
+buff still up, debuff still up, false retry. On tide, v0.1.31 vs v0.1.32:
+77% vs 85% at --hit 1.6, 15% vs 28% at --hit 2.0.
