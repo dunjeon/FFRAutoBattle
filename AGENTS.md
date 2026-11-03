@@ -2,7 +2,7 @@
 
 This file is for people and agents changing the mod. The player instructions are in `README.md`. The battle policy is `Final Fantasy Resonance Auto-Battle Design Doc (Rough Draft).md`.
 
-Grok, by xAI, is the Lead Programmer. Implement the policy in Lua. Do not invent a second battle plan.
+Grok, by xAI, is the Lead Programmer. Claude, by Anthropic, is a contributor. Implement the policy in Lua. Do not invent a second battle plan.
 
 Do not rewrite the design doc unless asked. What a good fight looks like is in that doc.
 

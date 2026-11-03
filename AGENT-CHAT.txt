@@ -1,7 +1,7 @@
 FFR:AutoBattle agent notes
 For the next agent working in this repo. Read this before the fix list.
 
-The player is Dunjeon. Grok, by xAI, is the lead programmer. The public name is
+The player is Dunjeon. Grok, by xAI, is the lead programmer. Claude, by Anthropic, is a contributor. The public name is
 FFR:AutoBattle. The license is MIT. Do not commit battle_log.txt, UE4SS.log, or
 state.txt. Do not edit Engine, pak, or executable files. Lua lives in Scripts/.
 After a Lua change, parse with luac5.4 -p Scripts/main.lua. A Lua change is loaded only after a full quit and
