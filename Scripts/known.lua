@@ -1,7 +1,8 @@
 -- Published skill facts for FFR:AutoBattle. Item facts are in items.lua.
--- Stagger numbers are the ones printed on the Resonance wiki ability pages and
--- the boss guides (a plain Attack is 25, Tackle 35, Dawn Frost 30, Fire 17).
--- A weakness hit is three times that stagger. This list does not know the enemy,
+-- Stagger numbers are the game's own skill row, DT_SkillData.breakDamageValue,
+-- checked 2026-11-03: 169 of 170 match by English name. Sakura's Ultima is
+-- not in that text. A weakness hit is three times that stagger.
+-- This list does not know the enemy,
 -- so it only ranks the skill's own number. The live table is the fallback.
 -- The elemental block is the published ability index: element and stagger power.
 -- A spell still missing from it is cast, with no weakness multiplier.

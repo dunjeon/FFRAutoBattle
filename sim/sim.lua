@@ -8,9 +8,9 @@
 -- only roughly balanced. Do not tune the planner's lines from them.
 --
 -- The game facts the planner relies on are copied from the design doc:
--- the live break ratio stays full, a weakness is x3 stagger, every living
--- enemy broken at once opens the bonus phase and then the wheel, a status
--- that takes the turn has no menu, and the game decides for a confused ally.
+-- the stagger gauge is BreakPoint (parameter 3), a weakness is x3 stagger,
+-- every living enemy broken at once opens the bonus phase and then the wheel,
+-- a status that takes the turn has no menu, and the game decides for a confused ally.
 
 local Sim = {}
 
@@ -87,6 +87,8 @@ function Sim.addSkill(spec)
         statusCondition = spec.status or 0,
         sim = spec,
     }
+    local elNum = ({ fire = 1, ice = 2, wind = 3, earth = 4, thunder = 5, water = 6, light = 7, dark = 8 })[spec.element]
+    if elNum then row.element = elNum end
     Sim.skills[row.ID] = row
     Sim.skillByName[key] = row
     return row
@@ -171,16 +173,28 @@ local function paramFor(u)
     p.GetParameterByType = function(_, kind)
         if kind == 1 then return u.hp end
         if kind == 2 then return u.mp end
+        if kind == 3 then
+            if u.side ~= "enemy" then return nil end
+            local maxv = u.gauge or 0
+            local left = maxv - (u.poured or 0)
+            if left < 0 then left = 0 end
+            if u.statuses and u.statuses[89] then return 0 end
+            return left
+        end
         if kind == 4 then return u.lb or 0 end
         return 0
     end
     p.GetMaxParameterByType = function(_, kind)
         if kind == 1 then return u.maxHp end
         if kind == 2 then return u.maxMp end
+        if kind == 3 then
+            if u.side ~= "enemy" then return nil end
+            return u.gauge or 0
+        end
         if kind == 4 then return u.lbMax or 200 end
         return 0
     end
-    -- The doc: the live break ratio stays full after a hit.
+    -- The planner no longer reads this. Parameter 3 is the gauge.
     p.GetBreakPointRatio = function() return 1.0 end
     p.GetLimitBurstPoint = function() return u.lb or 0 end
     local function skillList(t)

@@ -205,7 +205,7 @@ return {
         ["mechabo kick"] = { element = "earth", use = "break", phys = true },
         ["mechabo tackle"] = { element = "earth", use = "break", phys = true },
         ["mechamog scan"] = { use = "buff" },
-        ["meltdown"] = { use = "skip" },
+        ["meltdown"] = { element = "fire", use = "skip" },
         ["meo twister"] = { element = "wind", use = "break", magic = true },
         ["meo twister+"] = { element = "wind", use = "break", magic = true },
         ["meteor"] = { use = "break", magic = true },

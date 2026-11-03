@@ -61,7 +61,7 @@ The battle model is invented. Damage, HP, enemy attacks, status chances, and how
 
 Game facts it copies from the design doc and the battle logs:
 
-- The live break ratio stays full. A break shows as status 89.
+- The stagger gauge is BreakPoint, parameter 3, current and max. A current of 0, or status 89, is a break. The ratio call is not used.
 - A weakness is x3 stagger. Half is x0.5. Null and absorb are a miss.
 - A break gives the next ally turn the bonus phase (`p1`). Every living enemy broken at once gives every ally a bonus turn, then the Resonance wheel (`p2`). The player picks on the wheel when the planner sends nothing.
 - Sleep, paralysis, petrify, and stop take the turn with no menu. The game decides for a confused, charmed, or berserk ally.

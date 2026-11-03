@@ -206,7 +206,7 @@ local SKIP = {
 local EFF = { DAMAGE = 1, PARAM = 2, CURE = 19, REVIVE = 20, DEFEND = 26, ANALYZE = 29, COVER = 41 }
 local TGT = { SELF = 0, SINGLE = 1, GROUP = 2, SPREAD = 3, ALL = 4 }
 local REL = { FRIEND = 1, ENEMY = 2 }
-local PARAM = { HP = 1, MP = 2, LB = 4 }
+local PARAM = { HP = 1, MP = 2, BREAK = 3, LB = 4 }
 -- One Limit gauge is 100 points in every game log so far: a 100-point bar
 -- holds one gauge, a 200-point bar two. Used only when the game does not
 -- say. The game's own gauge count is trusted for the launch once any unit
@@ -477,9 +477,18 @@ local function buildSkillIndex()
                 if own > 0 and rel == REL.FRIEND then friendStatus[own] = true end
                 if own > 0 and rel == REL.ENEMY then enemyStatus[own] = true end
                 local name = textOf(field(row, "Name"))
+                -- eElement: 0 none, 1 fire, 2 ice, 3 wind, 4 earth, 5 thunder,
+                -- 6 water, 7 light, 8 dark. A missing field is not a none.
+                local elN = num(field(row, "element"))
+                local element = nil
+                if elN ~= nil and elN >= 1 and elN <= 8 then
+                    element = ({ "fire", "ice", "wind", "earth", "thunder", "water", "light", "dark" })[elN]
+                end
                 skills[id] = {
                     id = id,
                     name = (name and name ~= "") and name or ("#" .. id),
+                    element = element,
+                    elementRead = elN ~= nil,
                     cost = num(field(row, "Cost")) or 0,
                     attr = num(field(row, "skillAttrType")) or 0,
                     effect = num(field(row, "skillEffectType")) or 0,
@@ -587,21 +596,27 @@ end
 
 local function broken(uid)
     if statuses(uid)[ST_BREAK] then return true end
-    local p = paramOf(uid)
-    if not p then return false end
-    local ok, r = pcall(function() return p:GetBreakPointRatio() end)
-    r = ok and num(r) or nil
-    return r ~= nil and r <= 0.001
+    local cur = stat(uid, PARAM.BREAK, false)
+    local maxv = stat(uid, PARAM.BREAK, true)
+    return cur ~= nil and maxv ~= nil and maxv > 0 and cur <= 0
 end
 
+-- Current BreakPoint over its max. nil when that read is missing, so the
+-- ledger and the book stay the fallback. A failed GetBreakPointRatio used
+-- to return 1 here, and gaugeOf then threw away any ratio at 0.99 or above.
+-- That is why a missing read looked full. The probe read 0.1 at 12/120, so
+-- the ratio itself was never stuck.
 local function breakLeft(uid)
-    local p = paramOf(uid)
-    if not p then return 1 end
-    local ok, r = pcall(function() return p:GetBreakPointRatio() end)
-    r = ok and num(r) or nil
-    if r == nil then return broken(uid) and 0 or 1 end
-    if r > 1.5 then return r / 100 end
-    return r
+    local cur = stat(uid, PARAM.BREAK, false)
+    local maxv = stat(uid, PARAM.BREAK, true)
+    if cur ~= nil and maxv ~= nil and maxv > 0 then
+        if cur <= 0 then return 0 end
+        local r = cur / maxv
+        if r > 1 then return 1 end
+        return r
+    end
+    if broken(uid) then return 0 end
+    return nil
 end
 
 local function unitName(uid)
@@ -872,7 +887,7 @@ local function friendIds()
 end
 
 --------------------------------------------------------------------------------
--- Skill math. The live row has stagger and no element. known.lua names the element.
+-- Skill math. The skill row names the element. The book fills a missing one.
 --------------------------------------------------------------------------------
 
 -- Declared here so the skill math below can read what a fight has learned.
@@ -918,9 +933,35 @@ local function kindOf(skill)
     return nil
 end
 
+-- The row wins. A book element that disagrees is logged once, then dropped.
+local function applyRowElement(copy)
+    if not (copy and copy.elementRead) then return end
+    local info = copy.known or knownOf(copy)
+    local book = info and info.element or nil
+    local rowEl = copy.element
+    if book and book ~= rowEl then
+        Known.elementTold = Known.elementTold or {}
+        local key = (copy.name or "?"):lower()
+        if not Known.elementTold[key] then
+            Known.elementTold[key] = true
+            log("element %s: book %s, row %s", copy.name or "?", book, rowEl or "none")
+        end
+    end
+    if info == nil then
+        if rowEl then copy.known = { element = rowEl } end
+        return
+    end
+    if info.element == rowEl then return end
+    local merged = {}
+    for k, v in pairs(info) do merged[k] = v end
+    merged.element = rowEl
+    copy.known = merged
+end
+
 -- A kind the card nulls, or one this fight has seen do no damage twice, is
 -- a miss, the same as a nulled element.
 local function elementFactor(skill, enemy)
+    applyRowElement(skill)
     local ok, factor = pcall(function()
         local info = skill and (skill.known or knownOf(skill))
         local el = info and info.element
@@ -1125,6 +1166,7 @@ local function tagSkill(uid, id, borrowed)
     local copy = {}
     for k, v in pairs(s) do copy[k] = v end
     copy.known = knownOf(copy)
+    applyRowElement(copy)
     local info = copy.known
     -- A player-only row stays off the kit. The damage picker never sees it.
     if info and info.use == "skip" then return nil end
@@ -1611,7 +1653,7 @@ local function pickRecoveryItem(uid, w, want, focus)
 end
 
 --------------------------------------------------------------------------------
--- The field. The break ratio stays full, so the book gauge is the count.
+-- The field. The live BreakPoint is the gauge. The book is the fallback.
 --------------------------------------------------------------------------------
 
 local function worldOf(uid, boss, summoned)
@@ -1639,7 +1681,23 @@ local function worldOf(uid, boss, summoned)
             log("stagger counts unmarked. chipping from the book until a break shows")
             appendLog("  stagger counts unmarked")
         end
-        if (not unmarked) and Fight and gauge and (gauge > 0) and (poured >= gauge) and (not relaxed) then
+        if apiLeft ~= nil then
+            -- The live gauge is the break and the recovery. A reading above
+            -- empty, with status 89 gone, is no longer broken.
+            local stillBroken = statuses(id)[ST_BREAK] and true or false
+            if Fight and (not unmarked) and (apiLeft <= 0.001) then
+                Fight.down[id] = true
+                Fight.brokeOn = Fight.brokeOn or {}
+                Fight.brokeOn[id] = true
+                down = true
+                if not Fight.downSince then Fight.downSince = #(Fight.actions or {}) end
+            elseif Fight and (apiLeft > 0.001) and (not stillBroken) then
+                Fight.down[id] = nil
+                Fight.downTold[id] = nil
+                down = false
+            end
+            if stillBroken then down = true end
+        elseif (not unmarked) and Fight and gauge and (gauge > 0) and (poured >= gauge) and (not relaxed) then
             Fight.down[id] = true
             Fight.brokeOn = Fight.brokeOn or {}
             Fight.brokeOn[id] = true
@@ -1654,23 +1712,17 @@ local function worldOf(uid, boss, summoned)
             log("%s staggered (%s/%s). bonus cashes them, next gauge is one still up",
                 name, tostring(math.floor(poured + 0.5)), tostring(gauge or "?"))
         end
-        local left = apiLeft
+        local left = 1
         if down then
             left = 0
-        elseif unmarked then
+        elseif apiLeft ~= nil then
             left = apiLeft
-        elseif gauge and (gauge > 0) then
+        elseif (not unmarked) and gauge and (gauge > 0) then
             local est = 1 - (poured / gauge)
             if est < 0 then est = 0 end
             if est > 1 then est = 1 end
             if relaxed and poured >= gauge then est = 0.15 end
-            if apiLeft >= 0.99 then
-                left = est
-            elseif apiLeft < est then
-                left = apiLeft
-            else
-                left = est
-            end
+            left = est
         end
         return down and true or false, left
     end
@@ -2130,6 +2182,7 @@ local function finishList(uid)
         copy.attr = ATTR.FINISH
         copy.cost = 0
         copy.known = knownOf(copy)
+        applyRowElement(copy)
         local okKind, kind = pcall(classify, copy)
         copy.kind = (okKind and kind) or "damage"
         local info = copy.known
@@ -4528,7 +4581,7 @@ local function consider(uid)
         local name = unitName(id)
         local r = hpRatio(id)
         if r ~= nil and r <= 0 then return end
-        local isBroken, left = broken(id), breakLeft(id)
+        local isBroken, left = broken(id), (breakLeft(id) or 1)
         if Fight and Fight.gaugeOf then isBroken, left = Fight.gaugeOf(id, name) end
         w.enemies[#w.enemies + 1] = {
             id = id, name = name, hp = r or 1,
@@ -4817,6 +4870,13 @@ local function settleGauges()
     Fight.relax = Fight.relax or {}
     Fight.gaugeScale = Fight.gaugeScale or {}
     Fight.brokeOn = Fight.brokeOn or {}
+    -- A live BreakPoint is the gauge. The ledger marks and releases a break
+    -- only for a living enemy whose read is missing. A body with no
+    -- parameter is gone, and there is no gauge left to correct.
+    local function ledgerOnly(id)
+        if not paramOf(id) then return false end
+        return breakLeft(id) == nil
+    end
     local phaseNow = currentPhase()
     local prevPhase = Fight.phaseSeen or 0
     if prevPhase ~= 0 and phaseNow == 0 then
@@ -4848,7 +4908,7 @@ local function settleGauges()
             local old = rec and rec.size
             local at = (rec and rec.at) or 0
             local fresh = (type(old) == "number") and ((#(Fight.actions or {}) - at) <= party)
-            if fresh and Fight.brokeOn[id] then
+            if fresh and Fight.brokeOn[id] and ledgerOnly(id) then
                 Fight.gaugeScale[id] = old
                 Fight.gaugeSure[id] = old
                 Fight.down[id] = true
@@ -4868,7 +4928,7 @@ local function settleGauges()
             local card = mobOf({ id = id, name = unitName(id) })
             local book = card and tonumber(card.gauge) or nil
             local size = (((type(scaled) == "number") and (scaled > 0) and scaled) or book)
-            if (type(scaled) == "number") and (scaled > 0) and (poured > 0) and (poured < scaled) then
+            if ledgerOnly(id) and (type(scaled) == "number") and (scaled > 0) and (poured > 0) and (poured < scaled) then
                 local proved = math.floor(poured + 0.5)
                 if (type(book) == "number") and (proved < book) then proved = book end
                 Fight.gaugeScale[id] = proved
@@ -4903,7 +4963,7 @@ local function settleGauges()
                 local score = (gauge > 0) and (poured / gauge) or 0
                 if score > bestScore then best, bestScore = tid, score end
             end
-            if best and bestScore >= 1 then
+            if best and (bestScore >= 1) and ledgerOnly(best) then
                 Fight.down[best] = true
                 Fight.brokeOn = Fight.brokeOn or {}
                 Fight.brokeOn[best] = true
@@ -4923,7 +4983,7 @@ local function settleGauges()
             local gauge = (card and tonumber(card.gauge)) or nil
             local scaled = Fight.gaugeScale[id]
             if scaled and ((not gauge) or (scaled > gauge)) then gauge = scaled end
-            if gauge and (gauge > 0) and (poured >= gauge) and (not broken(id)) then
+            if gauge and (gauge > 0) and (poured >= gauge) and (not broken(id)) and ledgerOnly(id) then
                 releaseGauge(id)
                 local open = false
                 for _ in pairs(Fight.down) do open = true end
@@ -4939,7 +4999,9 @@ local function settleGauges()
         if (#Fight.actions - Fight.downSince) >= allies then
             local ids = {}
             for id in pairs(Fight.down) do ids[#ids + 1] = id end
-            for _, id in ipairs(ids) do releaseGauge(id) end
+            for _, id in ipairs(ids) do
+                if ledgerOnly(id) then releaseGauge(id) end
+            end
             Fight.downSince = nil
         end
     end
@@ -5261,6 +5323,13 @@ local function act(serial)
     end
     local limitCast = choice.attr == ATTR.LB
     if choice.known and limitSkill({ known = choice.known }) then limitCast = true end
+    -- noteHand records a barrier the player sent. A command the mod sent
+    -- skips noteHand, so the same record is written here. Without it the
+    -- next ally casts the barrier again while the status still shows.
+    if choice.known and choice.known.use == "lb-guard" then
+        local indexed = skillOf(choice.id)
+        Fight.veil = { map = (indexed and indexed.friendStatus) or {}, seen = false, round = Fight.rounds or 0 }
+    end
     -- An item that may refill MP is remembered on its targets, so the MP it
     -- puts back is not read as a retry.
     if choice.isItem and choice.targets then
@@ -5889,7 +5958,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.36. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.37. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

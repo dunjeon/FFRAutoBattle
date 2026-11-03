@@ -63,7 +63,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.1.36.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
+Search for `loaded. planner v0.1.37.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
 
 ### If it does not load
 

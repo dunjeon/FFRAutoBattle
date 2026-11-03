@@ -16,7 +16,7 @@ It has to work for any party size, any character, and any Vision. A change that 
 
 ## Where the files are
 
-The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.36.`
+The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.37.`
 
 `known.lua` is published skill facts: element, stagger, and use. `items.lua` is the item book and the rules for which item to spend; `main.lua` only reads the bag and sends the item. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
@@ -45,9 +45,11 @@ The script is Lua 5.4. There is no `continue` and no `goto`. `and` and `or` shar
 
 A function defined before `local Fight` or `local unitKit` binds the global, which is nil. Declare those names first. Parse with `luac5.4 -p Scripts/main.lua` before you call the change done.
 
-Do not call `GetTurnVM`. It throws. The stagger count the mod keeps, and the party order it can see, stand in for the Timeline the design doc describes.
+Do not call `GetTurnVM`. It throws. The party order the mod can see stands in for the Timeline the design doc describes.
 
-The live skill row has cost, power, stagger, target, and effect. It does not have an element. An unnamed Vision spell is still cast. It does not get the weakness multiplier until `known.lua` names the element.
+The enemy stagger gauge is the live BreakPoint, parameter 3, current and max. That read already includes the difficulty rate. A current of 0, or status 89, is broken. The ledger and the book gauge are the fallback when the read is missing. The break ratio is not the count.
+
+The `SKILL_DATA` row has cost, power, stagger, target, effect, and element. The command bar does not carry the element. The planner reads the row first, then `known.lua`. An unnamed Vision spell is still cast. It does not get the weakness multiplier until one of those names the element.
 
 ## How to check a change
 
