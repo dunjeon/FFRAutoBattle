@@ -433,7 +433,7 @@ function Sim.newBattle(opts)
             commands = 0, modCommands = 0, gameCommands = 0, playerCommands = 0, stalls = 0,
             items = {}, falls = 0, raises = 0, draws = 0, heals = 0, ethers = 0,
             bonus = 0, finish = 0, finishByMod = 0, cures = 0, cureMiss = 0, wasted = 0,
-            lb1 = 0, lb2 = 0, lbHeld = 0,
+            lb1 = 0, lb2 = 0, lbHeld = 0, lbSupport = 0,
         },
         roundHeals = {}, roundEthers = 0, passActed = {}, pot = opts.pot or false, rules = opts.rules or {},
         noFlee = opts.noFlee or false,
@@ -529,6 +529,11 @@ local function hurt(u, amount, src)
     if u.defending then amount = math.floor(amount / 2) end
     -- Formation: Bulwark (82), invented: a quarter less damage taken.
     if u.side == "ally" and u.statuses[82] then amount = math.floor(amount * 0.75) end
+    -- Eternal Veil's barrier (87), from the public text: the next hit taken is nullified.
+    if u.side == "ally" and u.statuses[87] and src ~= "poison" and src ~= "doom" then
+        u.statuses[87] = nil
+        amount = 0
+    end
     u.hp = u.hp - amount
     if u.called then u.hp = math.max(1, u.hp) end
     if u.side == "enemy" and amount > 0 then B.lastProgress = B.round end
@@ -588,6 +593,12 @@ local function strike(actor, row, foe, scale)
     local kit = actor.statuses or {}
     if kit[81] then base = base * 1.2 end
     local kitStag = (kit[80] and 1.3 or 1) * ((kit[41] or kit[76]) and 1.2 or 1)
+    -- Mirroring Prism (86): the next action goes twice. The sim doubles one hit.
+    if kit[86] then
+        kit[86] = nil
+        base = base * 2
+        kitStag = kitStag * 2
+    end
     base = base * (0.9 + math.random() * 0.2)
     if dmgF < 0 then
         heal(foe, base)
@@ -603,6 +614,12 @@ local function strike(actor, row, foe, scale)
         if (not foe.dead) and foe.poured >= foe.gauge then
             foe.statuses[ST.BREAK] = 1
             foe.brokenFor = 2
+            -- The public guides: a break adds a quarter gauge to every ally.
+            for _, a in pairs(B.units) do
+                if a.side == "ally" and not a.summon and not a.dead then
+                    a.lb = math.min(a.lbMax or 200, (a.lb or 0) + 25)
+                end
+            end
             -- The game's logs: a break gives the next ally turn the bonus (p1).
             B.bonusNext = true
             B.lastProgress = B.round
@@ -1187,14 +1204,19 @@ function Sim.onDecide(obj, byMod)
     for i = 1, #d.targetUnitUniqueIdList do targets[#targets + 1] = d.targetUnitUniqueIdList[i] end
     B.stats.commands = B.stats.commands + 1
     if byMod then B.stats.modCommands = B.stats.modCommands + 1 end
+    -- Formation: Steeled Advance (85): the ally's own actions fill the gauge.
+    if actor.side == "ally" and actor.statuses and actor.statuses[85] then
+        actor.lb = math.min(actor.lbMax or 200, (actor.lb or 0) + 20)
+    end
     if byMod and row.skillAttrType == ATTR.LB then
         if (row.sim.lbGauges or 1) >= 2 then B.stats.lb2 = B.stats.lb2 + 1 else B.stats.lb1 = B.stats.lb1 + 1 end
+        if row.defaultTargetRelation == REL.FRIEND and not row.sim.heal then B.stats.lbSupport = B.stats.lbSupport + 1 end
     end
     -- A boss bonus turn that sent no Limit while a damage Limit on the bar was full.
     if byMod and B.boss and B.phase == 1 and row.skillAttrType ~= ATTR.LB and actor.side == "ally" then
         for _, id in ipairs(actor.skillIds or {}) do
             local r = Sim.skills[id]
-            if r and r.skillAttrType == ATTR.LB and not r.sim.heal and not sealed(actor, r) then
+            if r and r.skillAttrType == ATTR.LB and r.defaultTargetRelation == REL.ENEMY and not r.sim.heal and not sealed(actor, r) then
                 B.stats.lbHeld = B.stats.lbHeld + 1
                 break
             end

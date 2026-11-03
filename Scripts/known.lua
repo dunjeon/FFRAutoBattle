@@ -19,6 +19,8 @@
 --   debuff    tagged by effect. Defense and attack on the danger body,
 --             blind and silence on a caster. The effect key is the tag.
 --   lb-setup  Limit Burst whose payoff is before the break (Null Moon)
+--   lb-break  Limit Burst for the party as a gauge nears its break (Steeled Advance, Mirroring Prism)
+--   lb-guard  Limit Burst barrier for the party (Eternal Veil)
 --   lb-cash   Limit Burst whose payoff is after the break
 --   lb-revive Limit Burst that raises the party (Radiant Restoration)
 --   gauges    how many full limit gauges the row spends. 1 is 100%, 2 is 200%
@@ -42,9 +44,9 @@ return {
         ["infinity drive"] = { stagger = 25, element = "fire", phys = true, use = "lb-cash", gauges = 1 },
         ["march of the machines"] = { stagger = 40, phys = true, use = "lb-cash", gauges = 1 },
         ["enterprise airstrike"] = { stagger = 55, phys = true, use = "lb-cash", gauges = 2 },
-        ["formation: steeled advance"] = { use = "lb-setup", gauges = 1 },
-        ["mirroring prism"] = { use = "lb-cash", gauges = 2 },
-        ["eternal veil"] = { use = "lb-setup", gauges = 1 },
+        ["formation: steeled advance"] = { use = "lb-break", gauges = 1 },
+        ["mirroring prism"] = { use = "lb-break", gauges = 2 },
+        ["eternal veil"] = { use = "lb-guard", gauges = 1 },
         ["radiant restoration"] = { use = "lb-revive", gauges = 2 },
         ["sakura's ultima"] = { stagger = 55, magic = true, use = "lb-cash", gauges = 2 },
         ["glücksschmied"] = { stagger = 30, phys = true, use = "lb-cash", gauges = 2 },

@@ -662,7 +662,7 @@ local function limitSkill(skill)
     if skill.attr == ATTR.LB then return true end
     local info = skill.known or knownOf(skill)
     local use = info and info.use
-    return use == "lb-setup" or use == "lb-cash" or use == "lb-revive"
+    return use == "lb-setup" or use == "lb-cash" or use == "lb-revive" or use == "lb-break" or use == "lb-guard"
 end
 
 local function commandEnabled(uid, id)
@@ -1168,7 +1168,8 @@ local function tagSkill(uid, id, borrowed)
     if info then
         if info.stagger then copy.breakPower = info.stagger end
         if info.use == "guard" then copy.kind = "defend"
-        elseif info.use == "opener" or info.use == "guardbuff" or info.use == "buff" or info.use == "lb-setup" then
+        elseif info.use == "opener" or info.use == "guardbuff" or info.use == "buff" or info.use == "lb-setup"
+            or info.use == "lb-break" or info.use == "lb-guard" then
             copy.kind = "buff"
         elseif info.use == "lb-revive" or info.use == "revive" then copy.kind = "revive"
         elseif info.use == "heal" then copy.kind = "heal"
@@ -1966,10 +1967,7 @@ local function send(uid, choice, phase)
         if #learned.keys > 0 then keys = learned.keys end
     else
         local limitCast = choice.attr == ATTR.LB
-        if choice.known then
-            local use = choice.known.use
-            if (use == "lb-setup") or (use == "lb-cash") or (use == "lb-revive") then limitCast = true end
-        end
+        if choice.known and limitSkill({ known = choice.known }) then limitCast = true end
         local bfl = battleLib()
         if bfl and bfl:IsValid() and (not limitCast) then
             local ok, enabled = pcall(function() return bfl:IsEnableCommand(uid, choice.id) end)
@@ -2320,7 +2318,7 @@ local function turn(uid, skills, w, phase)
         if use == "skip" or use == "opener" or use == "guardbuff" or use == "guard" or use == "scan" or use == "heal" or use == "cure" then
             return false
         end
-        if use == "lb-setup" or use == "lb-revive" or use == "revive" then return false end
+        if use == "lb-setup" or use == "lb-revive" or use == "revive" or use == "lb-break" or use == "lb-guard" then return false end
         if (s.attr == ATTR.LB) or (use == "lb-cash") then
             if cashing then return true end
             return false
@@ -2503,7 +2501,17 @@ local function turn(uid, skills, w, phase)
         end
     end
     local raiseHold = nil
-    if dead and not Fight.claim.revive[dead.id] then
+    -- A party raise Limit brings every fallen ally back with their HP, so
+    -- neither hold applies: it goes out at once when two or more are down.
+    local partyRaise = false
+    if dead and (#(Fight.downNow or {}) >= 2) then
+        for _, s in ipairs(skills) do
+            if (s.kind == "revive") and s.known and (s.known.use == "lb-revive") and s.known.party and pay(s) then
+                partyRaise = true
+            end
+        end
+    end
+    if dead and not Fight.claim.revive[dead.id] and not partyRaise then
         -- How well a kit does the healing job: the heal score, then a raise
         -- spell, then the number of real heals.
         local function healWorth(kit)
@@ -3401,6 +3409,35 @@ local function turn(uid, skills, w, phase)
         end
         return false
     end
+    -- In a boss fight, an ally who carries a two-gauge damage Limit that
+    -- lands on the field saves the gauges for it. A one-gauge row from that
+    -- ally waits, unless every living enemy is under a quarter of its HP.
+    local lbSaveMemo = {}
+    local function lbSaved(aid, s)
+        if not w.boss then return false end
+        if (tonumber(s and s.lbCost) or tonumber(s and s.known and s.known.gauges) or 1) >= 2 then return false end
+        local late = #w.enemies > 0
+        for _, u in ipairs(w.enemies) do
+            if (u.hp or 1) >= 0.25 then late = false end
+        end
+        if late then return false end
+        if lbSaveMemo[aid] ~= nil then return lbSaveMemo[aid] end
+        local saved = false
+        for _, id in ipairs(equippedIds(aid)) do
+            local row = skillOf(id)
+            local fact = row and (row.attr == ATTR.LB) and Limits.lookup and Limits.lookup(row.name)
+            if fact and (fact.use == "lb-cash") and ((tonumber(fact.gauges) or 1) >= 2) then
+                local probe = { known = fact, name = row.name }
+                local any, all = false, true
+                for _, u in ipairs(w.enemies) do
+                    if elementFactor(probe, u) > 0 then any = true else all = false end
+                end
+                if (fact.area and all) or ((not fact.area) and any) then saved = true end
+            end
+        end
+        lbSaveMemo[aid] = saved
+        return saved
+    end
     local lbOwedFlag = nil
     local function lbOwed()
         if lbOwedFlag ~= nil then return lbOwedFlag end
@@ -3417,7 +3454,7 @@ local function turn(uid, skills, w, phase)
                 local ids = equippedIds(a.id)
                 for _, id in ipairs(ids) do
                     local s = tagSkill(a.id, id, false)
-                    if s and useOf(s) == "lb-setup" and (s.cost or 0) <= mp then
+                    if s and useOf(s) == "lb-setup" and (s.cost or 0) <= mp and not lbSaved(a.id, s) then
                         local keeps = partyWeak(a.id, s.cost or 0) or not partyWeak(nil, 0)
                         if keeps then lbOwedFlag = true return true end
                     end
@@ -3473,6 +3510,7 @@ local function turn(uid, skills, w, phase)
             if not pay(s) then return end
             local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
             if spendLb and (not hardField) then return end
+            if spendLb and lbSaved(uid, s) then return end
             -- An area Limit hits every living enemy. A nulled element stays off.
             if spendLb and aoeOf(s) and s.known and s.known.element and (#w.enemies > 0) then
                 local blocked = false
@@ -3605,6 +3643,8 @@ local function turn(uid, skills, w, phase)
     end
 
     if phase == PHASE_BONUS then
+        -- A bonus opens the next break-time Limit.
+        if Fight.claim then Fight.claim.lbBreak = false end
         -- An add broke and the large gauge is still open: a weakness the actor
         -- can pay goes on the large gauge. The add has already lost its turn.
         if (mode == "adds") and bossU and (not bossU.broken) then
@@ -3788,8 +3828,9 @@ local function turn(uid, skills, w, phase)
     local function setupLimit()
         if Fight.claim.lb then return nil end
         local s = nil
-        if Limits.bestSetup then s = Limits.bestSetup(skills, pay) end
-        if not s then s = firstSkill(function(x) return useOf(x) == "lb-setup" end) end
+        local function spendable(x) return pay(x) and not lbSaved(uid, x) end
+        if Limits.bestSetup then s = Limits.bestSetup(skills, spendable) end
+        if not s then s = firstSkill(function(x) return useOf(x) == "lb-setup" and not lbSaved(uid, x) end) end
         if not s then return nil end
         if not (partyWeak(uid, s.cost or 0) or (not partyWeak(nil, 0))) then return nil end
         if s.known and s.known.party then
@@ -3995,6 +4036,90 @@ local function turn(uid, skills, w, phase)
             if (not choice) and (not Fight.esperOut) then choice = summonChoice("later") end
             if choice then return choice end
         end
+    end
+    -- A barrier Limit for the party goes up on a hard field. It is held while
+    -- its status shows and cast again once that status has shown and gone,
+    -- or two rounds after a cast whose status never showed. A row that lists
+    -- no status goes out once a fight.
+    local function barrierLimit()
+        local veil = Fight.veil
+        if veil then
+            local up = false
+            for _, a in ipairs(w.allies) do
+                if not a.dead then
+                    local set = statuses(a.id)
+                    for sid in pairs(veil.map or {}) do
+                        if set[sid] then up = true end
+                    end
+                end
+            end
+            if up then veil.seen = true return nil end
+            local stale = ((Fight.rounds or 0) - (veil.round or 0)) >= 2
+            if (not veil.seen) and (not stale) then return nil end
+            if not next(veil.map or {}) then return nil end
+            Fight.veil = nil
+        end
+        local s = firstSkill(function(x) return useOf(x) == "lb-guard" and pay(x) end)
+        if not s then return nil end
+        local ids = {}
+        for _, a in ipairs(w.allies) do
+            if not a.dead then ids[#ids + 1] = a.id end
+        end
+        if #ids == 0 then return nil end
+        return finishChoice(uid, s, "barrier lb " .. (s.name or "limit") .. " party", ids, true)
+    end
+    -- A Limit that lifts the party's next actions (gauge fill, or every
+    -- action twice) goes out as the largest open gauge nears its break:
+    -- under 40% left. An add's break does not count. Once for each break;
+    -- the bonus phase opens the next one. A row whose status still shows on
+    -- every living ally is not cast again.
+    local function breakLimit()
+        if Fight.claim.lbBreak then return nil end
+        local big, bigGauge, bigRemain = nil, -1, 0
+        for _, u in ipairs(open) do
+            local gauge, remain, empty = gaugeOfEnemy(u)
+            if (not empty) and (gauge > bigGauge) then big, bigGauge, bigRemain = u, gauge, remain end
+        end
+        if (not big) or (bigGauge <= 0) or ((bigRemain / bigGauge) > 0.40) then return nil end
+        local function stillUp(x)
+            if not next(x.friendStatus or {}) then return false end
+            local any = false
+            for _, a in ipairs(w.allies) do
+                if not a.dead then
+                    any = true
+                    local set, on = statuses(a.id), false
+                    for sid in pairs(x.friendStatus) do
+                        if set[sid] then on = true end
+                    end
+                    if not on then return false end
+                end
+            end
+            return any
+        end
+        local best, bestG = nil, -1
+        for _, x in ipairs(skills) do
+            if (useOf(x) == "lb-break") and pay(x) and (not stillUp(x)) then
+                local g = tonumber(x.lbCost) or 1
+                if g > bestG then best, bestG = x, g end
+            end
+        end
+        if not best then return nil end
+        local ids = {}
+        for _, a in ipairs(w.allies) do
+            if not a.dead then ids[#ids + 1] = a.id end
+        end
+        if #ids == 0 then return nil end
+        local choice = finishChoice(uid, best, "break lb " .. (best.name or "limit") .. " party", ids, true)
+        if choice then Fight.claim.lbBreak = true end
+        return choice
+    end
+    if (phase == 0) and hardField and (not dead) then
+        local choice = barrierLimit()
+        if choice then return choice end
+    end
+    if (phase == 0) and hardField and (not dead) and (not allyCritical()) then
+        local choice = breakLimit()
+        if choice then return choice end
     end
     -- The gauge may fill after the first chip. That one setup still goes
     -- out then. It does not go out after a fall, or while someone is critical.
@@ -4323,6 +4448,7 @@ local function kitFallback(uid)
             local held = (use == "skip") or (use == "opener") or (use == "guardbuff") or (use == "guard")
                 or (use == "scan") or (use == "heal") or (use == "cure") or (use == "debuff")
                 or (use == "buff") or (use == "lb-setup") or (use == "lb-revive") or (use == "lb-cash")
+                or (use == "lb-break") or (use == "lb-guard")
                 or (copy.attr == ATTR.LB)
             if damage and not held and (cost <= mp) and not (Fight.deferChip and (cost > 0)) then
                 copy.kind = "damage"
@@ -4608,6 +4734,7 @@ local function ensureBattle()
     Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
     Fight.kindMiss, Fight.kindNull, Fight.kindHit, Fight.hitProbe = {}, {}, {}, nil
     Fight.guardOn = {}
+    Fight.veil = nil
     Fight.supportRun = {}
     Fight.foeLow, Fight.hitsSince, Fight.stalemateTold = {}, 0, false
     Fight.luckToss = {}
@@ -4979,8 +5106,10 @@ local function act(serial)
         Fight.chipped = false
         Fight.claim = Fight.claim or {}
         Fight.claim.lb = false
+        Fight.claim.lbBreak = false
         Fight.claim.guard = false
         Fight.guardOn = {}
+        Fight.veil = nil
         Fight.claim.hone = {}
         Fight.claim.esper = false
         Fight.esperOut = nil
@@ -5131,10 +5260,7 @@ local function act(serial)
         end
     end
     local limitCast = choice.attr == ATTR.LB
-    if choice.known then
-        local use = choice.known.use
-        if (use == "lb-setup") or (use == "lb-cash") or (use == "lb-revive") then limitCast = true end
-    end
+    if choice.known and limitSkill({ known = choice.known }) then limitCast = true end
     -- An item that may refill MP is remembered on its targets, so the MP it
     -- puts back is not read as a retry.
     if choice.isItem and choice.targets then
@@ -5355,6 +5481,10 @@ local function noteHand(v)
     end
     if (use == "opener") and uid and (uid >= 0) then Fight.claim.hone[uid] = true end
     if use == "lb-setup" then Fight.claim.lb = true end
+    if use == "lb-break" then Fight.claim.lbBreak = true end
+    if use == "lb-guard" then
+        Fight.veil = { map = (skill and skill.friendStatus) or {}, seen = false, round = Fight.rounds or 0 }
+    end
     noteStance(uid, name)
     if skill and (skill.attr == ATTR.ESCAPE) then Fight.escapeSent = (Fight.escapeSent or 0) + 1 end
     if Kits.key and Kits.key(name) then
@@ -5759,7 +5889,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.34. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.36. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

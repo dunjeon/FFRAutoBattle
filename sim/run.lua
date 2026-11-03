@@ -155,6 +155,13 @@ Sim.addSkill({ name = "Infinity Drive", attr = ATTR.LB, effect = EFF.DAMAGE, pow
 Sim.addSkill({ name = "Transient Rite", attr = ATTR.LB, effect = EFF.DAMAGE, power = 500, stagger = 35, element = "ice", lbGauges = 2, target = TGT.ALL })
 Sim.addSkill({ name = "Radiant Restoration", attr = ATTR.LB, effect = EFF.DAMAGE, power = 300, rel = REL.FRIEND, heal = true,
     target = TGT.ALL, lbGauges = 2, raiseAll = true })
+Sim.addSkill({ name = "Crimson Onslaught", attr = ATTR.LB, effect = EFF.DAMAGE, power = 520, stagger = 35, element = "fire", lbGauges = 2, target = TGT.ALL })
+Sim.addSkill({ name = "Holy Ray", attr = ATTR.LB, effect = EFF.DAMAGE, power = 300, stagger = 25, element = "light", magic = true, lbGauges = 1, target = TGT.ALL })
+-- Support Limits, with invented statuses: 85 fills the gauge as the ally
+-- acts, 86 doubles the next hit, 87 nullifies the next hit taken.
+Sim.addSkill({ name = "Formation: Steeled Advance", attr = ATTR.LB, effect = EFF.PARAM, rel = REL.FRIEND, target = TGT.ALL, status = 85, turns = 3, lbGauges = 1 })
+Sim.addSkill({ name = "Mirroring Prism", attr = ATTR.LB, effect = EFF.PARAM, rel = REL.FRIEND, target = TGT.ALL, status = 86, turns = 3, lbGauges = 2 })
+Sim.addSkill({ name = "Eternal Veil", attr = ATTR.LB, effect = EFF.PARAM, rel = REL.FRIEND, target = TGT.ALL, status = 87, turns = 4, lbGauges = 1 })
 Sim.addSkill({ name = "Crystal Braver", attr = ATTR.FINISH, effect = EFF.DAMAGE, power = 600, stagger = 0, target = TGT.ALL })
 
 local function item(name, spec, rare) return Sim.addItem(name, spec, rare) end
@@ -226,18 +233,20 @@ local REPLAY_PARTY = {
         skills = { "Escape", "Attack", "Fire", "Fira", "Provoke", "Cure", "Defend", "Crystal Braver" } },
 }
 -- The tide party, from the kit bars and casts in the battle log of
--- 2026-11-03. MP is read from the log; HP, attack, and magic are guesses.
+-- 2026-11-03. MP, Limits, and the opening gauges are read from the log; HP,
+-- attack, and magic are guesses.
 local TIDE_PARTY = {
     { name = "Nichol", vision = "tactician", maxHp = 700, maxMp = 213, mp = 177, atk = 60, mag = 90, spd = 11,
         skills = { "Escape", "Attack", "Formation: Assail", "Formation: Charge", "Formation: Bulwark", "Stratagem",
-            "Tactic: Fluid Warfare", "Watera", "Cure", "Defend" } },
+            "Tactic: Fluid Warfare", "Watera", "Cure", "Defend", "Formation: Steeled Advance" }, lbMax = 100 },
     { name = "Rain", vision = "knight", maxHp = 880, maxMp = 191, mp = 82, atk = 95, mag = 60, spd = 12,
-        skills = { "Escape", "Attack", "Provoke", "Flame Sword", "Fire", "Protect", "Debrave", "Soul of Valiance", "Defend" } },
+        skills = { "Escape", "Attack", "Provoke", "Flame Sword", "Fire", "Protect", "Debrave", "Soul of Valiance", "Defend",
+            "Infinity Drive", "Crimson Onslaught" }, lb = 14 },
     { name = "Lasswell", vision = "sword", maxHp = 760, maxMp = 267, mp = 235, atk = 105, mag = 70, spd = 13,
         skills = { "Escape", "Attack", "Haste", "Hastega", "Hone Senses", "Placidity", "Tranquility in Tumult",
-            "Thundara", "Fira", "Fire" } },
+            "Thundara", "Fira", "Fire", "Null Moon", "Transient Rite" }, lb = 24 },
     { name = "Fina", vision = "white", healer = true, maxHp = 680, maxMp = 281, mp = 271, atk = 55, mag = 95, spd = 10,
-        skills = { "Escape", "Attack", "Cure", "Raise", "Esuna", "Fire", "Siren", "Ramuh" } },
+        skills = { "Escape", "Attack", "Cure", "Raise", "Esuna", "Fire", "Siren", "Ramuh", "Holy Ray", "Radiant Restoration" }, lb = 11 },
 }
 local function tideBag()
     return {
@@ -256,7 +265,12 @@ local function replayBag()
     }
 end
 
-local LIMITS = { "Null Moon", "Infinity Drive", "Transient Rite", "Radiant Restoration" }
+-- Each character carries a level 1 Limit and, from level 25, a level 2 one.
+local LIMITS = {
+    { "Null Moon", "Transient Rite" }, { "Infinity Drive", "Crimson Onslaught" },
+    { "Holy Ray", "Radiant Restoration" }, { "Formation: Steeled Advance", "Mirroring Prism" },
+    { "Eternal Veil" }, { "Null Moon" }, { "Infinity Drive" },
+}
 local NAMES = { "Rain", "Fina", "Lasswell", "Nichol", "Aria", "Bram", "Cora", "Dax" }
 
 local function pick(t) return t[math.random(#t)] end
@@ -268,7 +282,9 @@ local function makeParty(size)
         local v = pick(VISIONS)
         local skills = { "Escape" }
         for _, s in ipairs(v.skills) do skills[#skills + 1] = s end
-        if math.random() < 0.5 then skills[#skills + 1] = pick(LIMITS) end
+        if math.random() < 0.5 then
+            for _, n in ipairs(pick(LIMITS)) do skills[#skills + 1] = n end
+        end
         if math.random() < 0.3 then skills[#skills + 1] = "Crystal Braver" end
         local name
         repeat name = pick(NAMES) until not used[name]
@@ -584,7 +600,7 @@ local function bump(t, k, field, n)
     t[k] = t[k] or { fights = 0, win = 0, base = 0, baseFights = 0 }
     t[k][field] = t[k][field] + (n or 1)
 end
-local stats = { lb1 = 0, lb2 = 0, lbHeld = 0, hiddenHits = 0, retries = 0, quickRefall = 0, partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
+local stats = { lb1 = 0, lb2 = 0, lbHeld = 0, lbSupport = 0, hiddenHits = 0, retries = 0, quickRefall = 0, partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
     gameCommands = 0, modCommands = 0, cures = 0 }
 local items = {}
 local fails = 0
@@ -731,7 +747,7 @@ out("Falls: %d in the sim, %d in the planner's battle summaries", stats.falls, s
 out("Haste turns %d, ally turns lost to Slow %d, party heals in 2-ally fights %d", stats.hasteTurns, stats.slowLost, stats.partyHeals)
 out("Retries after a wipe %d. Raised allies who fell again within a round %d of %d raises", stats.retries, stats.quickRefall, stats.raises)
 out("Hits into a hidden null: %d", stats.hiddenHits)
-out("Limit Bursts: %d one-gauge, %d two-gauge. Boss bonus turns with a full damage Limit that sent none: %d", stats.lb1, stats.lb2, stats.lbHeld)
+out("Limit Bursts: %d one-gauge, %d two-gauge, %d of them party support. Boss bonus turns with a full damage Limit that sent none: %d", stats.lb1, stats.lb2, stats.lbSupport, stats.lbHeld)
 local ml = {}
 for _, m in ipairs(MARKS) do ml[#ml + 1] = string.format("%s %d", m[1], marks[m[1]] or 0) end
 out("Planner lines: %s", table.concat(ml, ", "))

@@ -698,3 +698,42 @@ unchanged, 0 broken rules. Most of the held turns left are rules: an
 element the field nulls or absorbs, a countered kind, an Ether for a heal.
 Open: whether one Limit offers both levels in the game, and when to spend
 level 1 rather than wait for level 2. The design doc has no rule.
+
+On testing, v0.1.35 (Claude)
+Limit Bursts, from the public lists (Game8, games.gg, ffresonance.wiki,
+allthings.how, checked 2026-11-03) and the v0.1.34 test fights. The book
+had the right gauges and stagger, but every support Limit was a setup row,
+so Nichol's Formation: Steeled Advance lost the one setup claim to Null
+Moon in every fight and never went out. The design doc has a new
+"Limit Bursts" section.
+- Roles: lb-setup (Null Moon), lb-break (Steeled Advance, Mirroring
+  Prism), lb-guard (Eternal Veil), lb-cash, lb-revive. Fel Meteor is in
+  the book (dark, magic, all enemies, one gauge).
+- lb-break goes out when the largest open gauge has under 40% left, once
+  per break (the bonus phase opens the next), not on an add's gauge, and
+  not while its status shows on every living ally. Log: "break lb".
+- lb-guard goes up on a hard field, is held while its status shows, and
+  goes again once that status has gone. Log: "barrier lb".
+- Level 1 or 2: in a boss fight an ally who carries a level 2 damage Limit
+  that lands saves the gauges for it. Their one-gauge setup or damage row
+  waits until every living enemy is under a quarter HP. Support rows are
+  not held back.
+Sim: each character carries their level 1 and level 2 pair; invented
+effects for the support Limits; a break adds 25 points to every ally's
+gauge; the tide party has its real Limits. 1000 sessions seed 1, v0.1.34
+vs v0.1.35: wins 91% vs 91%, two-gauge casts 45 vs 74, support 163 vs
+212, 0 broken rules. Tide seed 2: 93% vs 92% at --hit 1.6, 38% vs 35% at
+--hit 2.0 (within the run's noise; the sim's Limit numbers are invented).
+The tide 2.0 failures are raise timing (plain Raise mostly), the same on
+both versions.
+
+On testing, v0.1.36 (Claude)
+From the v0.1.35 expert loss to Leviathan: Fina reached two gauges with
+Nichol and Lasswell down and never cast Radiant Restoration. The raise
+holds ("a living ally is critical", "fell again after a raise") stopped it,
+and she spent her last turns on Cure. Those holds are for a single raise
+that lands at low HP into the same hits. A party raise Limit brings every
+fallen ally back with their HP, so with two or more down it now skips both
+holds. A single raise keeps them. The normal fight on v0.1.35 was won with
+no falls; Lasswell and Rain held their level 1 Limits for level 2 as the
+new rule says, and Fina's Holy Ray went out on the break.

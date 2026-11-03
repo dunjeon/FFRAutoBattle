@@ -48,13 +48,13 @@ A broken rule is any of these, in any fight:
 - **easy mode**: with `--easy`, anything but the free basic Attack at an enemy.
 - **plan mode**: the first plan is `adds` when the gauges are equal, or `sync` when one is at or under 60% of the largest.
 
-The report also gives the win rate against the doc's baseline (attack with the strongest payable skill, on the same seed), by fight kind and by party size, how often each planner rule fired, how often a payable weakness was taken, and how often a Phoenix Down went out while a living ally could pay a raise spell. It counts one- and two-gauge Limit Bursts, and boss bonus turns where an ally with a full damage Limit sent something else. The game answers neither Limit gauge-size call, so the sim does not either, and the planner has to count gauges from the bar.
+The report also gives the win rate against the doc's baseline (attack with the strongest payable skill, on the same seed), by fight kind and by party size, how often each planner rule fired, how often a payable weakness was taken, and how often a Phoenix Down went out while a living ally could pay a raise spell. It counts one- and two-gauge Limit Bursts, the party support ones among them, and boss bonus turns where an ally with a full damage Limit sent something else. That last count includes a level 1 Limit saved on purpose for a level 2 one. The game answers neither Limit gauge-size call, so the sim does not either, and the planner has to count gauges from the bar.
 
 ## What it does not know
 
 Each enemy's real gauge is its book gauge times 0.9 to 1.25, since the game logs show Leviathan breaking under its book 1000 in one fight and holding past 1068 in another. The planner's stagger book has to find the real size.
 
-Kit buffs have invented effects so a setup turn is not counted as pure loss: Formation: Charge +20% damage, Formation: Assail +30% stagger, Hone Senses and Placidity +20% stagger on the caster, Formation: Bulwark a quarter less damage taken, and Stratagem's mark 30% more stagger on the marked enemy. The game's numbers are not known.
+Kit buffs have invented effects so a setup turn is not counted as pure loss: Formation: Charge +20% damage, Formation: Assail +30% stagger, Hone Senses and Placidity +20% stagger on the caster, Formation: Bulwark a quarter less damage taken, and Stratagem's mark 30% more stagger on the marked enemy. The game's numbers are not known. Limit Bursts come in each character's level 1 and level 2 pair. Formation: Steeled Advance adds 20 points to an ally's gauge on each of their actions for three turns, Mirroring Prism doubles each ally's next hit, and Eternal Veil cancels each ally's next hit taken. A break adds 25 points to every living ally's gauge, as the public guides say.
 
 
 The battle model is invented. Damage, HP, enemy attacks, status chances, and how long Cover and Provoke last are rough numbers chosen to make fights last about nine rounds. Win rates compare the planner with the baseline on the same fights. They are not a prediction of the game. Do not tune the planner's lines from them.

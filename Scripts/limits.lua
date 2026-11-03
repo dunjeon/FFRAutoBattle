@@ -3,9 +3,16 @@
 -- libraries.
 --
 -- The live row has cost and no element. This book names the element, how
--- many gauges the row spends, and whether the payoff is a setup, a hit, or
--- a raise. An ordinary skill that shares a name is not a Limit Burst. The
--- caller applies a row only when the live attribute is a Limit Burst.
+-- many gauges the row spends, and what the row is for. Checked against the
+-- public Limit Burst lists on 2026-11-03.
+--   lb-setup  goes out before the break: the target is easier to stagger.
+--   lb-break  goes out as a gauge nears its break: the party's next actions
+--             count for more (gauge fill, or every action twice).
+--   lb-guard  a party barrier, spent while a danger move or a boss is up.
+--   lb-cash   a damage row, spent on a hard fight's break.
+--   lb-revive raises the party.
+-- An ordinary skill that shares a name is not a Limit Burst. The caller
+-- applies a row only when the live attribute is a Limit Burst.
 -- Lightning is stored as thunder, the same word the enemy book uses.
 
 local BOOK = {
@@ -19,12 +26,13 @@ local BOOK = {
     ["enterprise airstrike"] = { use = "lb-cash", gauges = 2, stagger = 55, phys = true, area = true },
     ["t.r.n.d."] = { use = "lb-cash", gauges = 1, stagger = 27, element = "wind", phys = true },
     ["glücksschmied"] = { use = "lb-cash", gauges = 2, stagger = 30, phys = true },
-    ["formation: steeled advance"] = { use = "lb-setup", gauges = 1, party = true },
-    ["mirroring prism"] = { use = "lb-setup", gauges = 2, party = true },
-    ["eternal veil"] = { use = "lb-setup", gauges = 1, party = true },
+    ["formation: steeled advance"] = { use = "lb-break", gauges = 1, party = true },
+    ["mirroring prism"] = { use = "lb-break", gauges = 2, party = true },
+    ["eternal veil"] = { use = "lb-guard", gauges = 1, party = true },
     ["sakura's ultima"] = { use = "lb-cash", gauges = 2, stagger = 55, magic = true, area = true },
     ["chaotic convergence"] = { use = "lb-cash", gauges = 1, stagger = 25, element = "dark", magic = true },
     ["abyss graviton"] = { use = "lb-cash", gauges = 2, stagger = 40, element = "dark", magic = true },
+    ["fel meteor"] = { use = "lb-cash", gauges = 1, element = "dark", magic = true, area = true },
 }
 
 local function fold(name)
