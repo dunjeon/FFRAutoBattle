@@ -420,6 +420,12 @@ function Sim.install()
         if name == "CPP_UI_BattleSubsystem" then return SUBSYSTEM end
         if name == "CPP_MuchaEventDispatcher" then return DISP end
         if name == "CPP_BtlUnit" then return (B and B.active) and BTL_UNIT or nil end
+        -- Fresh list each call. The planner copies the ids at the menu.
+        if name == "CPP_VM_BtlTimeLine" then
+            local ids = {}
+            for i, id in ipairs((B and B.risk) or {}) do ids[i] = id end
+            return { IsValid = valid, RiskUnitUniqueIdList = Arr(ids) }
+        end
         return nil
     end
     Sim.tables = Sim.tables or {
@@ -452,6 +458,7 @@ function Sim.newBattle(opts)
         roundHeals = {}, roundEthers = 0, passActed = {}, pot = opts.pot or false, rules = opts.rules or {},
         noFlee = opts.noFlee or false,
         focusHealer = opts.focusHealer or false, easy = opts.easy or false, retry = opts.retry or false,
+        risk = {},
     }
     for i, m in ipairs(opts.party) do
         local id = i - 1
@@ -484,6 +491,9 @@ function Sim.newBattle(opts)
             brokenFor = 0, turns = 0, statusChance = f.statusChance or 0, statusList = f.statusList,
             -- hitKind: the damage it deals. hidden: a kind it nulls that the book does not list.
             hitKind = (f.card and f.card.hits) or f.hitKind or "physical", hidden = f.hidden,
+            -- warn: this body winds up, then its next slot is a heavy party hit
+            -- unless a break cancelled it. The risk list carries that warning.
+            warn = f.warn and true or false, warnStep = 0,
             -- respawn: rounds after it falls before it comes back, as a called add does.
             respawn = f.respawn, downFor = 0,
             -- called: an add the boss keeps on the field. It breaks and recovers
@@ -576,6 +586,43 @@ local function heal(u, amount)
 end
 
 -- Hits on an enemy: damage, stagger, break.
+-- A break before the warned slot cancels that action. The sweep refills the
+-- gauge before the slot, so the cancel is recorded here, while it is empty.
+local function disarmWarn(foe)
+    if not (foe and foe.warn and ((foe.warnStep or 0) == 1)) then return end
+    B.stats.warnCancel = (B.stats.warnCancel or 0) + 1
+    foe.warnStep = 0
+    foe.armAfter = false
+    local keep = {}
+    for _, id in ipairs(B.risk or {}) do
+        if id ~= foe.id then keep[#keep + 1] = id end
+    end
+    B.risk = keep
+    local current, nxt = {}, {}
+    for _, u in ipairs(living("ally")) do
+        if not u.summon then
+            current[#current + 1] = u.id
+            nxt[#nxt + 1] = u.id
+        end
+    end
+    for _, u in ipairs(living("enemy")) do
+        if u.id ~= foe.id then
+            current[#current + 1] = u.id
+            nxt[#nxt + 1] = u.id
+        end
+    end
+    local curArr, nextArr, extraArr = Arr(current), Arr(nxt), Arr({})
+    fireHooks("/Script/mucha.CPP_VM_BtlTimeLine:HandleUpdateTimeline", {
+        get = function()
+            return {
+                currentTimelines = curArr,
+                nextTimelines = nextArr,
+                additionalTurnTimelines = extraArr,
+            }
+        end,
+    })
+end
+
 local function strike(actor, row, foe, scale)
     if foe.dead then return end
     local spec = row.sim
@@ -638,6 +685,7 @@ local function strike(actor, row, foe, scale)
             B.bonusNext = true
             B.lastProgress = B.round
             event("%s broke", foe.name)
+            disarmWarn(foe)
         end
     end
     -- A counter card answers the kind of hit it is marked for.
@@ -1288,6 +1336,17 @@ local function enemyTurn(foe)
         end
     end
     if foe.statuses[ST.BREAK] then
+        -- A break before the warned slot cancels that action. The body is
+        -- already off the timeline. Chip damage and death do not do this.
+        if foe.warn and ((foe.warnStep or 0) == 1) then
+            B.stats.warnCancel = (B.stats.warnCancel or 0) + 1
+            foe.warnStep = 0
+            local keep = {}
+            for _, id in ipairs(B.risk or {}) do
+                if id ~= foe.id then keep[#keep + 1] = id end
+            end
+            B.risk = keep
+        end
         foe.brokenFor = foe.brokenFor - 1
         if foe.brokenFor <= 0 then
             foe.statuses[ST.BREAK] = nil
@@ -1314,7 +1373,39 @@ local function enemyTurn(foe)
     local c = foe.card
     local atk = foe.atk
     if foe.debuffed and foe.debuffed.attack then atk = atk * 0.75 end
-    if c and c.danger and c.danger[1] and (foe.turns % 3 == 0) then
+    -- Wind-up, then a heavy party hit on the next slot. The risk list stays
+    -- empty during the wind-up and is filled after it. It stays up through
+    -- the hit and clears on the following turn. A break skips the hit.
+    if foe.warn then
+        local step = foe.warnStep or 0
+        if step == 2 then
+            local keep = {}
+            for _, id in ipairs(B.risk or {}) do
+                if id ~= foe.id then keep[#keep + 1] = id end
+            end
+            B.risk = keep
+            foe.warnStep = 0
+        elseif (step == 0) and ((foe.turns % 3) == 0) then
+            event("%s wound up", foe.name)
+            foe.warnStep = 1
+            foe.armAfter = true
+            return
+        elseif step == 1 then
+            local name = (c and c.danger and c.danger[1]) or "a heavy attack"
+            event("%s used %s", foe.name, name)
+            for _, a in ipairs(allies) do
+                local dmg = atk * 3.2
+                if (foe.hitKind == "magic" and a.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and a.statuses[ST.PROTECT]) then
+                    dmg = dmg * 0.6
+                end
+                hurt(a, dmg, foe.name .. " " .. name)
+            end
+            B.stats.warnLand = (B.stats.warnLand or 0) + 1
+            foe.warnStep = 2
+            return
+        end
+    end
+    if c and c.danger and c.danger[1] and (foe.turns % 3 == 0) and (not foe.warn) then
         event("%s used %s", foe.name, c.danger[1])
         for _, a in ipairs(allies) do
             local dmg = atk * 1.8
@@ -1494,6 +1585,47 @@ end
 function Sim.play(maxRounds, policy)
     Sim.advance(800)
     maxRounds = maxRounds or 40
+    -- current is who is still to act, starting with the body about to move.
+    -- next is this round's living order. A warned body that is already
+    -- broken leaves current, and leaves the risk list with it.
+    local function publish(order, index)
+        B.risk = B.risk or {}
+        local current = {}
+        for i = index, #order do
+            local body = order[i]
+            if body and (not body.dead) and (not body.gone) then
+                local warned = false
+                for _, id in ipairs(B.risk) do
+                    if id == body.id then warned = true end
+                end
+                local broke = body.statuses[ST.BREAK]
+                    or (((body.gauge or 0) > 0) and ((body.poured or 0) >= body.gauge))
+                if warned and broke then
+                    local keep = {}
+                    for _, id in ipairs(B.risk) do
+                        if id ~= body.id then keep[#keep + 1] = id end
+                    end
+                    B.risk = keep
+                else
+                    current[#current + 1] = body.id
+                end
+            end
+        end
+        local nxt = {}
+        for _, body in ipairs(order) do
+            if (not body.dead) and (not body.gone) then nxt[#nxt + 1] = body.id end
+        end
+        local curArr, nextArr, extraArr = Arr(current), Arr(nxt), Arr({})
+        fireHooks("/Script/mucha.CPP_VM_BtlTimeLine:HandleUpdateTimeline", {
+            get = function()
+                return {
+                    currentTimelines = curArr,
+                    nextTimelines = nextArr,
+                    additionalTurnTimelines = extraArr,
+                }
+            end,
+        })
+    end
     for round = 1, maxRounds do
         B.round = round
         for _, u in pairs(B.units) do
@@ -1511,7 +1643,8 @@ function Sim.play(maxRounds, policy)
         end
         for _, u in ipairs(order) do u.init = (u.spd or 10) + math.random() * 6 end
         table.sort(order, function(a, b) return a.init > b.init end)
-        for _, u in ipairs(order) do
+        for index = 1, #order do
+            local u = order[index]
             local done = over()
             -- A boss fight offers one retry after a wipe: the same battle again at full.
             if done == "loss" and B.retry and not B.retried then
@@ -1531,6 +1664,10 @@ function Sim.play(maxRounds, policy)
                     end
                 end
                 B.provoke, B.multiCover = nil, nil
+                B.risk = {}
+                for _, body in pairs(B.units) do
+                    if body.warn then body.warnStep = 0 body.armAfter = false end
+                end
                 done = nil
             end
             if done then
@@ -1541,8 +1678,18 @@ function Sim.play(maxRounds, policy)
                 return done
             end
             if (not u.dead) and (not u.gone) then
+                publish(order, index)
                 if u.side == "enemy" then
                     enemyTurn(u)
+                    if u.armAfter then
+                        u.armAfter = false
+                        B.risk = B.risk or {}
+                        local have = false
+                        for _, id in ipairs(B.risk) do
+                            if id == u.id then have = true end
+                        end
+                        if not have then B.risk[#B.risk + 1] = u.id end
+                    end
                     -- An enemy action takes screen time, as the game's animations do.
                     Sim.advance(900)
                 elseif u.summon then

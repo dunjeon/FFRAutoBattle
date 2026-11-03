@@ -2318,6 +2318,257 @@ local function markDebuff(id, effect)
     end
 end
 
+local readRisk
+-- The warning list is a living foe whose next slot will hit the party.
+-- Slots before that body pour book stagger, weakness at x3 and nothing
+-- past that. The slot is spent on the body only when that sum clears the
+-- live gauge. Otherwise the slot guards, heals ahead, or defends.
+local function warnTurn(uid, skills, w, phase, pay, isHit, healNow)
+    if phase ~= 0 then return nil end
+    if not Fight then return nil end
+    if readRisk then readRisk() end
+    local function heldOut(a)
+        if (not a) or (a.id == uid) or (not Health.OUT) or (not a.statuses) then return false end
+        for sid in pairs(Health.OUT) do
+            if a.statuses[sid] then return true end
+        end
+        return false
+    end
+    local function idxOf(list, id)
+        for i, v in ipairs(list or {}) do
+            if v == id then return i end
+        end
+        return nil
+    end
+    local function partySlot(id)
+        if (not id) or (id < 0) then return false end
+        if Fight.isSummon and Fight.isSummon(id) then return false end
+        for _, a in ipairs(w.allies) do
+            if a.id == id then
+                if a.dead or (a.acts == false) or heldOut(a) then return false end
+                return true
+            end
+        end
+        return false
+    end
+    local function foeById(id)
+        for _, u in ipairs(w.enemies) do
+            if u.id == id then return u end
+        end
+        return nil
+    end
+    local order = Fight.order or {}
+    local cur = order.current or {}
+    local nxt = order.next or {}
+    local function slotsFor(foeId)
+        local slots = {}
+        local function add(id)
+            if partySlot(id) then slots[#slots + 1] = id end
+        end
+        local at = idxOf(cur, foeId)
+        if at then
+            for i = 1, at - 1 do add(cur[i]) end
+            if partySlot(uid) and (not idxOf(cur, uid)) then slots[#slots + 1] = uid end
+            return slots, true
+        end
+        local atNext = idxOf(nxt, foeId)
+        if not atNext then return nil, false end
+        for _, id in ipairs(cur) do add(id) end
+        if partySlot(uid) and (not idxOf(cur, uid)) then add(uid) end
+        for i = 1, atNext - 1 do add(nxt[i]) end
+        return slots, false
+    end
+    local best, bestSlots, bestN, bestCur = nil, nil, nil, false
+    for _, id in ipairs(Fight.risk or {}) do
+        local foe = foeById(id)
+        local rec = Fight.warn and Fight.warn[id]
+        -- reached: this warning's slot already arrived. The list stays up
+        -- through the hit and clears on the following turn.
+        if foe and keepFoe(id) and (not foe.broken) and (not broken(id)) and not (rec and rec.reached) then
+            local leftNow = stat(id, PARAM.BREAK, false)
+            if (type(leftNow) ~= "number") or (leftNow > 0.001) then
+                local slots, inCur = slotsFor(id)
+                if slots then
+                    local n = #slots
+                    local take = (not best) or (inCur and (not bestCur)) or ((inCur == bestCur) and (n < bestN))
+                    if take then
+                        best, bestSlots, bestN, bestCur = foe, slots, n, inCur
+                    end
+                end
+            end
+        end
+    end
+    if not best then return nil end
+    local left = stat(best.id, PARAM.BREAK, false)
+    local maxv = stat(best.id, PARAM.BREAK, true)
+    local function pourOf(allyId)
+        local spells = skills
+        if allyId ~= uid then
+            local kit = unitKit(allyId)
+            spells = (kit and kit.spells) or {}
+        end
+        local mp = (allyId == uid) and (w.mp or 0) or (stat(allyId, PARAM.MP, false) or 0)
+        local bestP = 0
+        for _, s in ipairs(spells) do
+            if isHit(s, false) and ((s.cost or 0) <= mp) and (s.attr ~= ATTR.SUMMON) then
+                local f = elementFactor(s, best)
+                if f < 0 then f = 0 end
+                if f > 3 then f = 3 end
+                local _, br = offenseOf(s)
+                local pour = (br or 0) * f
+                if pour > bestP then bestP = pour end
+            end
+        end
+        return bestP
+    end
+    local sum, before = 0, {}
+    for _, id in ipairs(bestSlots) do
+        before[id] = true
+        sum = sum + pourOf(id)
+    end
+    local function say(tail)
+        local ltxt = (type(left) == "number") and tostring(math.floor(left + 0.5)) or "?"
+        local mtxt = (type(maxv) == "number") and tostring(math.floor(maxv + 0.5)) or "?"
+        local line = string.format("warned: %s slot in %d, gauge %s/%s, %s", best.name, bestN, ltxt, mtxt, tail)
+        log("%s", line)
+        appendLog("  " .. line)
+    end
+    local canBreak = (type(left) == "number") and (left > 0.001) and ((sum + 0.001) >= left)
+    if canBreak then
+        local hit, hitWeak, hitBr = nil, false, -1
+        for _, s in ipairs(skills) do
+            if isHit(s, false) and pay(s) and (s.attr ~= ATTR.SUMMON) then
+                local f = elementFactor(s, best)
+                if f > 0 then
+                    local _, br = offenseOf(s)
+                    br = br or 0
+                    local weak = (f >= 3)
+                    if (not hit) or (weak and (not hitWeak)) or ((weak == hitWeak) and (br > hitBr)) then
+                        hit, hitWeak, hitBr = s, weak, br
+                    end
+                end
+            end
+        end
+        if hit then
+            local choice = finishChoice(uid, hit, "warn break " .. best.name, { best.id }, false)
+            if choice then
+                say("break in time")
+                return choice
+            end
+        end
+    end
+    local card = mobOf(best)
+    local want = card and card.hits or nil
+    local function kindOk(k)
+        if (not k) or (k == "any") then return true end
+        if want then return k == want end
+        local known = false
+        for _, u in ipairs(w.enemies) do
+            local c = mobOf(u)
+            if c and c.danger and c.danger[1] and c.hits then
+                known = true
+                if c.hits == k then return true end
+            end
+        end
+        if not known then return true end
+        return false
+    end
+    local function hasStatus(a, map)
+        if not next(map) then return false end
+        local set = a.statuses or {}
+        for sid in pairs(map) do
+            if set[sid] then return true end
+        end
+        return false
+    end
+    local function coveredMost(s)
+        local map = s.friendStatus or {}
+        if not next(map) then return false end
+        local living, on = 0, 0
+        for _, a in ipairs(w.allies) do
+            if (not a.dead) and not (Fight.isSummon and Fight.isSummon(a.id)) then
+                living = living + 1
+                if hasStatus(a, map) then on = on + 1 end
+            end
+        end
+        if living <= 0 then return true end
+        return (on * 2) > living
+    end
+    local guard = nil
+    for _, s in ipairs(skills) do
+        local info = s.known or knownOf(s)
+        local use = info and info.use or nil
+        local k = (info and info.guards) or "any"
+        if (use == "guardbuff") and pay(s) and kindOk(k) and (not coveredMost(s)) then
+            if (not guard) or (aoeOf(s) and (not aoeOf(guard))) then guard = s end
+        end
+    end
+    if guard then
+        local spread = aoeOf(guard) or partyOf(guard)
+        local ids = nil
+        if spread then
+            ids = {}
+            for _, a in ipairs(w.allies) do
+                if not a.dead then ids[#ids + 1] = a.id end
+            end
+        else
+            local map = guard.friendStatus or {}
+            local pick = nil
+            for _, a in ipairs(w.allies) do
+                if (a.id == uid) and (not a.dead) and (not hasStatus(a, map)) then pick = a end
+            end
+            if not pick then
+                for _, a in ipairs(w.allies) do
+                    if (not a.dead) and (not hasStatus(a, map)) then pick = a break end
+                end
+            end
+            if pick then ids = { pick.id } end
+        end
+        if ids and (#ids > 0) then
+            local choice = finishChoice(uid, guard, "warn guard " .. best.name, ids, spread)
+            if choice then
+                -- The once-a-fight setup guard reads this. The warning can
+                -- still send the guard again once it is off most of the party.
+                Fight.guardOn = Fight.guardOn or {}
+                local ginfo = guard.known or knownOf(guard)
+                local gk = (ginfo and ginfo.guards) or "any"
+                Fight.guardOn[gk] = { map = guard.friendStatus or {}, seen = false }
+                say("prepare: guard")
+                return choice
+            end
+        end
+    end
+    local hurt = nil
+    for _, a in ipairs(w.allies) do
+        if (not a.dead) and (not before[a.id]) and ((a.hp or 1) < 0.60) and (not Fight.claim.heal[a.id]) then
+            if (not hurt) or ((a.hp or 1) < (hurt.hp or 1)) then hurt = a end
+        end
+    end
+    if hurt and healNow then
+        local choice = healNow(hurt, "heal-ahead", 0.60)
+        if choice then
+            say("prepare: heal-ahead")
+            return choice
+        end
+    end
+    local selfA = nil
+    for _, a in ipairs(w.allies) do
+        if a.id == uid then selfA = a end
+    end
+    if selfA and (not selfA.dead) and ((selfA.hp or 1) < 0.35) and (not Fight.claim.heal[uid]) then
+        for _, s in ipairs(skills) do
+            if (s.kind == "defend") or (s.effect == EFF.DEFEND) then
+                local choice = finishChoice(uid, s, "warn defend " .. best.name, { uid }, false)
+                if choice then
+                    say("prepare: defend")
+                    return choice
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function turn(uid, skills, w, phase)
     -- One slot of the round. Care first, then the phase the whole field is in.
     -- Damage is scored against every living gauge, using what earlier slots already claimed.
@@ -3064,6 +3315,10 @@ local function turn(uid, skills, w, phase)
     end
     local cured = curePass(true)
     if cured then return cured end
+    -- A live warning outranks the add plan and the sync chip. Raises and a
+    -- critical heal have already had this slot.
+    local warnedChoice = warnTurn(uid, skills, w, phase, pay, isHit, healNow)
+    if warnedChoice then return warnedChoice end
 
     local recoverAt, smallDanger = 0.50, false
     if Health.recoverAt then
@@ -4735,6 +4990,7 @@ local function showBadge(msg)
     if Hud.badgeShow then Hud.badgeShow(msg) end
 end
 
+local flushWarn
 local function finishBattle()
     if not Fight.active then return end
     Fight.active = false
@@ -4752,6 +5008,7 @@ local function finishBattle()
             appendLog("  " .. who .. ": " .. table.concat(parts, ", "))
         end
     end
+    flushWarn()
     local line = string.format("Auto, %d commands. %s. %s.", turns, broke, fell)
     appendLog("-- " .. line)
     appendLog("")
@@ -4807,6 +5064,9 @@ local function ensureBattle()
     Fight.slowSince, Fight.slowTry, Fight.slowTold, Fight.slowUsed = {}, nil, {}, {}
     Fight.underLine = false
     Fight.downNow = {}
+    Fight.warn = {}
+    Fight.warnCancel = 0
+    Fight.warnLand = 0
     Fight.lbRead = {}
     Fight.lbRows = {}
     -- A low bar from the last fight is not a wipe in this one.
@@ -5007,6 +5267,7 @@ local function settleGauges()
     end
 end
 
+local settleWarn
 local function noteRound(uid)
     Fight.went = Fight.went or {}
     if uid and (uid >= 0) then Fight.went[uid] = true end
@@ -5178,6 +5439,15 @@ local function act(serial)
         Fight.debuffOn, Fight.debuffSeen = {}, {}
         Fight.kitOn, Fight.luckToss = {}, {}
         if Fight.claim then Fight.claim.kit = {} end
+        if Fight.warn then
+            local ids = {}
+            for id, rec in pairs(Fight.warn) do
+                if not rec.settled then ids[#ids + 1] = id end
+            end
+            for _, id in ipairs(ids) do settleWarn(id) end
+        end
+        Fight.warn = {}
+        Fight.risk = {}
         local line = "party restored. ledger cleared"
         log("%s", line)
         appendLog("  " .. line)
@@ -5644,6 +5914,133 @@ end
 -- Hooks
 --------------------------------------------------------------------------------
 
+-- Copy a UE id list inside the caller. The list itself is not kept.
+local function copyIdList(list)
+    local out = {}
+    if not list then return out end
+    if list.ForEach then
+        pcall(function()
+            list:ForEach(function(_, e)
+                local n = num(e)
+                if n then out[#out + 1] = n end
+            end)
+        end)
+        return out
+    end
+    if type(list) == "table" then
+        for _, e in ipairs(list) do
+            local n = num(e)
+            if n then out[#out + 1] = n end
+        end
+    end
+    return out
+end
+
+function settleWarn(id)
+    if not (Fight and Fight.warn) then return end
+    local rec = Fight.warn[id]
+    if (not rec) or rec.settled then return end
+    rec.settled = true
+    if rec.reached then
+        Fight.warnLand = (Fight.warnLand or 0) + 1
+    elseif rec.broke then
+        Fight.warnCancel = (Fight.warnCancel or 0) + 1
+    end
+end
+
+-- phase "broke" runs before the list is read, so a break is on the record
+-- when that id leaves the list. phase "reached" runs after, so a record
+-- opened on the arrival turn still counts as the slot. A later break does
+-- not turn that land into a cancel.
+local function noteWarnTimeline(current, phase)
+    if not (Fight and Fight.warn) then return end
+    if phase ~= "reached" then
+        for id, rec in pairs(Fight.warn) do
+            if (not rec.settled) and broken(id) then rec.broke = true end
+        end
+    end
+    if phase == "broke" then return end
+    local first = current and current[1]
+    if not first then return end
+    local rec = Fight.warn[first]
+    if rec and (not rec.settled) and (not rec.broke) and (not broken(first)) then
+        rec.reached = true
+    end
+end
+
+-- Game thread, while a party menu is open. The risk object is not kept.
+function readRisk()
+    if not Fight then return end
+    local ids = {}
+    local ok = pcall(function()
+        local tl = FindFirstOf("CPP_VM_BtlTimeLine")
+        if not (tl and tl.IsValid and tl:IsValid()) then return end
+        ids = copyIdList(tl.RiskUnitUniqueIdList)
+    end)
+    if not ok then return end
+    Fight.risk = ids
+    Fight.warn = Fight.warn or {}
+    local seen = {}
+    for _, id in ipairs(ids) do
+        seen[id] = true
+        if keepFoe(id) then
+            local rec = Fight.warn[id]
+            -- A settled record is the previous warning. This appearance is the next one.
+            if (not rec) or rec.settled then
+                rec = { broke = false, reached = false, settled = false }
+                Fight.warn[id] = rec
+            end
+            if broken(id) then rec.broke = true end
+        end
+    end
+    local gone = {}
+    for id, rec in pairs(Fight.warn) do
+        if (not rec.settled) and (not seen[id]) then gone[#gone + 1] = id end
+    end
+    for _, id in ipairs(gone) do settleWarn(id) end
+end
+
+function flushWarn()
+    if not Fight then return end
+    Fight.warn = Fight.warn or {}
+    local ids = {}
+    for id, rec in pairs(Fight.warn) do
+        if not rec.settled then ids[#ids + 1] = id end
+    end
+    for _, id in ipairs(ids) do
+        if broken(id) then
+            local rec = Fight.warn[id]
+            if rec then rec.broke = true end
+        end
+        settleWarn(id)
+    end
+    local line = string.format("warned: %d cancelled by a break, %d landed",
+        Fight.warnCancel or 0, Fight.warnLand or 0)
+    appendLog("  " .. line)
+    log("%s", line)
+end
+
+local function hookTimeline()
+    -- Copy the ids here. Holding this parameter and reading it later crashed
+    -- the game (HandleUpdateRisk, twice).
+    RegisterHook("/Script/mucha.CPP_VM_BtlTimeLine:HandleUpdateTimeline", function(_, delval)
+        pcall(function()
+            local row = delval:get()
+            local current = copyIdList(row and row.currentTimelines)
+            local nxt = copyIdList(row and row.nextTimelines)
+            local extra = copyIdList(row and row.additionalTurnTimelines)
+            row = nil
+            if not Fight then return end
+            Fight.order = { current = current, next = nxt, extra = extra }
+            -- A break has to be on the record before a vanished id is settled.
+            -- The arrival mark waits until the list read can open that record.
+            noteWarnTimeline(current, "broke")
+            if readRisk then readRisk() end
+            noteWarnTimeline(current, "reached")
+        end)
+    end)
+end
+
 local function hookDecide()
     RegisterHook("/Script/mucha.CPP_BtlDelEventCmd:OnExecuteDecideCommand", function(_, value)
         pcall(function()
@@ -5667,6 +6064,7 @@ local function hookMenu()
         local ok, name = pcall(function() return tag:get().TagName:ToString() end)
         if not ok then return end
         if name == "Delegate.Battle.Cmd.List.Begin" then
+            pcall(readRisk)
             local actor = currentActor()
             Menu.sub = (actor == Menu.actor) and (not Menu.decided)
             Menu.actor = actor
@@ -5953,12 +6351,13 @@ gameLoop(16, pollTriggers)
 local okHook, errHook = pcall(function()
     hookDecide()
     hookMenu()
+    hookTimeline()
 end)
 if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.37. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.38. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

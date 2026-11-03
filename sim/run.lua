@@ -353,6 +353,8 @@ local function makeFight(kind, size)
     elseif kind == "boss" then
         f.boss = true
         f.foes[1] = foe(pick(BOSS), scale, true)
+        -- One body winds up, then hits the party on its next slot unless broken.
+        f.foes[1].warn = true
         for _ = 1, math.random(0, 2) do f.foes[#f.foes + 1] = foe(pick(SOFT), scale) end
     elseif kind == "status" then
         local list = { ST.POISON, ST.BLIND, ST.SLEEP, ST.SILENCE, ST.PARALYSIS, ST.CONFUSE, ST.SLOW, ST.DOOM, ST.BERSERK }
@@ -601,7 +603,7 @@ local function bump(t, k, field, n)
     t[k][field] = t[k][field] + (n or 1)
 end
 local stats = { lb1 = 0, lb2 = 0, lbHeld = 0, lbSupport = 0, hiddenHits = 0, retries = 0, quickRefall = 0, partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
-    gameCommands = 0, modCommands = 0, cures = 0 }
+    gameCommands = 0, modCommands = 0, cures = 0, warnCancel = 0, warnLand = 0, warnCancelLogged = 0, warnLandLogged = 0 }
 local items = {}
 local fails = 0
 -- How often parts of the planner fire, from its own log lines.
@@ -619,6 +621,8 @@ local MARKS = {
     { "resonance sent", "resonance " }, { "pot fight", "pot fight" }, { "summon acts", "acts on its own" },
     { "raise left", "raise left to" }, { "null learned", "takes no damage from" }, { "refresh guard", "-> refresh guard" }, { "ether hit", "ether so a hit lands" }, { "raise waits", "waits, a living ally" }, { "raise cycle", "fell again after a raise" }, { "stalemate", "stalemate:" }, { "haste", "-> haste " }, { "haste for slow", ", slow" },
     { "slow debuff", "debuff slow" }, { "slow skipped", "slow cure skipped" }, { "cure slow", "-> cure slow" },
+    { "break in time", "break in time" }, { "prepare guard", "prepare: guard" },
+    { "prepare heal", "prepare: heal-ahead" }, { "prepare defend", "prepare: defend" },
 }
 local marks = {}
 local started = os.clock()
@@ -649,6 +653,11 @@ for sid = 1, sessions do
                         for _ in fellPart:gmatch(", ") do n = n + 1 end
                         stats.fallsLogged = stats.fallsLogged + n
                     end
+                end
+                local wc, wl = line:match("warned: (%d+) cancelled by a break, (%d+) landed")
+                if wc then
+                    stats.warnCancelLogged = stats.warnCancelLogged + tonumber(wc)
+                    stats.warnLandLogged = stats.warnLandLogged + tonumber(wl)
                 end
                 for _, m in ipairs(MARKS) do
                     if line:find(m[2], 1, true) then marks[m[1]] = (marks[m[1]] or 0) + 1 end
@@ -744,6 +753,8 @@ out("Weakness: a payable weakness hit was on the bar %d times, the planner took 
     stats.weakChance, stats.weakUsed, pct(stats.weakUsed, stats.weakChance))
 out("Phoenix Down while a living ally could pay a raise spell: %d", stats.pdWhileRaise)
 out("Falls: %d in the sim, %d in the planner's battle summaries", stats.falls, stats.fallsLogged)
+out("Warned attacks: %d cancelled by a break, %d landed (planner log %d / %d)",
+    stats.warnCancel, stats.warnLand, stats.warnCancelLogged, stats.warnLandLogged)
 out("Haste turns %d, ally turns lost to Slow %d, party heals in 2-ally fights %d", stats.hasteTurns, stats.slowLost, stats.partyHeals)
 out("Retries after a wipe %d. Raised allies who fell again within a round %d of %d raises", stats.retries, stats.quickRefall, stats.raises)
 out("Hits into a hidden null: %d", stats.hiddenHits)
