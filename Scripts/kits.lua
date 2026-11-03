@@ -9,7 +9,7 @@
 -- when the book lists none, and only once. A luck toss is spent only while
 -- a gated hit is sealed and no other hit is ready.
 -- Haste, Faith, Bravery, Provoke, Cover, and the other generic buffs are
--- not in this book. A stance that blocks white-magic healing is not either.
+-- not in this book. A stance that blocks white-magic healing is in STANCE.
 
 local BOOK = {
     ["formation:assail"] = { kind = "formation", rank = 1, turns = 3, party = true },
@@ -38,6 +38,16 @@ local DRAW = {
     ["cover"] = { kind = "cover" },
     ["multicover"] = { kind = "cover", party = true },
 }
+
+-- Stances that stay up until their off skill goes out. Each one lifts the
+-- caster and blocks white-magic healing on the caster. It goes up on a hard
+-- field while the caster is healthy, and comes off when the caster is under
+-- the recover line and a spell heal could reach them once it is off.
+local STANCE = {
+    ["witchinghour"] = { off = "endwitchinghour" },
+}
+local STANCE_OFF = {}
+for on, row in pairs(STANCE) do STANCE_OFF[row.off] = on end
 
 -- Haste. It is the answer to Slow, and it speeds the ally a long fight
 -- leans on. Hastega is the party row.
@@ -87,6 +97,64 @@ local M = {}
 
 function M.lookup(name)
     return BOOK[fold(name)]
+end
+
+-- "on" or "off" and the stance key, or nil when the name is no stance skill.
+function M.stance(name)
+    local k = fold(name)
+    if STANCE[k] then return "on", k end
+    if STANCE_OFF[k] then return "off", STANCE_OFF[k] end
+    return nil
+end
+
+-- True when the kit carries Provoke, Cover, or Multi-Cover.
+function M.guards(kit)
+    for _, s in ipairs((kit and kit.spells) or {}) do
+        if DRAW[fold(s.name)] then return true end
+    end
+    return false
+end
+
+-- Put a stance up, take it down, or nil.
+-- ctx: allies, selfId, on (the stance is up on the actor), hard, recoverAt,
+-- spellHeal (a living ally can pay a white-magic heal), round, endedRound,
+-- mp, keep, pay.
+-- Up: a hard field, the actor at 75% or more, and two rounds since it came
+-- off. Down: the actor under the recover line and a spell heal is there to
+-- use once it is off. With no spell heal, items still reach the actor, so
+-- the stance stays up.
+function M.pickStance(skills, ctx)
+    if (not skills) or (not ctx) then return nil end
+    local selfBody = nil
+    for _, a in ipairs(ctx.allies or {}) do
+        if (a.id == ctx.selfId) and (not a.dead) then selfBody = a end
+    end
+    if not selfBody then return nil end
+    local hp = selfBody.hp or 1
+    for _, s in ipairs(skills) do
+        local k = fold(s.name)
+        local row = STANCE[k]
+        local offRow = STANCE_OFF[k] and STANCE[STANCE_OFF[k]]
+        local on = ctx.on and ctx.on[STANCE_OFF[k] or k]
+        if offRow and on then
+            if (hp < (ctx.recoverAt or 0.50)) and ctx.spellHeal and ((s.cost or 0) <= (ctx.mp or 0)) then
+                return {
+                    skill = s, key = STANCE_OFF[k], off = true, mode = "self",
+                    why = string.format("stance off %s at %d%%", s.name or "stance", math.floor(hp * 100 + 0.5)),
+                }
+            end
+        elseif row and (not on) and ctx.hard and (hp >= 0.75) then
+            local cost = s.cost or 0
+            local mp = ctx.mp or 0
+            local ended = ctx.endedRound and ctx.endedRound[k]
+            local rested = (type(ended) ~= "number") or (((ctx.round or 0) - ended) >= 2)
+            local fits = (cost <= mp) and ((mp - cost) >= (ctx.keep or 0)) and ((cost <= 0) or ctx.pay)
+            if rested and fits then
+                return { skill = s, key = k, mode = "self", why = "stance " .. (s.name or "stance") }
+            end
+        end
+    end
+    return nil
 end
 
 function M.key(name)

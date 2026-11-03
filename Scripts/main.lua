@@ -161,6 +161,15 @@ do
         log("kits unavailable: %s", tostring(loaded))
     end
 end
+local Items = {}
+do
+    local ok, loaded = pcall(dofile, DIR .. "/Scripts/items.lua")
+    if ok and type(loaded) == "table" then
+        Items = loaded
+    else
+        log("items unavailable: %s", tostring(loaded))
+    end
+end
 local function foldName(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
@@ -1303,6 +1312,33 @@ local function lowestAlly(w, pred)
     return best
 end
 
+-- Raise order: the healer, then on a threatened field the ally who pulls
+-- hits off the others, then the top damage dealer.
+local function raiseOrder()
+    return {
+        threat = Fight and Fight.threat or false,
+        guards = Kits.guards,
+        maxHpOf = function(id) return stat(id, PARAM.HP, true) end,
+    }
+end
+
+-- A stance goes up or comes off when its cast goes out.
+local function noteStance(uid, name)
+    if (not Kits.stance) or (not uid) or (uid < 0) or (not name) then return end
+    local turn, key = Kits.stance(name)
+    if not turn then return end
+    Fight.stance = Fight.stance or {}
+    Fight.stance[uid] = Fight.stance[uid] or {}
+    Fight.stanceEnded = Fight.stanceEnded or {}
+    Fight.stanceEnded[uid] = Fight.stanceEnded[uid] or {}
+    if turn == "on" then
+        Fight.stance[uid][key] = Fight.rounds or 0
+    else
+        Fight.stance[uid][key] = nil
+        Fight.stanceEnded[uid][key] = Fight.rounds or 0
+    end
+end
+
 local function firstDead(w, pred)
     for _, u in ipairs(w.allies) do
         if u.dead and (not pred or pred(u)) then return u end
@@ -1332,17 +1368,12 @@ local itemsLogged = false
 local potLogged = false
 
 local function potFight(w)
-    for _, u in ipairs(w.enemies) do
-        local n = (u.name or ""):lower()
-        if n == "pot" or n:find(" pot", 1, true) then
-            if not potLogged then
-                potLogged = true
-                log("pot fight: leaving items for you")
-            end
-            return true
-        end
+    if not (Items.potFight and Items.potFight(w.enemies)) then return false end
+    if not potLogged then
+        potLogged = true
+        log("pot fight: leaving items for you")
     end
-    return false
+    return true
 end
 
 local function saysYes(obj, method, id)
@@ -1401,6 +1432,7 @@ local function ownedRecovery()
     local out = {}
     local catalog = 0
     for _ in pairs(ids) do catalog = catalog + 1 end
+    if not Items.entry then return out end
     for id in pairs(ids) do
         local count = nil
         if lib and lib:IsValid() then
@@ -1419,80 +1451,31 @@ local function ownedRecovery()
                 if ok and type(n) == "string" and n ~= "" then name = n end
             end
             if not name or name == "" then name = row and row.name or ("item " .. id) end
-            local lowered = name:lower()
-            local listed = Known.items and Known.items[lowered]
-            local rareRow = Known.leave and Known.leave[lowered]
-            if (not rareRow) and lowered:find("elixir", 1, true) then rareRow = { use = "both", rank = 7 } end
-            local out_ = rareRow and rareRow.use == "out"
-            local rare = (row and row.rare) or (rareRow ~= nil)
-            local throw = Known.attack and Known.attack[lowered]
-            if (not throw) and lowered:find("scroll", 1, true) then
-                local words = { flame = "fire", fire = "fire", ice = "ice", blizzard = "ice", wind = "wind",
-                    earth = "earth", lightning = "lightning", thunder = "lightning", water = "water" }
-                for word, el in pairs(words) do
-                    if lowered:find(word, 1, true) then throw = { element = el, magic = true, rank = 3 } end
+            -- What the game's own rows say. The book in items.lua does the rest.
+            local f = { rare = row and row.rare or nil }
+            local s = row and row.skillId and skillOf(row.skillId) or nil
+            if s then
+                if Health.FIXED and (s.calc == Health.FIXED) and ((s.power or 0) > 0) then f.amount = s.power end
+                if s.effect == EFF.REVIVE or (s.rel == REL.FRIEND and s.targetState == 2) then f.revive = true end
+                if s.effect == EFF.CURE then f.cure = true end
+                if s.rel == REL.FRIEND and s.effect == EFF.DAMAGE and s.paramType == PARAM.HP
+                    and (s.varType == VAR.UP or s.varType == VAR.RATIO) then
+                    f.rowHp = true
+                end
+                if s.rel == REL.FRIEND and s.paramType == PARAM.MP
+                    and (s.varType == VAR.UP or s.varType == VAR.RATIO) then
+                    f.rowMp = true
                 end
             end
-            if (not throw) and (lowered:find("knife", 1, true) or lowered:find("shuriken", 1, true)) then
-                throw = { phys = true, rank = 4 }
-            end
-            if throw then
-                out[#out + 1] = { id = id, name = name, count = count, attack = throw, rank = throw.rank or 5 }
-            elseif not out_ then
-                local hp, mp, kind, amount = false, false, nil, nil
-                if listed == "hp" then hp, kind = true, "heal" end
-                if listed == "mp" then mp = true end
-                if listed == "revive" then kind = "revive" end
-                if listed == "cure" then kind = "cure" end
-                local use = rareRow and rareRow.use
-                if use == "hp" or use == "both" then hp, kind = true, "heal" end
-                if use == "mp" or use == "both" then mp = true end
-                if use == "revive" then kind = "revive" end
-                if row and row.skillId then
-                    local s = skillOf(row.skillId)
-                    if s then
-                        if Health.FIXED and (s.calc == Health.FIXED) and ((s.power or 0) > 0) then
-                            amount = s.power
-                        end
-                        if s.effect == EFF.REVIVE or (s.rel == REL.FRIEND and s.targetState == 2) then kind = "revive" end
-                        if s.effect == EFF.CURE then kind = "cure" end
-                        if s.rel == REL.FRIEND and s.effect == EFF.DAMAGE and s.paramType == PARAM.HP
-                            and (s.varType == VAR.UP or s.varType == VAR.RATIO) then
-                            hp = true
-                            kind = "heal"
-                        end
-                        if s.rel == REL.FRIEND and s.paramType == PARAM.MP
-                            and (s.varType == VAR.UP or s.varType == VAR.RATIO) then
-                            mp = true
-                        end
-                    end
-                end
-                if saysYes(bfl, "IsAbleRecoverHitPoint", id) or saysYes(lib, "IsAbleRecoverHitPoint", id) then hp = true end
-                if saysYes(bfl, "IsAbleRecoverMagicPoint", id) or saysYes(lib, "IsAbleRecoverMagicPoint", id) then mp = true end
-                if hp or mp or kind == "revive" or kind == "cure" then
-                    out[#out + 1] = {
-                        id = id, name = name, hp = hp, mp = mp, kind = kind,
-                        count = count, amount = amount,
-                        rare = rare and true or nil, rank = (rareRow and rareRow.rank) or 8,
-                    }
-                end
-            end
+            f.saysHp = saysYes(bfl, "IsAbleRecoverHitPoint", id) or saysYes(lib, "IsAbleRecoverHitPoint", id)
+            f.saysMp = saysYes(bfl, "IsAbleRecoverMagicPoint", id) or saysYes(lib, "IsAbleRecoverMagicPoint", id)
+            local entry = Items.entry(id, name, count, f)
+            if entry then out[#out + 1] = entry end
         end
     end
     if not itemsLogged then
         itemsLogged = true
-        if #out == 0 then
-            log("bag: no potion, ether, or phoenix down (%d item ids answered)", catalog)
-        else
-            local bits = {}
-            for _, it in ipairs(out) do
-                local tag = it.kind or (it.mp and "mp") or (it.hp and "hp")
-                    or (it.attack and (it.attack.element or "physical")) or "item"
-                if it.rare then tag = tag .. " rare" end
-                bits[#bits + 1] = string.format("%s x%s %s", it.name, tostring(it.count), tag)
-            end
-            log("bag: %s", table.concat(bits, ", "))
-        end
+        log("%s", Items.bagLine(out, catalog))
     end
     return out
 end
@@ -1506,43 +1489,19 @@ end
 
 local function pickRecoveryItem(uid, w, want, focus)
     if potFight(w) then return nil end
-    -- Common items first. In a boss fight a rare one is spent when no common
-    -- item covers the need, the cheapest rank first: a raise at once, a heal
-    -- or MP only under dire need (Health.direNeed).
-    local items, rares, throws = {}, {}, {}
-    for _, it in ipairs(ownedRecovery()) do
-        if it.attack then
-            if w.boss then throws[#throws + 1] = it end
-        elseif it.rare then
-            if w.boss then rares[#rares + 1] = it end
-        else
-            items[#items + 1] = it
-        end
-    end
-    table.sort(rares, function(a, b) return (a.rank or 8) < (b.rank or 8) end)
-    local function first(pred)
-        for _, it in ipairs(items) do
-            if pred(it) then return it end
-        end
-        return nil
-    end
-    local function rare(pred)
-        for _, it in ipairs(rares) do
-            if pred(it) then return it end
-        end
-        return nil
-    end
-    local function tagged(choice, it)
-        if choice and it.rare then choice.reason = choice.reason .. " (rare, boss)" end
+    if not Items.recovery then return nil end
+    local owned = ownedRecovery()
+    local dire = (Health.direNeed and Health.direNeed(w)) and true or false
+    local function tagged(choice, rare)
+        if choice and rare then choice.reason = choice.reason .. " (rare, boss)" end
         return choice
     end
     if want == "revive" then
-        local dead = (Health.fallen and Health.fallen(w.allies, unitKit, offenseOf))
+        local dead = (Health.fallen and Health.fallen(w.allies, unitKit, offenseOf, raiseOrder()))
             or firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
         if not dead then return nil end
-        local it = first(function(it) return it.kind == "revive" end)
-            or rare(function(it) return it.kind == "revive" end)
-        if it then return tagged(itemChoice(uid, it, "item raise " .. dead.name, dead.id, "revive"), it) end
+        local it, rare = Items.recovery(owned, "revive", { boss = w.boss })
+        if it then return tagged(itemChoice(uid, it, "item raise " .. dead.name, dead.id, "revive"), rare) end
         return nil
     end
     if want == "heal" then
@@ -1552,33 +1511,19 @@ local function pickRecoveryItem(uid, w, want, focus)
         local maxv = stat(hurt.id, PARAM.HP, true)
         local ratio = hurt.hp or 1
         if maxv and (maxv > 0) and (ratio < 1) then missing = (1 - ratio) * maxv end
-        local it = (Health.choosePotion and Health.choosePotion(items, missing))
-            or first(function(row) return row.hp or row.kind == "heal" end)
-        local short = (not it) or (missing and it.amount and (it.amount < missing))
-        if short and Health.direNeed and Health.direNeed(w) then
-            local big = rare(function(row) return row.hp or row.kind == "heal" end)
-            if big then it = big end
-        end
+        local it, rare = Items.recovery(owned, "heal", { boss = w.boss, missing = missing, dire = dire })
         if not it then return nil end
         local pct = math.floor((hurt.hp or 0) * 100 + 0.5)
-        return tagged(itemChoice(uid, it, string.format("item heal %s at %d%%", hurt.name, pct), hurt.id, "hp"), it)
+        return tagged(itemChoice(uid, it, string.format("item heal %s at %d%%", hurt.name, pct), hurt.id, "hp"), rare)
     end
     if want == "cure" then
         local who = focus or lockedAlly(w)
         if not who then return nil end
         local soft = focus and focus.soft
-        local saw = false
-        local it = first(function(row)
-            if row.kind ~= "cure" then return false end
-            saw = true
-            if Health.holdRemedy and Health.holdRemedy(row.name, row.count, who, w.allies, unitKit) then
-                return false
-            end
-            if Health.itemClears then
-                return Health.itemClears(row.name, who.statuses, soft)
-            end
-            return true
-        end)
+        local it, saw = Items.cure(owned, who, {
+            soft = soft, allies = w.allies,
+            healerOf = function(allies) return Health.mainHealer and Health.mainHealer(allies, unitKit) or nil end,
+        })
         if it then
             local why = "item cure " .. who.name
             if focus and focus.tier == "rescue" then why = "item rescue " .. who.name end
@@ -1595,16 +1540,10 @@ local function pickRecoveryItem(uid, w, want, focus)
     -- Boss fight attack item. focus is the pool. A scroll goes on a weakness
     -- the bar cannot pay; with focus.landing, any item that lands will do.
     if want == "attack" then
-        table.sort(throws, function(a, b) return (a.rank or 5) < (b.rank or 5) end)
-        local best, bestF, bestU = nil, 0, nil
-        for _, it in ipairs(throws) do
-            local fake = { name = it.name, known = it.attack, attr = ATTR.ITEM }
-            for _, u in ipairs(focus.list or {}) do
-                local f = elementFactor(fake, u)
-                local want_ = focus.landing and (f > 0) or (f >= 3)
-                if want_ and (f > bestF) then best, bestF, bestU = it, f, u end
-            end
-        end
+        local best, bestU, bestF = Items.throw(owned, {
+            boss = w.boss, list = focus and focus.list, landing = focus and focus.landing,
+            factorOf = elementFactor, itemAttr = ATTR.ITEM,
+        })
         if not best then return nil end
         local fake = { id = best.id, name = best.name, kind = "item", attr = ATTR.ITEM, target = TGT.SINGLE, cost = 0 }
         local why = (bestF >= 3) and ("throw " .. best.name .. " on " .. bestU.name .. " weakness")
@@ -1614,12 +1553,8 @@ local function pickRecoveryItem(uid, w, want, focus)
         return choice
     end
     if want == "mp" then
-        local it = first(function(it) return it.mp and it.kind ~= "revive" end)
-        if (not it) and Health.direNeed and Health.direNeed(w) then
-            it = rare(function(it) return it.mp and it.kind ~= "revive" and not it.hp end)
-                or rare(function(it) return it.mp and it.kind ~= "revive" end)
-        end
-        if it then return tagged(itemChoice(uid, it, "ether " .. unitName(uid), uid, "mp"), it) end
+        local it, rare = Items.recovery(owned, "mp", { boss = w.boss, dire = dire })
+        if it then return tagged(itemChoice(uid, it, "ether " .. unitName(uid), uid, "mp"), rare) end
     end
     return nil
 end
@@ -2434,6 +2369,7 @@ local function turn(uid, skills, w, phase)
         return "balanced"
     end
     local style = styleOf()
+    Fight.threat = hardField
 
     local function modeOf(list)
         if #list <= 1 then return "sync", list, nil end
@@ -2485,11 +2421,13 @@ local function turn(uid, skills, w, phase)
         end
     end
     Fight.downNow = {}
+    Fight.stance = Fight.stance or {}
     for _, a in ipairs(w.allies) do
+        if a.dead then Fight.stance[a.id] = nil end
         if not a.dead then Fight.claim.revive[a.id] = nil
         elseif a.acts ~= false then Fight.downNow[#Fight.downNow + 1] = a end
     end
-    local dead = (Health.fallen and Health.fallen(w.allies, unitKit, offenseOf))
+    local dead = (Health.fallen and Health.fallen(w.allies, unitKit, offenseOf, raiseOrder()))
         or firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
     if dead and Fight.claim.revive[dead.id] then
         local at = Fight.claim.revive[dead.id]
@@ -2663,6 +2601,9 @@ local function turn(uid, skills, w, phase)
             end
         end
         local skill, rank = nil, -1
+        -- A stance on the hurt ally blocks white-magic heals. Items still land.
+        local barred = false
+        for _ in pairs((Fight.stance and Fight.stance[hurt.id]) or {}) do barred = true end
         -- A party heal is the pick when most of the living party is under
         -- half. The same share at any party size.
         local hurtN, living = 0, 0
@@ -2676,7 +2617,8 @@ local function turn(uid, skills, w, phase)
         local ratio = hurt.hp or 1
         if maxv and (maxv > 0) and (ratio < 1) then missing = (1 - ratio) * maxv end
         for _, s in ipairs(skills) do
-            if (s.kind == "heal") and pay(s) and (not isPatch(s)) then
+            if (s.kind == "heal") and pay(s) and (not isPatch(s))
+                and not (barred and (s.attr == ATTR.MAGIC)) then
                 local party = partyOf(s)
                 local r
                 if Health.spellRank then
@@ -2723,7 +2665,8 @@ local function turn(uid, skills, w, phase)
         end
         if not skill then
             for _, s in ipairs(skills) do
-                if (s.kind == "heal") and pay(s) and isPatch(s) then
+                if (s.kind == "heal") and pay(s) and isPatch(s)
+                    and not (barred and (s.attr == ATTR.MAGIC)) then
                     if not (w.usedSupport[s.id] and ((hurt.hp or 1) >= 0.22)) then
                         w.usedSupport[s.id] = true
                         skill = s
@@ -3043,7 +2986,10 @@ local function turn(uid, skills, w, phase)
                 Fight.underLine = true
                 if (a.acts ~= false) and (not Fight.claim.heal[a.id]) then
                     n = n + 1
-                    if not who or (a.hp or 1) < (who.hp or 1) then who = a end
+                    local bar = next((Fight.stance and Fight.stance[a.id]) or {}) ~= nil
+                    local whoBar = who and (next((Fight.stance and Fight.stance[who.id]) or {}) ~= nil)
+                    if (not who) or (whoBar and not bar)
+                        or ((whoBar == bar) and ((a.hp or 1) < (who.hp or 1))) then who = a end
                 end
             end
         end
@@ -3061,6 +3007,35 @@ local function turn(uid, skills, w, phase)
     end
     local softer = curePass(false)
     if softer then return softer end
+
+    -- A stance that lifts the actor and blocks white-magic heals on them.
+    -- It comes off before the draws when the actor is under the recover line.
+    if (phase == 0) and Kits.pickStance then
+        local spellHeal = false
+        for _, a in ipairs(w.allies) do
+            if (not a.dead) and (a.acts ~= false) and (not heldOut(a)) then
+                local kit = unitKit(a.id)
+                local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
+                for _, s in ipairs((kit and kit.spells) or {}) do
+                    if (s.kind == "heal") and (s.attr == ATTR.MAGIC) and ((s.cost or 0) <= mp) then spellHeal = true end
+                end
+            end
+        end
+        local own = unitKit(uid)
+        Fight.stanceEnded = Fight.stanceEnded or {}
+        local picked = Kits.pickStance(skills, {
+            allies = w.allies, selfId = uid, on = (Fight.stance or {})[uid],
+            hard = hardField and (not allyCritical()) and (not dead),
+            recoverAt = recoverAt, spellHeal = spellHeal,
+            round = Fight.rounds or 0, endedRound = Fight.stanceEnded[uid],
+            mp = w.mp or 0, pay = (band() ~= "low"),
+            keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
+        })
+        if picked then
+            local choice = finishChoice(uid, picked.skill, picked.why, { uid }, false)
+            if choice then return choice end
+        end
+    end
 
     -- Provoke, Cover, Multi-Cover: after the care steps, before setup and
     -- the chip. Someone critical or a fall still down comes first.
@@ -3823,8 +3798,18 @@ local function turn(uid, skills, w, phase)
     -- A stalemate is five rounds of the party's hits on enemies in which
     -- no enemy loses HP and no bonus phase comes. Turns spent on setup, heals, or items
     -- do not count. Then the party escapes, when the game allows it. A Pot
-    -- fight is the player's.
+    -- fight is the player's. A boss fight cannot be fled. An escape that went
+    -- out, by the planner or the player, with the fight still going, was
+    -- refused. After two refused escapes this fight is not fled again.
     if phase == 0 then
+        local tries = Fight.escapeSent or 0
+        if tries > (Fight.escapeTold or 0) then
+            Fight.escapeTold = tries
+            if tries >= 2 then Fight.noEscape = true end
+            local line = string.format("escape refused (%d of 2), the fight goes on", tries)
+            log("%s", line)
+            appendLog("  " .. line)
+        end
         Fight.foeLow = Fight.foeLow or {}
         local moved, alive = false, {}
         for _, u in ipairs(w.enemies) do
@@ -3852,7 +3837,15 @@ local function turn(uid, skills, w, phase)
         local party = 0
         for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
         if party < 1 then party = 1 end
-        if ((Fight.hitsSince or 0) >= (party * 5)) and (#w.enemies > 0) and (not potFight(w)) then
+        local fleeable = (not w.boss) and (not Fight.noEscape)
+        if ((Fight.hitsSince or 0) >= (party * 5)) and (#w.enemies > 0) and (not fleeable)
+            and (not Fight.stalemateTold) and (not potFight(w)) then
+            Fight.stalemateTold = true
+            local line = "stalemate: five rounds of hits and no enemy has lost HP, no escape from this fight"
+            log("%s", line)
+            appendLog("  " .. line)
+        end
+        if fleeable and ((Fight.hitsSince or 0) >= (party * 5)) and (#w.enemies > 0) and (not potFight(w)) then
             for _, id in ipairs(equippedIds(uid)) do
                 local row = skillOf(id)
                 if row and (row.attr == ATTR.ESCAPE) and (activation(uid, id) ~= false) and commandEnabled(uid, id) then
@@ -4965,6 +4958,8 @@ local function act(serial)
         return
     end
     if not sent then return end
+    noteStance(uid, choice.name)
+    if choice.attr == ATTR.ESCAPE then Fight.escapeSent = (Fight.escapeSent or 0) + 1 end
     if choice.kitKey then
         Fight.kitOn = Fight.kitOn or {}
         Fight.kitOn[choice.kitKey] = #(Fight.actions or {})
@@ -5123,7 +5118,7 @@ local function noteHand(v)
         if okKind then kind = got end
     end
     if isItem then
-        local listed = Known.items and Known.items[name:lower()]
+        local listed = Items.listed and Items.listed(name)
         if listed == "hp" then kind = "heal" end
         if listed == "mp" then kind = "ether" end
         if listed == "revive" then kind = "revive" end
@@ -5190,6 +5185,8 @@ local function noteHand(v)
     end
     if (use == "opener") and uid and (uid >= 0) then Fight.claim.hone[uid] = true end
     if use == "lb-setup" then Fight.claim.lb = true end
+    noteStance(uid, name)
+    if skill and (skill.attr == ATTR.ESCAPE) then Fight.escapeSent = (Fight.escapeSent or 0) + 1 end
     if Kits.key and Kits.key(name) then
         Fight.kitOn = Fight.kitOn or {}
         Fight.kitOn[Kits.key(name)] = #(Fight.actions or {})
@@ -5590,7 +5587,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.28. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.29. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

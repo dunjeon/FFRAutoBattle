@@ -130,6 +130,11 @@ support("Tactic: Fluid Warfare", 30, TGT.SELF, 84)
 support("Provoke", 10, TGT.SELF, 0, { provoke = true })
 Sim.addSkill({ name = "Cover", attr = ATTR.ABILITY, effect = EFF.COVER, cost = 5, target = TGT.SINGLE, rel = REL.FRIEND })
 Sim.addSkill({ name = "Multi-Cover", attr = ATTR.ABILITY, effect = EFF.COVER, cost = 10, target = TGT.ALL, rel = REL.FRIEND })
+-- A stance: up until its off skill goes out. It lifts the caster's hits and
+-- blocks white-magic heals on the caster. The sim marks it status 97.
+support("Witching Hour", 8, TGT.SELF, 97, { attr = ATTR.ABILITY, turns = 999, stance = true })
+Sim.addSkill({ name = "End Witching Hour", attr = ATTR.ABILITY, effect = EFF.PARAM, cost = 0,
+    target = TGT.SELF, rel = REL.FRIEND, endStance = 97 })
 Sim.addSkill({ name = "Stratagem", attr = ATTR.ABILITY, effect = EFF.PARAM, cost = 8, rel = REL.ENEMY, status = 90 })
 debuff("Deprotect", 8, 61, "protect")
 debuff("Deshell", 8, 62, "shell")
@@ -199,6 +204,8 @@ local VISIONS = {
         skills = { "Attack", "Cure", "Fire", "Blizzard", "Thunder", "Stone", "Deprotect", "Deshell", "Debrave", "Silence", "Blind", "Esuna", "Haste", "Slow" } },
     { key = "summoner", hp = { 580, 700 }, mp = { 220, 280 }, atk = 50, mag = 100,
         skills = { "Attack", "Siren", "Ramuh", "Shiva", "Cure", "Aero", "Stone", "Stonera" } },
+    { key = "witch", hp = { 600, 740 }, mp = { 200, 260 }, atk = 60, mag = 105,
+        skills = { "Attack", "Fire", "Fira", "Thunder", "Aero", "Witching Hour", "End Witching Hour", "Cure" } },
     { key = "brawler", hp = { 900, 1000 }, mp = { 30, 50 }, atk = 115, mag = 30,
         skills = { "Attack", "Tackle", "Bladeblitz" } },
 }
@@ -280,7 +287,7 @@ local function foe(e, scale, boss, statusChance, statusList)
     }
 end
 
-local KINDS = { "trash", "mixed", "equal", "danger", "boss", "status", "counter", "absorb", "pot", "entry", "nophys", "hidden" }
+local KINDS = { "trash", "mixed", "equal", "danger", "boss", "status", "counter", "absorb", "pot", "entry", "nophys", "hidden", "locked" }
 
 local function makeFight(kind, size)
     local scale = (size / 4) ^ 0.8
@@ -331,6 +338,12 @@ local function makeFight(kind, size)
         x.hidden = (math.random() < 0.7) and "physical" or "magic"
         x.hitKind = (math.random() < 0.5) and "magic" or "physical"
         f.foes[1] = x
+        if math.random() < 0.5 then f.foes[2] = foe(pick(SOFT), scale) end
+    elseif kind == "locked" then
+        -- A fight the game will not let the party flee, though the bar shows
+        -- Escape. An evading enemy, so a party of physical hits stalls.
+        f.noFlee = true
+        f.foes[1] = foe({ name = "cactuar", card = Mobs["cactuar"] }, scale)
         if math.random() < 0.5 then f.foes[2] = foe(pick(SOFT), scale) end
     elseif kind == "entry" then
         f.foes[1] = foe(pick(MID), scale)
@@ -439,7 +452,7 @@ local function playSession(sid, withMod)
             if #members > 1 and math.random() < 0.5 then m.hp = 0 else m.statuses = { [pick({ ST.CONFUSE, ST.SLEEP, ST.SILENCE, ST.POISON })] = 3 } end
         end
         local B = Sim.newBattle({ party = members, foes = fight.foes, boss = fight.boss, pot = fight.pot,
-            bag = (i == 1) and sharedBag or nil, focusHealer = fight.focusHealer, easy = EASY and withMod,
+            bag = (i == 1) and sharedBag or nil, focusHealer = fight.focusHealer, noFlee = fight.noFlee, easy = EASY and withMod,
             retry = fight.boss })
         if i > 1 then B.bag = results[i - 1].bag end
         local outcome = Sim.play(40, (not withMod) and Sim.baseline or nil)

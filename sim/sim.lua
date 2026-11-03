@@ -434,6 +434,7 @@ function Sim.newBattle(opts)
             bonus = 0, finish = 0, finishByMod = 0, cures = 0, cureMiss = 0, wasted = 0,
         },
         roundHeals = {}, roundEthers = 0, passActed = {}, pot = opts.pot or false, rules = opts.rules or {},
+        noFlee = opts.noFlee or false,
         focusHealer = opts.focusHealer or false, easy = opts.easy or false, retry = opts.retry or false,
     }
     for i, m in ipairs(opts.party) do
@@ -569,6 +570,7 @@ local function strike(actor, row, foe, scale)
         return
     end
     if foe.statuses[ST.BREAK] then base = base * 2 end
+    if actor.statuses and actor.statuses[97] then base = base * 1.5 end
     base = base * (0.9 + math.random() * 0.2)
     if dmgF < 0 then
         heal(foe, base)
@@ -634,6 +636,12 @@ local function resolve(actor, row, targets, isAll, isItem, item)
         actor.lb = math.max(0, (actor.lb or 0) - (spec.lbGauges or 1) * 100)
     end
     if row.skillAttrType == ATTR.ESCAPE then
+        -- A fight that cannot be fled. The command bar still shows Escape.
+        if B.boss or B.noFlee then
+            B.escapeRefused = (B.escapeRefused or 0) + 1
+            event("%s tried to escape; the game refused", actor.name)
+            return
+        end
         B.fled = true
         event("%s led the escape", actor.name)
         return
@@ -680,7 +688,10 @@ local function resolve(actor, row, targets, isAll, isItem, item)
     end
     if row.defaultTargetRelation == REL.FRIEND then
         for _, t in ipairs(list) do
-            if spec.heal then
+            if spec.endStance then t.statuses[spec.endStance] = nil end
+            -- A stance blocks white-magic heals on its caster. Items land.
+            local blocked = t.statuses[97] and (row.skillAttrType == ATTR.MAGIC) and (not isItem)
+            if spec.heal and not blocked then
                 local power = spec.healPower or row.magnification
                 local amount = (row.damageCalcType == 3) and row.magnification or ((actor.mag or 60) * power / 100)
                 if spec.full then amount = t.maxHp end
@@ -913,6 +924,10 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
         end
         -- A single heal on an ally already healed this round, and above every
         -- heal line the doc has (65% is the highest), is an overheal.
+        if spec.heal and t.side == "ally" and byMod and (not t.dead) and (not isAll)
+            and (not isItem) and t.statuses[97] and (row.skillAttrType == ATTR.MAGIC) then
+            violate("blocked heal", "%s sent %s on %s, whose stance blocks it", actor.name, row.Name, t.name)
+        end
         if spec.heal and t.side == "ally" and byMod and (not t.dead) and (not isAll) then
             if B.roundHeals[t.id] and (t.hp / t.maxHp) >= 0.65 then
                 violate("overheal", "%s healed %s again this round at %d%%", actor.name, t.name, math.floor(t.hp * 100 / t.maxHp))
@@ -1026,6 +1041,10 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
         if known and not wanted then violate("wrong guard", "%s cast %s against a %s threat", actor.name, row.Name, gk == "magic" and "physical" or "magic") end
     end
     if row.skillAttrType == ATTR.ESCAPE and byMod then
+        if B.boss then violate("boss escape", "%s tried to escape a boss fight", actor.name) end
+        if (B.escapeRefused or 0) >= 2 then
+            violate("escape again", "%s tried a third escape after the game refused two", actor.name)
+        end
         B.stats.escapes = (B.stats.escapes or 0) + 1
         if (B.round - (B.lastProgress or 0)) < 4 then
             violate("early escape", "%s escaped while enemies were still losing HP", actor.name)

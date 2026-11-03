@@ -16,9 +16,9 @@ It has to work for any party size, any character, and any Vision. A change that 
 
 ## Where the files are
 
-The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.28.`
+The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.29.`
 
-`known.lua` is published skill and item facts: element, stagger, and use. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
+`known.lua` is published skill facts: element, stagger, and use. `items.lua` is the item book and the rules for which item to spend; `main.lua` only reads the bag and sends the item. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 
 This repo is the only copy under git. The installed mod folder, `FFRS/Binaries/Win64/ue4ss/Mods/FFRAutoBattle/` in the game, holds only `Scripts/`, `config.ini`, `enabled.txt`, and the runtime files. Do not put a git repo or the docs there. After a change, parse, then copy `Scripts/*.lua` into the installed `Scripts/`. Read `battle_log.txt` from the installed folder.
 

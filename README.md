@@ -53,7 +53,7 @@ When this step is done, this file exists:
 
 `FFRS\Binaries\Win64\ue4ss\Mods\FFRAutoBattle\Scripts\main.lua`
 
-The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `known.lua`, `mobs.lua`, `catalog.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, and `limits.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
+The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `known.lua`, `mobs.lua`, `catalog.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, and `items.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
 ### 4. Start the game and check
 
@@ -63,7 +63,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.1.28.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
+Search for `loaded. planner v0.1.29.` The same startup also writes `catalog 154 added`. If those lines are there, the mod is running. They are written when the game starts, so they are near the top of a fresh log. `battle_log.txt` in the mod folder keeps the last five fights.
 
 ### If it does not load
 

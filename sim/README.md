@@ -8,7 +8,7 @@ lua5.4 sim/run.lua [sessions] [seed] [--only kind] [--hard 1.0] [--keep loss,tim
 
 - `sessions` is how many game launches to play. Each one loads `main.lua` once and plays one to three fights in a row, with HP, MP, and falls carried between them. The default is 200. 1000 takes about 45 seconds.
 - `seed` makes a run repeatable. The same seed plays the same fights.
-- `--only kind` plays one kind of fight: `trash`, `mixed`, `equal`, `danger`, `boss`, `status`, `counter`, `absorb`, `pot`, `entry`. `replay` plays the battle log's boss Shoggoth of 2026-11-02 with that fight's party and bag. It is only played when asked for.
+- `--only kind` plays one kind of fight: `trash`, `mixed`, `equal`, `danger`, `boss`, `status`, `counter`, `absorb`, `pot`, `entry`, `nophys`, `hidden`, `locked`. `replay` plays the battle log's boss Shoggoth of 2026-11-02 with that fight's party and bag. It is only played when asked for.
 - `--hard` scales enemy HP and attack. 1.0 is the default.
 - `--keep loss,timeout,fled` also writes those fights to `sim/out/kept`.
 - `--easy` plays Take it Easy instead of No Mercy, and flags anything but the free basic Attack. Every other run, and every test, is No Mercy.
@@ -31,9 +31,11 @@ A broken rule is any of these, in any fight:
 - **second ether**: two Ethers in one round, as the planner counts a round, unless a boss fight is in dire need. An Elixir spent on a heal is not an Ether.
 - **overheal**: a second single heal in the round on an ally already above 65%.
 - **summon target**: a single heal, cure, or raise on a summon.
+- **blocked heal**: a single white-magic heal on an ally whose stance (Witching Hour) blocks it. The sim marks the stance status 97, lifts that ally's hits by half, and lets items through.
 - **healer draws**, **calm draw**: Provoke or Cover from the party's best healer, or on a field with no threat and no hurt healer.
 - **wheel**: a normal spell sent on the Resonance wheel.
 - **early escape**: an escape while enemies were still losing HP. The planner escapes only on a stalemate.
+- **boss escape**, **escape again**: an escape from a boss fight, or a third escape after the game refused two. The `locked` fight is a Cactuar the game will not let the party flee, though the bar still shows Escape.
 - **false fall**: the planner's battle summary lists more falls than happened.
 - **raise before the living**: a raise while a living ally was under 30% and not healed in the last pass of the party, unless the fallen ally was the party's best healer.
 - **missed retry**: a boss fight was retried after a wipe and the planner kept the old ledger and setup.

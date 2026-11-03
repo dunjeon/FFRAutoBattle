@@ -33,7 +33,6 @@ local OUT_NAME = {
     [SLEEP] = "sleep", [PARALYSIS] = "paralysis", [CONFUSE] = "confuse", [PETRIFY] = "petrify",
     [CHARM] = "charm", [STOP] = "stop", [BERSERK] = "berserk",
 }
-local SOFT = { [POISON] = true, [BLIND] = true }
 -- Two misses, after the cast went out, mark that cure as not working.
 -- One miss does not. A Slow that ends is not stored as a clear.
 local SLOW_YES, SLOW_NO, SLOW_MISS = {}, {}, {}
@@ -42,21 +41,6 @@ local KNOWN = {
     [34] = true, [35] = true, [36] = true, [89] = true,
 }
 for id = 1, 12 do KNOWN[id] = true end
-
--- Shop cures and the status they clear. Remedy clears a lock only.
--- It does not clear poison, blind, or slow. A name that is not here still
--- clears a lock. It does not clear poison or blind.
-local CURE_ITEM = {
-    antidote = { [POISON] = true },
-    ["antidote herb"] = { [POISON] = true },
-    ["eye drops"] = { [BLIND] = true },
-    ["echo herb"] = { [SILENCE] = true },
-    ["smelling salts"] = { [CONFUSE] = true },
-    ["unicorn horn"] = { [PARALYSIS] = true },
-    ["gold needle"] = { [PETRIFY] = true },
-    ["herb of awakening"] = { [SLEEP] = true },
-    remedy = true,
-}
 
 local M = {}
 M.HEAVY = HEAVY
@@ -124,30 +108,15 @@ function M.spellRank(skill, missing, hurtN, party, need)
     return 1 + (0.01 / cost)
 end
 
--- Smallest potion that covers the gap. If none covers, the largest amount.
--- No readable amount keeps the first matching item.
-function M.choosePotion(items, missing)
-    local first, cover, coverAmt, best, bestAmt = nil, nil, nil, nil, -1
-    for _, it in ipairs(items or {}) do
-        if it.hp or it.kind == "heal" then
-            if not first then first = it end
-            local amount = it.amount
-            if amount and (amount > 0) and missing and (missing > 0) then
-                if (amount >= missing) and ((not cover) or (amount < coverAmt)) then
-                    cover, coverAmt = it, amount
-                end
-                if amount > bestAmt then best, bestAmt = it, amount end
-            end
-        end
-    end
-    if cover then return cover end
-    if best then return best end
-    return first
-end
-
--- A healer first, then the kit with the highest damage, then anyone who can act.
-function M.fallen(allies, kitOf, offenseOf)
+-- A healer first. On a threatened field (a boss, or a dangerous attack the
+-- book lists), the ally whose kit pulls hits off the others (Provoke, Cover,
+-- Multi-Cover) is next, the one with the most HP first. Then the kit with the
+-- highest damage, then anyone who can act.
+-- opts: threat (bool), guards (function(kit) -> bool), maxHpOf (function(id)).
+function M.fallen(allies, kitOf, offenseOf, opts)
+    opts = opts or {}
     local healer, healBest = nil, -1
+    local guard, guardHp = nil, -1
     local dealer, dealBest = nil, -1
     local anyKit, anyBody = nil, nil
     for _, u in ipairs(allies or {}) do
@@ -161,6 +130,10 @@ function M.fallen(allies, kitOf, offenseOf)
             local hs = (kit and kit.healScore) or 0
             if (hs >= 50) and (hs > healBest) then
                 healer, healBest = u, hs
+            end
+            if opts.threat and opts.guards and (u.acts ~= false) and opts.guards(kit) then
+                local mh = (opts.maxHpOf and opts.maxHpOf(u.id)) or 0
+                if mh > guardHp then guard, guardHp = u, mh end
             end
             local dmg = 0
             if kit and offenseOf then
@@ -180,6 +153,7 @@ function M.fallen(allies, kitOf, offenseOf)
         end
     end
     if healer then return healer end
+    if guard then return guard end
     if dealer then return dealer end
     return anyKit or anyBody
 end
@@ -293,54 +267,6 @@ function M.available(ally, statuses, kitOf, mpOf)
     local mp = (mpOf and mpOf(ally.id)) or 0
     if (cost > 0) and (mp < cost) then return false end
     return true
-end
-
--- True when this item can clear a status that is on the ally right now.
--- Poison and blind qualify only on the self-care line. Slow is not an
--- item unless a cure has already been seen to clear it. Remedy never
--- qualifies for poison, blind, or slow.
-function M.itemClears(name, statuses, soft)
-    local row = CURE_ITEM[fold(name)]
-    if row == nil then
-        if soft or (not statuses) then return false end
-        for id in pairs(LOCK) do
-            if statuses[id] then return true end
-        end
-        return false
-    end
-    if row == false then return false end
-    if not statuses then return false end
-    if row == true then
-        for id in pairs(LOCK) do
-            if statuses[id] then return true end
-        end
-        return false
-    end
-    for id in pairs(row) do
-        if statuses[id] then
-            if LOCK[id] then return true end
-            if soft and SOFT[id] then return true end
-        end
-    end
-    return false
-end
-
--- The last Remedy stays for doom, or for a lock on the main healer.
-function M.holdRemedy(name, count, target, allies, kitOf)
-    if fold(name) ~= "remedy" then return false end
-    if (not count) or (count > 1) then return false end
-    if target and hasId(target.statuses, DOOM) then return false end
-    local healer = M.mainHealer(allies, kitOf)
-    if healer and target and (healer.id == target.id) and hasAny(target.statuses, LOCK) then
-        return false
-    end
-    for _, a in ipairs(allies or {}) do
-        if (not a.dead) and hasId(a.statuses, DOOM) then return true end
-    end
-    if healer and (not healer.dead) and hasAny(healer.statuses, LOCK) then
-        return true
-    end
-    return false
 end
 
 -- The healer is the living ally who can act and whose kit has the highest

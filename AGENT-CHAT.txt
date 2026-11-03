@@ -561,3 +561,35 @@ opening heal. Before the party has each acted once, an ally under the
 recover line is healed. Haste and the other generic buffs stay on the
 bar. The startup line is "loaded. planner v0.1.27." main and the public
 zip do not have this yet.
+
+On testing, v0.1.29
+Raise order: the best healer, then on a threatened field (a boss, or a
+danger card still open) the fallen ally whose kit carries Provoke,
+Cover, or Multi-Cover, the one with the most max HP first, then the top
+damage dealer. A calm field skips the guard step. Health.fallen takes an
+opts table: threat, guards (Kits.guards), maxHpOf.
+Stances: Scripts/kits.lua STANCE. Witching Hour lifts the caster and
+blocks white-magic healing on the caster. It goes up on a hard field
+while the caster is at 75% or more and no one is critical or down, and
+not within two rounds of coming off. End Witching Hour goes out on the
+caster's turn once they are under the recover line and a living ally
+can pay a white-magic heal. With no spell heal in the party it stays up,
+because items still land. While it is up, magic heals skip that ally,
+items do not, and the recover heal looks at an unblocked ally first. The
+log lines are "stance <name>" and "stance off <name> at N%". The stance
+is tracked from the casts and is cleared when its ally falls.
+Items: Scripts/items.lua. The shop, rare, and thrown item tables moved
+there from known.lua, and the cure-item table, choosePotion, itemClears,
+and holdRemedy moved there from health.lua. items.lua also sorts the bag
+into common, rare, and thrown rows and picks the item for a raise, heal,
+cure, throw, or Ether. main.lua still reads the bag from the game (ids,
+counts, names, the item's skill row) and builds the command. The sim on
+seed 1 played the same as before the split.
+Escape: a stalemate escape is never tried in a boss fight. An escape,
+the planner's or the player's, that went out while the fight goes on was
+refused. The log line is "escape refused (N of 2), the fight goes on".
+After two refusals the fight is not fled again, and the stalemate line
+says "no escape from this fight". There is no known game call that says a
+fight cannot be fled, so the planner learns it from the refusals.
+
+The startup line is "loaded. planner v0.1.29." main and the public zip do not have this yet.

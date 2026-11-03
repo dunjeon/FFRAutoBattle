@@ -1,4 +1,4 @@
--- Published skill and item facts for FFR:AutoBattle.
+-- Published skill facts for FFR:AutoBattle. Item facts are in items.lua.
 -- Stagger numbers are the ones printed on the Resonance wiki ability pages and
 -- the boss guides (a plain Attack is 25, Tackle 35, Dawn Frost 30, Fire 17).
 -- A weakness hit is three times that stagger. This list does not know the enemy,
@@ -249,66 +249,5 @@ return {
         ["waterga blade"] = { stagger = 21, element = "water", use = "break" },
         ["waterga surge"] = { stagger = 30, element = "water", use = "break" },
         ["wind cutter blade"] = { stagger = 35, element = "wind", use = "break" },
-    },
-    -- Shop recovery the player can buy again.
-    items = {
-        ["potion"] = "hp",
-        ["hi-potion"] = "hp",
-        ["mist potion"] = "hp",
-        ["ether"] = "mp",
-        ["mist ether"] = "mp",
-        ["phoenix down"] = "revive",
-        ["antidote"] = "cure",
-        ["antidote herb"] = "cure",
-        ["eye drops"] = "cure",
-        ["echo herb"] = "cure",
-        ["smelling salts"] = "cure",
-        ["unicorn horn"] = "cure",
-        ["gold needle"] = "cure",
-        ["herb of awakening"] = "cure",
-        ["remedy"] = "cure",
-    },
-    -- Rare recovery. Spent only in a boss fight, cheapest rank first, when no
-    -- common item covers the need. "out" never leaves the bag in battle.
-    leave = {
-        -- Healing Spring is a slow regen, too slow for a critical ally.
-        ["mist hi-potion"] = { use = "hp", rank = 1 },
-        ["x-potion"] = { use = "hp", rank = 2 },
-        ["mist x-potion"] = { use = "hp", rank = 3 },
-        ["turbo ether"] = { use = "mp", rank = 2 },
-        ["mist turbo ether"] = { use = "mp", rank = 3 },
-        ["x-ether"] = { use = "mp", rank = 4 },
-        ["mist x-ether"] = { use = "mp", rank = 5 },
-        ["phoenix pinion"] = { use = "revive", rank = 3 },
-        ["elixir"] = { use = "both", rank = 6 },
-        ["megalixir"] = { use = "both", rank = 9 },
-        ["tent"] = { use = "out" },
-        ["healing spring"] = { use = "out" },
-    },
-    -- Thrown attack items, from the public item list read 2026-11-02. Scrolls
-    -- are single-target magic of their element. Knives and blades are physical;
-    -- a knife also adds its status. Thrown only in a boss fight, lowest rank first.
-    attack = {
-        ["flame scroll i"] = { element = "fire", magic = true, rank = 1 },
-        ["ice scroll i"] = { element = "ice", magic = true, rank = 1 },
-        ["wind scroll i"] = { element = "wind", magic = true, rank = 1 },
-        ["earth scroll i"] = { element = "earth", magic = true, rank = 1 },
-        ["lightning scroll i"] = { element = "lightning", magic = true, rank = 1 },
-        ["water scroll i"] = { element = "water", magic = true, rank = 1 },
-        ["flame scroll ii"] = { element = "fire", magic = true, rank = 2 },
-        ["ice scroll ii"] = { element = "ice", magic = true, rank = 2 },
-        ["wind scroll ii"] = { element = "wind", magic = true, rank = 2 },
-        ["earth scroll ii"] = { element = "earth", magic = true, rank = 2 },
-        ["lightning scroll ii"] = { element = "lightning", magic = true, rank = 2 },
-        ["water scroll ii"] = { element = "water", magic = true, rank = 2 },
-        ["shuriken"] = { phys = true, rank = 1 },
-        ["knife of blind"] = { phys = true, status = "blind", rank = 1 },
-        ["knife of silence"] = { phys = true, status = "silence", rank = 1 },
-        ["knife of poison"] = { phys = true, status = "poison", rank = 2 },
-        ["knife of confuse"] = { phys = true, status = "confuse", rank = 2 },
-        ["knife of paralysis"] = { phys = true, status = "paralysis", rank = 2 },
-        ["knife of sleep"] = { phys = true, status = "sleep", rank = 2 },
-        ["fuma shuriken"] = { phys = true, rank = 3 },
-        ["chef's knife"] = { phys = true, rank = 4 },
     },
 }
