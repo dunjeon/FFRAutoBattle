@@ -16,7 +16,7 @@ It has to work for any party size, any character, and any Vision. A change that 
 
 ## Where the files are
 
-The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.33.`
+The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. UE4SS reads them at startup. After a Lua change the player must fully quit and launch again. The startup line is `loaded. planner v0.1.34.`
 
 `known.lua` is published skill facts: element, stagger, and use. `items.lua` is the item book and the rules for which item to spend; `main.lua` only reads the bag and sends the item. `mobs.lua` is the enemy book. `main.lua` is the planner and the game socket. `config.ini` is the player settings. `battle_log.txt` and `state.txt` are runtime files. Do not commit them.
 

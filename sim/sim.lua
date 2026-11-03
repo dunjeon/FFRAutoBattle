@@ -270,8 +270,9 @@ function BFL:IsEnableCommand(uid, id)
     return BFL.CanUnitActivateSkill(self, uid, id) and (u.mp >= (s.Cost or 0) or s.skillAttrType == ATTR.LB)
 end
 function BFL:GetUnitLimitBurstPoint(uid) local u = unitById(uid) return u and u.lb or 0 end
-function BFL:GetLimitBurstPointOneGauge() return 100 end
-function BFL:GetLimitBurstPointMaxGaugeNum() return 2 end
+-- The game answers neither call ("slots nil" in every log), so the sim does not either.
+function BFL:GetLimitBurstPointOneGauge() return nil end
+function BFL:GetLimitBurstPointMaxGaugeNum() return nil end
 function BFL:GetUnitLimitBurstPointGaugeNum(uid) local u = unitById(uid) return u and math.floor((u.lb or 0) / 100) or 0 end
 function BFL:IsBossBattle() return B and B.boss or false end
 function BFL:IsFinishPhase() return B and B.phase == 2 or false end
@@ -432,6 +433,7 @@ function Sim.newBattle(opts)
             commands = 0, modCommands = 0, gameCommands = 0, playerCommands = 0, stalls = 0,
             items = {}, falls = 0, raises = 0, draws = 0, heals = 0, ethers = 0,
             bonus = 0, finish = 0, finishByMod = 0, cures = 0, cureMiss = 0, wasted = 0,
+            lb1 = 0, lb2 = 0, lbHeld = 0,
         },
         roundHeals = {}, roundEthers = 0, passActed = {}, pot = opts.pot or false, rules = opts.rules or {},
         noFlee = opts.noFlee or false,
@@ -448,7 +450,7 @@ function Sim.newBattle(opts)
             id = id, unitId = 100 + id, side = "ally", name = m.name, member = m,
             maxHp = m.maxHp, hp = m.hp or m.maxHp, maxMp = m.maxMp, mp = m.mp or m.maxMp,
             atk = m.atk, mag = m.mag, spd = m.spd, skillIds = ids, statuses = {},
-            lb = m.lb or 0, lbMax = 200, dead = (m.hp or m.maxHp) <= 0,
+            lb = m.lb or 0, lbMax = m.lbMax or 200, dead = (m.hp or m.maxHp) <= 0,
             healer = m.healer,
         }
         local u = B.units[id]
@@ -1185,6 +1187,19 @@ function Sim.onDecide(obj, byMod)
     for i = 1, #d.targetUnitUniqueIdList do targets[#targets + 1] = d.targetUnitUniqueIdList[i] end
     B.stats.commands = B.stats.commands + 1
     if byMod then B.stats.modCommands = B.stats.modCommands + 1 end
+    if byMod and row.skillAttrType == ATTR.LB then
+        if (row.sim.lbGauges or 1) >= 2 then B.stats.lb2 = B.stats.lb2 + 1 else B.stats.lb1 = B.stats.lb1 + 1 end
+    end
+    -- A boss bonus turn that sent no Limit while a damage Limit on the bar was full.
+    if byMod and B.boss and B.phase == 1 and row.skillAttrType ~= ATTR.LB and actor.side == "ally" then
+        for _, id in ipairs(actor.skillIds or {}) do
+            local r = Sim.skills[id]
+            if r and r.skillAttrType == ATTR.LB and not r.sim.heal and not sealed(actor, r) then
+                B.stats.lbHeld = B.stats.lbHeld + 1
+                break
+            end
+        end
+    end
     local ok = check(actor, row, targets, d.IsAll, isItem, item, byMod)
     if ok then
         if isItem then B.bag[item.ID] = B.bag[item.ID] - 1 B.stats.items[item.Name] = (B.stats.items[item.Name] or 0) + 1 end

@@ -675,3 +675,26 @@ Tide, v0.1.32 vs v0.1.33 on seed 2: 85% vs 87% at --hit 1.6, 23% vs 20%
 at --hit 2.0. The survival case drops because the phantom break used to
 send turns to the Orbs, and breaking the Orbs stops their hits in the sim.
 How hard the Orbs hit in the game is unknown.
+
+On testing, v0.1.34 (Claude)
+From the Leviathan log of 2026-11-03: no Limit Burst was cashed on any
+break. The game answers neither GetLimitBurstPointOneGauge nor
+GetLimitBurstPointMaxGaugeNum ("slots nil"), so limitReady took one gauge
+as the whole bar. A full 200-point bar read as one gauge while the game's
+own count said two ("unit 2"). Every two-gauge row (Fina, Rain) was never
+ready, and a one-gauge row (Null Moon) waited for the full 200.
+- The game's gauge count (GetUnitLimitBurstPointGaugeNum) now wins over
+  the math once any unit has read empty on it in the launch.
+- With no slot count, a bar holds one gauge per 100 points, as the logs
+  show (a 100-point bar holds one, a 200-point bar two).
+- Each Limit row is logged once a fight: "limit row <name> on <ally>: use,
+  gauges, kind, effect, target". Nichol's ready one-gauge row never went
+  out on a break; the next log says what the planner took it for.
+Sim: the two gauge-size calls return nothing, as in the game. The report
+counts one- and two-gauge Limit casts and boss bonus turns that held a
+full damage Limit. Seed 1, 1000 sessions, v0.1.33 vs v0.1.34: 47 vs 124
+one-gauge casts, 0 vs 9 two-gauge casts, 135 vs 44 held turns. Win rates
+unchanged, 0 broken rules. Most of the held turns left are rules: an
+element the field nulls or absorbs, a countered kind, an Ether for a heal.
+Open: whether one Limit offers both levels in the game, and when to spend
+level 1 rather than wait for level 2. The design doc has no rule.

@@ -584,7 +584,7 @@ local function bump(t, k, field, n)
     t[k] = t[k] or { fights = 0, win = 0, base = 0, baseFights = 0 }
     t[k][field] = t[k][field] + (n or 1)
 end
-local stats = { hiddenHits = 0, retries = 0, quickRefall = 0, partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
+local stats = { lb1 = 0, lb2 = 0, lbHeld = 0, hiddenHits = 0, retries = 0, quickRefall = 0, partyHeals = 0, slowLost = 0, hasteTurns = 0, escapes = 0, fallsLogged = 0, pdWhileRaise = 0, weakChance = 0, weakUsed = 0, stalls = 0, falls = 0, raises = 0, draws = 0, ethers = 0, bonus = 0, sweeps = 0, finishByMod = 0, finish = 0,
     gameCommands = 0, modCommands = 0, cures = 0 }
 local items = {}
 local fails = 0
@@ -731,6 +731,7 @@ out("Falls: %d in the sim, %d in the planner's battle summaries", stats.falls, s
 out("Haste turns %d, ally turns lost to Slow %d, party heals in 2-ally fights %d", stats.hasteTurns, stats.slowLost, stats.partyHeals)
 out("Retries after a wipe %d. Raised allies who fell again within a round %d of %d raises", stats.retries, stats.quickRefall, stats.raises)
 out("Hits into a hidden null: %d", stats.hiddenHits)
+out("Limit Bursts: %d one-gauge, %d two-gauge. Boss bonus turns with a full damage Limit that sent none: %d", stats.lb1, stats.lb2, stats.lbHeld)
 local ml = {}
 for _, m in ipairs(MARKS) do ml[#ml + 1] = string.format("%s %d", m[1], marks[m[1]] or 0) end
 out("Planner lines: %s", table.concat(ml, ", "))

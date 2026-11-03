@@ -48,7 +48,7 @@ A broken rule is any of these, in any fight:
 - **easy mode**: with `--easy`, anything but the free basic Attack at an enemy.
 - **plan mode**: the first plan is `adds` when the gauges are equal, or `sync` when one is at or under 60% of the largest.
 
-The report also gives the win rate against the doc's baseline (attack with the strongest payable skill, on the same seed), by fight kind and by party size, how often each planner rule fired, how often a payable weakness was taken, and how often a Phoenix Down went out while a living ally could pay a raise spell.
+The report also gives the win rate against the doc's baseline (attack with the strongest payable skill, on the same seed), by fight kind and by party size, how often each planner rule fired, how often a payable weakness was taken, and how often a Phoenix Down went out while a living ally could pay a raise spell. It counts one- and two-gauge Limit Bursts, and boss bonus turns where an ally with a full damage Limit sent something else. The game answers neither Limit gauge-size call, so the sim does not either, and the planner has to count gauges from the bar.
 
 ## What it does not know
 

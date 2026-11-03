@@ -207,6 +207,11 @@ local EFF = { DAMAGE = 1, PARAM = 2, CURE = 19, REVIVE = 20, DEFEND = 26, ANALYZ
 local TGT = { SELF = 0, SINGLE = 1, GROUP = 2, SPREAD = 3, ALL = 4 }
 local REL = { FRIEND = 1, ENEMY = 2 }
 local PARAM = { HP = 1, MP = 2, LB = 4 }
+-- One Limit gauge is 100 points in every game log so far: a 100-point bar
+-- holds one gauge, a 200-point bar two. Used only when the game does not
+-- say. The game's own gauge count is trusted for the launch once any unit
+-- has read empty on it, since a call that always says 1 is the slot count.
+local LB_POINTS = { gauge = 100, countTrusted = false }
 local VAR = { UP = 0, RATIO = 2 }
 local ST_BREAK = 89
 local GUARD_STATUS = { [34] = true, [35] = true, [36] = true }
@@ -1072,21 +1077,25 @@ local function limitReady(uid, skill)
     end
     if points == nil then points = stat(uid, PARAM.LB, false) end
     local maxv = stat(uid, PARAM.LB, true)
+    -- With no slot count from the game, the bar's size says how many gauges
+    -- it holds. Dividing by one slot read a full 200-point bar as one gauge.
     if ((one == nil) or (one <= 0)) and maxv and (maxv > 0) then
         local n = slots
-        if (n == nil) or (n < 1) or (n > 4) then n = 1 end
+        if (n == nil) or (n < 1) or (n > 4) then
+            n = math.floor((maxv / LB_POINTS.gauge) + 0.5)
+            if n < 1 then n = 1 end
+            if n > 4 then n = 4 end
+        end
         one = maxv / n
     end
     local filled = nil
     if (points ~= nil) and (one ~= nil) and (one > 0) then
         filled = math.floor((points / one) + 1e-6)
     end
-    -- GaugeNum is trusted only after it has read empty once. A call that
-    -- always returns 1 is the slot count, not a full crystal.
-    if (filled == nil) and (unitGauges ~= nil) and (unitGauges >= 0) and (unitGauges <= 4) and Fight then
-        Fight.lbGaugeApi = Fight.lbGaugeApi or {}
-        if unitGauges == 0 then Fight.lbGaugeApi[uid] = true end
-        if Fight.lbGaugeApi[uid] then filled = unitGauges end
+    -- The game's own count wins over the math once it is trusted.
+    if (unitGauges ~= nil) and (unitGauges >= 0) and (unitGauges <= 4) then
+        if unitGauges == 0 then LB_POINTS.countTrusted = true end
+        if LB_POINTS.countTrusted then filled = unitGauges end
     end
     if Fight then
         Fight.lbRead = Fight.lbRead or {}
@@ -1187,6 +1196,20 @@ local function tagSkill(uid, id, borrowed)
         if gauges == nil then gauges = 1 end
         copy.lbCost = gauges
         copy.cost = 0
+        -- Each Limit row once a fight: what the planner thinks it is.
+        if Fight and not borrowed then
+            Fight.lbRows = Fight.lbRows or {}
+            local rowKey = tostring(uid) .. ":" .. tostring(id)
+            if not Fight.lbRows[rowKey] then
+                Fight.lbRows[rowKey] = true
+                local line = string.format("limit row %s on %s: use %s, gauges %s, kind %s, effect %s, target %s",
+                    (copy.name and copy.name ~= "") and copy.name or ("#" .. tostring(id)), unitName(uid),
+                    tostring(info and info.use or "none"), tostring(gauges), tostring(copy.kind),
+                    tostring(copy.effect), tostring(copy.target))
+                log("%s", line)
+                appendLog("  " .. line)
+            end
+        end
         if (not borrowed) and (not limitReady(uid, copy)) then return nil end
     end
     if (not copy.kind) and Kits.lookup and Kits.lookup(copy.name) then
@@ -4605,7 +4628,7 @@ local function ensureBattle()
     Fight.underLine = false
     Fight.downNow = {}
     Fight.lbRead = {}
-    Fight.lbGaugeApi = {}
+    Fight.lbRows = {}
     -- A low bar from the last fight is not a wipe in this one.
     Fight.mpAnchor, Fight.mpLow, Fight.mpBack, Fight.mpFed = {}, {}, {}, {}
     Fight.roundAt = 0
@@ -5736,7 +5759,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.33. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.34. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
