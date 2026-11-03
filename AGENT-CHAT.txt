@@ -593,3 +593,21 @@ says "no escape from this fight". There is no known game call that says a
 fight cannot be fled, so the planner learns it from the refusals.
 
 The startup line is "loaded. planner v0.1.29." main and the public zip do not have this yet.
+
+On testing, v0.1.30 (Claude)
+Party items: a heal item whose own skill row targets every ally (the
+game's Mist rows, read from the row, not the name) is a group heal. When
+most of the living party is under half and the actor has no payable party
+heal spell, it goes out to the whole living party ahead of a single heal
+spell or a single potion, and every living ally is claimed. Without that
+spread a single item goes first. In a boss fight under dire need a rare
+party item goes when no common one is left. A rare heal replaces a short
+common heal only when it restores more. The bag line tags these "party".
+Null learning: with a summon out, an enemy's HP drop neither proves a
+kind lands nor clears the misses counted for it.
+noteChanges only asks the summon test of friends; it read enemy skill
+lists and could mark an enemy as a summon.
+Sim: Mist Potion and Mist Hi-Potion are in the random bag. New check
+"missed group heal". Hits into a hidden null with a summon out are not
+counted. "missed retry" skips a wipe before the planner's first command.
+The startup line is "loaded. planner v0.1.30."

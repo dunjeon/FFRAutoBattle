@@ -734,7 +734,7 @@ end
 -- Commands: checking and applying what the planner sends
 --------------------------------------------------------------------------------
 
-local PREMIUM = { "elixir", "megalixir", "x-potion", "turbo ether", "x-ether", "phoenix pinion", "tent", "scroll", "knife", "shuriken" }
+local PREMIUM = { "elixir", "megalixir", "x-potion", "mist hi-potion", "turbo ether", "x-ether", "phoenix pinion", "tent", "scroll", "knife", "shuriken" }
 
 local function isPremium(name)
     local low = name:lower()
@@ -742,18 +742,32 @@ local function isPremium(name)
     return false
 end
 
--- A common item in the bag that does what this rare one does. A full heal
+-- A common item in the bag that does what this rare one does. A rare heal
 -- that only beats the commons on size is fine when no common covers the gap,
--- so for HP this is judged loosely: any common heal counts only when the
--- rare row is not a full heal.
+-- so for HP this is judged loosely: a common heal counts only when it
+-- restores at least as much as the rare row.
+-- A rare party heal on a spread is judged against the common party heals.
+local function spreadNow()
+    local n, low = 0, 0
+    for _, u in pairs(B.units) do
+        if u.side == "ally" and not u.summon and not u.gone and not u.dead then
+            n = n + 1
+            if (u.hp / math.max(1, u.maxHp)) < 0.5 then low = low + 1 end
+        end
+    end
+    return n > 0 and low >= math.max(2, math.ceil(n * 0.75))
+end
+
 local function commonLeft(spec)
+    local groupOnly = spec.heal and (spec.target == TGT.ALL) and spreadNow()
     for id, n in pairs(B.bag) do
         local it = Sim.items[id]
         if n > 0 and it and not isPremium(it.Name) then
             local c = it.skill and it.skill.sim or {}
             if spec.revive and c.revive then return true end
             if spec.mp and not spec.heal and c.mp then return true end
-            if spec.heal and not spec.full and c.heal then return true end
+            if spec.heal and not spec.full and c.heal and ((c.power or 0) >= (spec.power or 0))
+                and ((not groupOnly) or c.target == TGT.ALL) then return true end
         end
     end
     return false
@@ -922,6 +936,20 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
         if row.defaultTargetRelation == REL.FRIEND and t.side == "enemy" and byMod then
             violate("wrong side", "%s aimed %s at enemy %s", actor.name, row.Name, t.name)
         end
+        -- Most of the living party under half and a common party item in the
+        -- bag: a single heal is the wrong pick. A group heal beats it.
+        if spec.heal and t.side == "ally" and byMod and (not t.dead) and (not isAll) and (#targets == 1)
+            and (B.phase ~= 2) and (not B.pot) and spreadNow() then
+            for id, n in pairs(B.bag) do
+                local it = Sim.items[id]
+                local c = it and it.skill and it.skill.sim or {}
+                if n > 0 and it and c.heal and (c.target == TGT.ALL) and not isPremium(it.Name) then
+                    violate("missed group heal", "%s sent %s on %s with %s in the bag and most of the party under half",
+                        actor.name, row.Name, t.name, it.Name)
+                    break
+                end
+            end
+        end
         -- A single heal on an ally already healed this round, and above every
         -- heal line the doc has (65% is the highest), is an overheal.
         if spec.heal and t.side == "ally" and byMod and (not t.dead) and (not isAll)
@@ -1009,7 +1037,9 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
                         end
                     end
                     if other then violate("null hit", "%s sent %s into %s, which the book says nulls %s", actor.name, row.Name, t.name, kind) end
-                elseif t.hidden == kind then
+                elseif t.hidden == kind and not (B.units[7] and B.units[7].summon and not B.units[7].gone and not B.units[7].dead) then
+                    -- With a summon out the planner cannot tell whose hit took
+                    -- HP, so those hits are not counted against it.
                     t.nullHits = (t.nullHits or 0) + 1
                     B.stats.hiddenHits = (B.stats.hiddenHits or 0) + 1
                     if t.nullHits > 3 then

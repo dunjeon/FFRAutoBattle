@@ -1466,6 +1466,8 @@ local function ownedRecovery()
                     and (s.varType == VAR.UP or s.varType == VAR.RATIO) then
                     f.rowMp = true
                 end
+                -- The item's own row says whether it lands on every ally.
+                if s.rel == REL.FRIEND and aoeOf(s) then f.party = true end
             end
             f.saysHp = saysYes(bfl, "IsAbleRecoverHitPoint", id) or saysYes(lib, "IsAbleRecoverHitPoint", id)
             f.saysMp = saysYes(bfl, "IsAbleRecoverMagicPoint", id) or saysYes(lib, "IsAbleRecoverMagicPoint", id)
@@ -1511,9 +1513,33 @@ local function pickRecoveryItem(uid, w, want, focus)
         local maxv = stat(hurt.id, PARAM.HP, true)
         local ratio = hurt.hp or 1
         if maxv and (maxv > 0) and (ratio < 1) then missing = (1 - ratio) * maxv end
-        local it, rare = Items.recovery(owned, "heal", { boss = w.boss, missing = missing, dire = dire })
+        -- Most of the living party under half: a party item is a group heal.
+        local living, hurtN = {}, 0
+        for _, a in ipairs(w.allies) do
+            if not a.dead then
+                living[#living + 1] = a.id
+                if (a.hp or 1) < 0.50 then hurtN = hurtN + 1 end
+            end
+        end
+        local need = Health.partyNeed and Health.partyNeed(#living) or 3
+        local it, rare = Items.recovery(owned, "heal", {
+            boss = w.boss, missing = missing, dire = dire,
+            spread = hurtN >= need, partyOnly = focus and focus.partyOnly,
+        })
         if not it then return nil end
         local pct = math.floor((hurt.hp or 0) * 100 + 0.5)
+        if it.party and (#living > 0) then
+            local fake = { id = it.id, name = it.name, kind = "item", attr = ATTR.ITEM, target = TGT.ALL, cost = 0 }
+            local choice = finishChoice(uid, fake, string.format("item party heal, %s at %d%%", hurt.name, pct),
+                living, true, true)
+            if choice then
+                choice.itemUse = "hp"
+                if Fight and Fight.claim and Fight.claim.heal then
+                    for _, id in ipairs(living) do Fight.claim.heal[id] = true end
+                end
+            end
+            return tagged(choice, rare)
+        end
         return tagged(itemChoice(uid, it, string.format("item heal %s at %d%%", hurt.name, pct), hurt.id, "hp"), rare)
     end
     if want == "cure" then
@@ -2640,6 +2666,12 @@ local function turn(uid, skills, w, phase)
                 end
                 if r > rank then skill, rank = s, r end
             end
+        end
+        -- A group heal beats every single heal. With no party heal spell to
+        -- pay, a party item goes out on that spread.
+        if (hurtN >= need) and ((not skill) or (not partyOf(skill))) then
+            local item = pickRecoveryItem(uid, w, "heal", { partyOnly = true })
+            if item then Fight.claim.heal[hurt.id] = true return item end
         end
         local itemLine = itemAt or 0.45
         if (not skill) and ((hurt.hp or 1) < itemLine) then
@@ -4145,7 +4177,8 @@ local function noteChanges(now)
     if (allies > 0) and (standing == 0) then Fight.wiped = true end
     for id, was in pairs(Fight.prev) do
         local cur = now[id]
-        local summon = Fight.isSummon and Fight.isSummon(id)
+        -- Only a friend can be a summon. An enemy's skill list is not read here.
+        local summon = (was.side == "ally") and Fight.isSummon and Fight.isSummon(id)
         if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon then
             Fight.fell[#Fight.fell + 1] = was.name
             appendLog("  fell: " .. was.name)
@@ -4896,14 +4929,13 @@ local function act(serial)
                         log("%s", line)
                         appendLog("  " .. line)
                     end
-                else
+                elseif not (probe.summon or Fight.summoned) then
                     Fight.kindMiss[id][probe.kind] = 0
-                    -- A summon hits on its own, so with one out the drop is not this kind's.
-                    if not (probe.summon or Fight.summoned) then
-                        Fight.kindHit[id] = Fight.kindHit[id] or {}
-                        Fight.kindHit[id][probe.kind] = true
-                    end
+                    Fight.kindHit[id] = Fight.kindHit[id] or {}
+                    Fight.kindHit[id][probe.kind] = true
                 end
+                -- A summon hits on its own, so with one out a drop is not this
+                -- kind's. It neither lands the kind nor clears the misses.
             end
         end
     end)
@@ -5587,7 +5619,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.29. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.30. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

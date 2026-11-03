@@ -128,7 +128,8 @@ end
 -- One bag row, or nil when the item is not spent in battle.
 -- f is what the game's own rows say: rare (the row's flag), amount (a fixed
 -- restore), revive, cure, rowHp and rowMp (the item's skill row restores
--- it), saysHp and saysMp (the library answers yes).
+-- it), saysHp and saysMp (the library answers yes), party (the item's skill
+-- row targets every ally).
 function M.entry(id, name, count, f)
     f = f or {}
     local lowered = fold(name)
@@ -167,7 +168,7 @@ function M.entry(id, name, count, f)
     if not (hp or mp or kind == "revive" or kind == "cure") then return nil end
     return {
         id = id, name = name, hp = hp, mp = mp, kind = kind,
-        count = count, amount = f.amount,
+        count = count, amount = f.amount, party = f.party and true or nil,
         rare = rare and true or nil, rank = (rareRow and rareRow.rank) or 8,
     }
 end
@@ -181,6 +182,7 @@ function M.bagLine(out, answered)
     for _, it in ipairs(out) do
         local tag = it.kind or (it.mp and "mp") or (it.hp and "hp")
             or (it.attack and (it.attack.element or "physical")) or "item"
+        if it.party then tag = tag .. " party" end
         if it.rare then tag = tag .. " rare" end
         bits[#bits + 1] = string.format("%s x%s %s", it.name, tostring(it.count), tag)
     end
@@ -283,7 +285,10 @@ end
 -- The item to spend, or nil. The second return is true when it is a rare
 -- row spent in a boss fight.
 -- want "revive": ctx.boss.
--- want "heal": ctx.boss, ctx.missing (HP the ally is short), ctx.dire.
+-- want "heal": ctx.boss, ctx.missing (HP the ally is short), ctx.dire,
+-- ctx.spread (most of the living party is under half: a party item is a
+-- group heal and beats every single heal), ctx.partyOnly (a party item or
+-- nothing). Without the spread, a single item goes first.
 -- want "mp": ctx.boss, ctx.dire.
 function M.recovery(owned, want, ctx)
     ctx = ctx or {}
@@ -295,11 +300,30 @@ function M.recovery(owned, want, ctx)
         if not it then it, fromRare = firstOf(rares, raise), true end
     elseif want == "heal" then
         local function heals(row) return row.hp or row.kind == "heal" end
-        it = M.choosePotion(items, ctx.missing) or firstOf(items, heals)
-        local short = (not it) or (ctx.missing and it.amount and (it.amount < ctx.missing))
-        if short and ctx.dire then
-            local big = firstOf(rares, heals)
-            if big then it, fromRare = big, true end
+        local function group(row) return heals(row) and row.party end
+        if ctx.spread then
+            it = firstOf(items, group)
+            if (not it) and ctx.dire then
+                local big = firstOf(rares, group)
+                if big then it, fromRare = big, true end
+            end
+        end
+        if (not it) and (not ctx.partyOnly) then
+            local singles = {}
+            for _, row in ipairs(items) do
+                if not row.party then singles[#singles + 1] = row end
+            end
+            it = M.choosePotion(singles, ctx.missing) or M.choosePotion(items, ctx.missing) or firstOf(items, heals)
+            local short = (not it) or (ctx.missing and it.amount and (it.amount < ctx.missing))
+            if short and ctx.dire then
+                -- A rare row replaces the common pick only when it restores more.
+                local function bigger(row)
+                    return heals(row) and ((not it) or (not it.amount) or (not row.amount) or (row.amount > it.amount))
+                end
+                local big = firstOf(rares, function(row) return bigger(row) and not row.party end)
+                    or firstOf(rares, bigger)
+                if big then it, fromRare = big, true end
+            end
         end
     elseif want == "mp" then
         it = firstOf(items, function(row) return row.mp and row.kind ~= "revive" end)

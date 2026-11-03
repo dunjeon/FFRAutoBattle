@@ -29,6 +29,7 @@ A broken rule is any of these, in any fight:
 - **premium item**: Elixir, Megalixir, X-Potion, Turbo Ether, Phoenix Pinion, a tent, a scroll, a knife, or a shuriken outside a boss fight. In a boss fight: a tent at all, a rare heal or MP item with no dire need, or a rare item while a common one of the same use is in the bag. These rows are not flagged rare, so the planner has to know them by name.
 - **pot item**: any item spent in a Pot fight.
 - **second ether**: two Ethers in one round, as the planner counts a round, unless a boss fight is in dire need. An Elixir spent on a heal is not an Ether.
+- **missed group heal**: a single heal while most of the living party is under half and a common party heal item (one whose row targets every ally, like the sim's Mist Potion) is in the bag.
 - **overheal**: a second single heal in the round on an ally already above 65%.
 - **summon target**: a single heal, cure, or raise on a summon.
 - **blocked heal**: a single white-magic heal on an ally whose stance (Witching Hour) blocks it. The sim marks the stance status 97, lifts that ally's hits by half, and lets items through.
@@ -38,7 +39,7 @@ A broken rule is any of these, in any fight:
 - **boss escape**, **escape again**: an escape from a boss fight, or a third escape after the game refused two. The `locked` fight is a Cactuar the game will not let the party flee, though the bar still shows Escape.
 - **false fall**: the planner's battle summary lists more falls than happened.
 - **raise before the living**: a raise while a living ally was under 30% and not healed in the last pass of the party, unless the fallen ally was the party's best healer.
-- **missed retry**: a boss fight was retried after a wipe and the planner kept the old ledger and setup.
+- **missed retry**: a boss fight was retried after a wipe and the planner kept the old ledger and setup. A wipe before the planner's first command in that fight is not counted.
 - **stacked draw**: a second Provoke, Cover, or Multi-Cover while another was still up.
 - **easy mode**: with `--easy`, anything but the free basic Attack at an enemy.
 - **plan mode**: the first plan is `adds` when the gauges are equal, or `sync` when one is at or under 60% of the largest.
@@ -62,7 +63,7 @@ Game facts it copies from the design doc and the battle logs:
 - A hasted ally acts twice every other round. A slowed ally or enemy loses every other turn. Haste and Slow cancel each other, as in the classic games. FFR is not confirmed.
 - The units stay on screen a moment after the last blow. Each command and each enemy action takes screen time, so the planner's 0.7 s field check sees a raise land before the next hit.
 - Enemies deal physical or magic damage. Protect softens physical, Shell softens magic. A card's `no.physical` or `no.magic` makes that kind do nothing. The `nophys` fight is Shoggoth from the book. The `hidden` fight gives an enemy a null the book does not list, so the planner has to learn it.
-- **null hit**, **kept hitting a null**, **wrong guard** are checked: a hit into a book null while another kind would land, more than three hits into a hidden null, and a guard of the wrong kind when the card names the damage. A hit that lands before the planner has seen two misses (a confused swing, a blind miss) can push a fight past three; about one fight in four hundred.
+- **null hit**, **kept hitting a null**, **wrong guard** are checked: a hit into a book null while another kind would land, more than three hits into a hidden null (hits while a summon is out are not counted, since the planner cannot tell whose hit took HP), and a guard of the wrong kind when the card names the damage. A hit that lands before the planner has seen two misses (a confused swing, a blind miss) can push a fight past three; about one fight in four hundred.
 - **raise cycle** is checked too: a raise into the same hits right after that ally fell straight back.
 - Provoke and Cover show no status.
 

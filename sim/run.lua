@@ -159,6 +159,7 @@ local function item(name, spec, rare) return Sim.addItem(name, spec, rare) end
 item("Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, calc = 3, power = 300 })
 item("Hi-Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, calc = 3, power = 700 })
 item("Mist Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, calc = 3, power = 200, target = TGT.ALL })
+item("Mist Hi-Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, calc = 3, power = 500, target = TGT.ALL })
 item("Ether", { effect = EFF.DAMAGE, rel = REL.FRIEND, mp = true, calc = 3, power = 60 })
 item("Phoenix Down", { effect = EFF.REVIVE, rel = REL.FRIEND, revive = true })
 item("Antidote", { effect = EFF.CURE, rel = REL.FRIEND, status = ST.POISON })
@@ -355,7 +356,8 @@ end
 
 local function bag()
     return {
-        ["Potion"] = math.random(3, 10), ["Hi-Potion"] = math.random(0, 3), ["Ether"] = math.random(2, 8),
+        ["Potion"] = math.random(3, 10), ["Hi-Potion"] = math.random(0, 3), ["Mist Potion"] = math.random(0, 3),
+        ["Mist Hi-Potion"] = math.random(0, 1), ["Ether"] = math.random(2, 8),
         ["Phoenix Down"] = math.random(2, 6), ["Antidote"] = 3, ["Eye Drops"] = 3, ["Echo Herb"] = 2,
         ["Unicorn Horn"] = 2, ["Gold Needle"] = 1, ["Herb of Awakening"] = 2, ["Smelling Salts"] = 1,
         ["Remedy"] = math.random(0, 2), ["Elixir"] = 2, ["Megalixir"] = 1, ["X-Potion"] = 1,
@@ -461,7 +463,13 @@ local function playSession(sid, withMod)
         if withMod then
             scanModLines(B.modLines, fight, viol)
             -- A retry after a wipe should clear the ledger and the setup.
-            if B.retryAt then
+            -- A wipe before the planner's first command in the fight left no
+            -- ledger to clear, so only a fight it had already acted in counts.
+            local before = false
+            for j = 1, math.min(B.retryAt or 0, #B.modLines) do
+                if B.modLines[j]:find(" p0 mp", 1, true) then before = true break end
+            end
+            if B.retryAt and before then
                 local saw, acted = false, false
                 for j = B.retryAt + 1, #B.modLines do
                     if B.modLines[j]:find("party restored", 1, true) then saw = true end
