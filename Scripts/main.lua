@@ -2206,6 +2206,16 @@ local function pickFinish(uid, finishes, w)
     return emit(best, "resonance " .. name, targets, isAll, bestR)
 end
 
+-- The Vision a character has equipped. 4 is eEquipmentType.Vision, 0 its slot.
+local function visionIdOf(uid)
+    local p = paramOf(uid)
+    if not p then return nil end
+    local ok, v = pcall(function() return p:GetEquipmentId(4, 0) end)
+    local id = ok and num(v) or nil
+    if id and id > 0 then return id end
+    return nil
+end
+
 local function finishList(uid)
     local function asFinish(id)
         local s = skillOf(id)
@@ -2265,43 +2275,8 @@ local function finishList(uid)
         return map
     end
     local function unitFinishId(who)
-        local map = visionFinishMap()
-        local function fromVision(v)
-            local n = num(v)
-            if n and map[n] then return map[n] end
-            return nil
-        end
-        local function fromObject(obj)
-            if type(obj) ~= "userdata" then return fromVision(obj) end
-            for _, key in ipairs({ "equipVisionId", "EquipVisionId", "visionId", "VisionId", "VisionID" }) do
-                local fin = fromVision(field(obj, key))
-                if fin then return fin end
-            end
-            local fin = num(field(obj, "finishBlowSkill"))
-            if fin and fin > 0 then return fin end
-            return nil
-        end
-        local p = paramOf(who)
-        if p then
-            local fin = fromObject(p)
-            if fin then return fin end
-            local okd, data = pcall(function() return p.visionData end)
-            if okd then
-                fin = fromObject(data)
-                if fin then return fin end
-            end
-            for _, method in ipairs({ "GetVisionId", "GetEquipVisionId" }) do
-                local okm, v = pcall(function() return p[method](p) end)
-                fin = okm and fromVision(v) or nil
-                if fin then return fin end
-            end
-        end
-        local hits = {}
-        for _, id in ipairs(equippedIds(who)) do
-            if map[id] then hits[#hits + 1] = id end
-        end
-        if #hits == 1 then return map[hits[1]] end
-        return nil
+        local vision = visionIdOf(who)
+        return vision and visionFinishMap()[vision] or nil
     end
     local out, seen = {}, {}
     local function add(id)
@@ -2321,33 +2296,7 @@ local function finishList(uid)
         Fight.finishNote = Fight.finishNote or {}
         Fight.finishNote[uid] = #unknown > 0 and table.concat(unknown, ",") or ""
     end
-    if #out > 0 then return out end
-    if Fight and Fight.finishScan and Fight.finishScan[uid] then
-        for _, id in ipairs(Fight.finishScan[uid]) do add(id) end
-        return out
-    end
-    if not SkillIdx then return out end
-    local bfl = battleLib()
-    local found = {}
-    if bfl and bfl:IsValid() then
-        for id, s in pairs(SkillIdx) do
-            if s.attr == ATTR.FINISH then
-                local can = activateFive(bfl, uid, id)
-                if can ~= true then
-                    local ok, two = pcall(function() return bfl:CanUnitActivateSkill(uid, id) end)
-                    can = ok and two or nil
-                end
-                if can == true then
-                    found[#found + 1] = id
-                    add(id)
-                end
-            end
-        end
-    end
-    if Fight then
-        Fight.finishScan = Fight.finishScan or {}
-        Fight.finishScan[uid] = found
-    end
+    -- A Vision not read is no row: the wheel is left for the player.
     return out
 end
 
@@ -5095,6 +5044,15 @@ local function consider(uid)
             #w.enemies, actors, table.concat(bits, "; "))
         log("%s", line)
         appendLog("  " .. line)
+        pcall(function()
+            local visions = {}
+            for _, id in ipairs(friendIds()) do
+                visions[#visions + 1] = unitName(id) .. " " .. tostring(visionIdOf(id) or "?")
+            end
+            local row = "visions: " .. table.concat(visions, ", ")
+            log("%s", row)
+            appendLog("  " .. row)
+        end)
     end
     for _, s in ipairs(usable) do
         if s.kind == "revive" then
@@ -5305,7 +5263,6 @@ local function ensureBattle()
     Fight.recoverTold = false
     Fight.entryTold = false
     Fight.finishNote = {}
-    Fight.finishScan = nil
     itemsLogged = false
     potLogged = false
     appendLog(string.format("== battle %d%s ==", Fight.number, Fight.boss and ", boss" or ""))
@@ -6577,7 +6534,6 @@ local function resonanceWatch()
         Fight.resonanceMiss = false
         Fight.resonanceWait = false
         Fight.wheelLogged = false
-        Fight.finishScan = nil
         Fight.attackWheel = false
         return
     end
@@ -6620,8 +6576,8 @@ local function resonanceWatch()
                                 s.wheelScore and string.format(" %.0f", s.wheelScore) or "")
                         end
                         local picked = (okPick and choice) and string.format(", pick %s", choice.name) or ""
-                        wheelNotes[#wheelNotes + 1] = string.format("%s %d%%: %s%s", unitName(uid),
-                            math.floor((ratio or 0) * 100 + 0.5),
+                        wheelNotes[#wheelNotes + 1] = string.format("%s %d%% vision %s: %s%s", unitName(uid),
+                            math.floor((ratio or 0) * 100 + 0.5), tostring(visionIdOf(uid) or "?"),
                             (#rows > 0) and table.concat(rows, ", ") or "no rows", picked)
                     end)
                 end
@@ -6778,7 +6734,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.43. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.44. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

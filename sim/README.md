@@ -38,7 +38,7 @@ A broken rule is any of these, in any fight:
 - **summon target**: a single heal, cure, or raise on a summon.
 - **blocked heal**: a single white-magic heal on an ally whose stance (Witching Hour) blocks it. The sim marks the stance status 97, lifts that ally's hits by half, and lets items through.
 - **healer draws**, **calm draw**: Provoke or Cover from the party's best healer, or on a field with no threat and no hurt healer.
-- **wheel**: a normal spell sent on the Resonance wheel.
+- **wheel**: a normal spell sent on the Resonance wheel, or a Finish Blow the sender's Vision does not have.
 - **early escape**: an escape while enemies were still losing HP. The planner escapes only on a stalemate.
 - **boss escape**, **escape again**: an escape from a boss fight, or a third escape after the game refused two. The `locked` fight is a Cactuar the game will not let the party flee, though the bar still shows Escape.
 - **false fall**: the planner's battle summary lists more falls than happened.

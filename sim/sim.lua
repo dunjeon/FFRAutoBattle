@@ -65,6 +65,8 @@ local nextSkill, nextItem = 1000, 5000
 
 -- spec: name, attr, effect, cost, power, stagger, target, rel, heal, mp,
 -- calc, status, revive, hits, element(sim only), lbGauges, summonTurns
+Sim.VISION_BASE = 500000
+
 function Sim.addSkill(spec)
     local key = spec.name:lower()
     if Sim.skillByName[key] then return Sim.skillByName[key] end
@@ -198,7 +200,19 @@ local function paramFor(u)
     p.GetBreakPointRatio = function() return 1.0 end
     p.GetLimitBurstPoint = function() return u.lb or 0 end
     local function skillList(t)
-        for _, id in ipairs(u.skillIds or {}) do t[#t + 1] = id end
+        -- As in the game, a Finish Blow is on the Vision, not on the bar.
+        for _, id in ipairs(u.skillIds or {}) do
+            local s = Sim.skills[id]
+            if not (s and s.skillAttrType == ATTR.FINISH) then t[#t + 1] = id end
+        end
+    end
+    p.GetEquipmentId = function(_, kind, slot)
+        if kind ~= 4 or slot ~= 0 then return -1 end
+        for _, id in ipairs(u.skillIds or {}) do
+            local s = Sim.skills[id]
+            if s and s.skillAttrType == ATTR.FINISH then return Sim.VISION_BASE + id end
+        end
+        return -1
     end
     p.GetActiveSkillListWithVision = function(_, t) skillList(t) end
     p.GetActiveSkillList = function(_, t) skillList(t) end
@@ -285,6 +299,8 @@ function BFL:activateFull(uid, id)
     local s = Sim.skills[id]
     if not (u and s) then return false end
     if s.skillAttrType == ATTR.FIGHT and (not owns(u, id)) then return true end
+    -- As in the game: on the wheel this approves every Finish Blow, owned or not.
+    if s.skillAttrType == ATTR.FINISH and B and B.phase == 2 then return true end
     if not owns(u, id) then return false end
     return not sealed(u, s)
 end
@@ -475,7 +491,15 @@ function Sim.install()
         tableRows("SKILL_EFFECT_DATA", function() return Sim.effects end),
         tableRows("SKILL_DATA", function() return Sim.planRows end),
         tableRows("CONSUMABLES_ITEM_DATA", Sim.items),
-        tableRows("VISION_ITEM_DATA", {}),
+        tableRows("VISION_ITEM_DATA", function()
+            local rows = {}
+            for id, s in pairs(Sim.skills) do
+                if s.skillAttrType == ATTR.FINISH then
+                    rows[Sim.VISION_BASE + id] = { ID = Sim.VISION_BASE + id, finishBlowSkill = id }
+                end
+            end
+            return rows
+        end),
     }
     _G.FindAllOf = function(name)
         if name ~= "DataTable" then return {} end
@@ -999,6 +1023,9 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
     end
     if B.phase == 2 and byMod and row.skillAttrType ~= ATTR.FINISH then
         violate("wheel", "normal %s sent on the Resonance wheel", row.Name)
+    end
+    if B.phase == 2 and byMod and row.skillAttrType == ATTR.FINISH and not owns(actor, row.ID) then
+        violate("wheel", "%s sent %s, a Finish Blow its Vision does not have", actor.name, row.Name)
     end
     if isItem then
         if not item or (B.bag[item.ID] or 0) <= 0 then
