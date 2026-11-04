@@ -62,7 +62,10 @@ function M.recoverAt(boss, rows)
 end
 
 -- A flat restore is the row's power when the calc type is Fixed. A magic
--- heal's power is a coefficient, not HP, so it keeps the power-per-MP rank.
+-- heal's power is a coefficient, not HP. rate is the HP this caster has been
+-- seen to restore per point of it in this fight. With a rate, the tightest
+-- heal that covers the missing HP wins, and when none does, the strongest.
+-- With no rate yet, a magic heal keeps the power-per-MP rank.
 -- need is how many hurt allies make a party heal the pick: most of the
 -- living party, the same share at any size. It is 3 when not given.
 function M.partyNeed(living)
@@ -70,13 +73,13 @@ function M.partyNeed(living)
     return math.max(2, math.ceil(n * 0.75))
 end
 
-function M.spellRank(skill, missing, hurtN, party, need)
+function M.spellRank(skill, missing, hurtN, party, need, rate)
     need = need or 3
     -- With most of the party hurt, a party heal wins over every single heal,
     -- including a party row with no magnification. Among party heals the
     -- usual rank decides.
     if party and ((hurtN or 0) >= need) then
-        local inner = M.spellRank(skill, missing, 0, false, need)
+        local inner = M.spellRank(skill, missing, 0, false, need, rate)
         return 1000 + inner
     end
     local cost = skill.cost or 0
@@ -84,6 +87,11 @@ function M.spellRank(skill, missing, hurtN, party, need)
     local power = skill.power or 0
     local amount = nil
     if (skill.calc == FIXED) and (power > 0) then amount = power end
+    if (not amount) and rate and (rate > 0) and (power > 0) and missing and (missing > 0) then
+        local seen = power * rate
+        if seen >= missing then return 2 + (missing / seen) + (0.01 / cost) end
+        return 1 + (seen / (seen + missing)) + (0.01 / cost)
+    end
     if amount and missing and (missing > 0) then
         local r
         if amount >= missing then

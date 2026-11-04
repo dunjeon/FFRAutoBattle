@@ -965,7 +965,7 @@ local function healPower(u)
     local best = 0
     for _, id in ipairs(u.skillIds or {}) do
         local s = Sim.skills[id]
-        if s and s.sim.heal and s.skillAttrType ~= ATTR.ITEM and s.skillAttrType ~= ATTR.LB then best = math.max(best, s.magnification) end
+        if s and s.sim.heal and s.skillAttrType ~= ATTR.ITEM and s.skillAttrType ~= ATTR.LB and s.skillAttrType ~= ATTR.FINISH then best = math.max(best, s.magnification) end
     end
     return best
 end
@@ -983,7 +983,7 @@ local function healCount(u)
     local n = 0
     for _, id in ipairs(u.skillIds or {}) do
         local s = Sim.skills[id]
-        if s and s.sim.heal and s.skillAttrType ~= ATTR.ITEM and s.skillAttrType ~= ATTR.LB then n = n + 1 end
+        if s and s.sim.heal and s.skillAttrType ~= ATTR.ITEM and s.skillAttrType ~= ATTR.LB and s.skillAttrType ~= ATTR.FINISH then n = n + 1 end
     end
     return n
 end
@@ -1705,7 +1705,8 @@ local function bonusPhase(policy)
         if fin then
             B.stats.playerCommands = B.stats.playerCommands + 1
             local foes = living("enemy")
-            if #foes > 0 then sendAs(who, fin, { foes[1].id }, true) end
+            if fin.defaultTargetRelation == REL.FRIEND then sendAs(who, fin, { who.id }, true)
+            elseif #foes > 0 then sendAs(who, fin, { foes[1].id }, true) end
         else
             for _, f in ipairs(living("enemy")) do hurt(f, f.maxHp * 0.25, "resonance") end
         end

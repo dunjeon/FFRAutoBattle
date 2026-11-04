@@ -103,10 +103,13 @@ dmg("Shining Arrow", ATTR.ABILITY, 6, 140, 25)
 dmg("Banish", ATTR.MAGIC, 6, 130, 17)
 dmg("Banishra", ATTR.MAGIC, 16, 210, 25)
 
-Sim.addSkill({ name = "Cure", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 6, power = 300, rel = REL.FRIEND, heal = true })
--- The game's party heal rows can show no magnification. The sim heals by healPower.
-Sim.addSkill({ name = "Cura", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 14, power = 0, healPower = 240, rel = REL.FRIEND, heal = true, target = TGT.ALL })
-Sim.addSkill({ name = "Curaga", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 30, power = 0, healPower = 420, rel = REL.FRIEND, heal = true, target = TGT.ALL })
+-- Cure, Cura and Curaga cost and power as in the game's rows: one target.
+Sim.addSkill({ name = "Cure", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 6, power = 200, rel = REL.FRIEND, heal = true })
+Sim.addSkill({ name = "Cura", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 18, power = 500, rel = REL.FRIEND, heal = true })
+Sim.addSkill({ name = "Curaga", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 50, power = 1500, rel = REL.FRIEND, heal = true })
+-- Invented party heals. The game's party heal rows can show no magnification. The sim heals by healPower.
+Sim.addSkill({ name = "Mass Cure", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 14, power = 0, healPower = 240, rel = REL.FRIEND, heal = true, target = TGT.ALL })
+Sim.addSkill({ name = "Mass Cura", attr = ATTR.MAGIC, effect = EFF.DAMAGE, cost = 30, power = 0, healPower = 420, rel = REL.FRIEND, heal = true, target = TGT.ALL })
 Sim.addSkill({ name = "Esuna", attr = ATTR.MAGIC, effect = EFF.CURE, cost = 8, rel = REL.FRIEND })
 Sim.addSkill({ name = "Raise", attr = ATTR.MAGIC, effect = EFF.REVIVE, cost = 20, rel = REL.FRIEND, revive = true })
 Sim.addSkill({ name = "Libra", attr = ATTR.MAGIC, effect = EFF.ANALYZE, cost = 2 })
@@ -163,6 +166,7 @@ Sim.addSkill({ name = "Formation: Steeled Advance", attr = ATTR.LB, effect = EFF
 Sim.addSkill({ name = "Mirroring Prism", attr = ATTR.LB, effect = EFF.PARAM, rel = REL.FRIEND, target = TGT.ALL, status = 86, turns = 3, lbGauges = 2 })
 Sim.addSkill({ name = "Eternal Veil", attr = ATTR.LB, effect = EFF.PARAM, rel = REL.FRIEND, target = TGT.ALL, status = 87, turns = 4, lbGauges = 1 })
 Sim.addSkill({ name = "Crystal Braver", attr = ATTR.FINISH, effect = EFF.DAMAGE, power = 600, stagger = 0, target = TGT.ALL })
+Sim.addSkill({ name = "Healing Wind", attr = ATTR.FINISH, effect = EFF.DAMAGE, power = 100, stagger = 0, rel = REL.FRIEND, heal = true, target = TGT.ALL })
 
 local function item(name, spec, rare) return Sim.addItem(name, spec, rare) end
 item("Potion", { effect = EFF.DAMAGE, rel = REL.FRIEND, heal = true, calc = 3, power = 300 })
@@ -198,9 +202,9 @@ item("Fuma Shuriken", { effect = EFF.DAMAGE, rel = REL.ENEMY, phys = true, calc 
 
 local VISIONS = {
     { key = "white", healer = true, hp = { 600, 760 }, mp = { 220, 290 }, atk = 55, mag = 95,
-        skills = { "Attack", "Cure", "Cura", "Esuna", "Raise", "Shell", "Libra", "Banish", "Hastega" } },
+        skills = { "Attack", "Cure", "Cura", "Curaga", "Mass Cure", "Esuna", "Raise", "Shell", "Libra", "Banish", "Hastega" } },
     { key = "paladin", healer = true, hp = { 820, 960 }, mp = { 150, 200 }, atk = 85, mag = 70,
-        skills = { "Attack", "Cure", "Cura", "Protect", "Protectga", "Multi-Cover", "Provoke", "Soul of Valiance", "Vanguard Glaive", "Defend" } },
+        skills = { "Attack", "Cure", "Cura", "Mass Cure", "Protect", "Protectga", "Multi-Cover", "Provoke", "Soul of Valiance", "Vanguard Glaive", "Defend" } },
     { key = "knight", hp = { 860, 980 }, mp = { 110, 160 }, atk = 95, mag = 40,
         skills = { "Attack", "Tackle", "Provoke", "Cover", "Protect", "Flame Sword", "Defend" } },
     { key = "black", hp = { 560, 700 }, mp = { 200, 270 }, atk = 50, mag = 110,
@@ -285,7 +289,9 @@ local function makeParty(size)
         if math.random() < 0.5 then
             for _, n in ipairs(pick(LIMITS)) do skills[#skills + 1] = n end
         end
-        if math.random() < 0.3 then skills[#skills + 1] = "Crystal Braver" end
+        local finisher = math.random()
+        if finisher < 0.3 then skills[#skills + 1] = "Crystal Braver"
+        elseif finisher < 0.45 then skills[#skills + 1] = "Healing Wind" end
         local name
         repeat name = pick(NAMES) until not used[name]
         used[name] = true
@@ -628,7 +634,7 @@ local MARKS = {
     { "item raise", "-> item raise" }, { "cure", "-> cure " }, { "rescue", "-> rescue " },
     { "cure does not clear", "does not clear status" }, { "ether heal", "ether so a heal fits" },
     { "ether weak", "ether so the weakness fits" }, { "heal left", "heal left," }, { "heal left skipped", "heal left skipped" }, { "fill", "-> fill " },
-    { "resonance sent", "resonance " }, { "pot fight", "pot fight" }, { "summon acts", "acts on its own" },
+    { "resonance sent", "resonance " }, { "wheel heal", "resonance heal " }, { "Cure", ": Cure -> " }, { "Cura", ": Cura -> " }, { "Curaga", ": Curaga -> " }, { "pot fight", "pot fight" }, { "summon acts", "acts on its own" },
     { "raise left", "raise left to" }, { "null learned", "takes no damage from" }, { "refresh guard", "-> refresh guard" }, { "ether hit", "ether so a hit lands" }, { "raise waits", "waits, a living ally" }, { "raise cycle", "fell again after a raise" }, { "stalemate", "stalemate:" }, { "haste", "-> haste " }, { "haste for slow", ", slow" },
     { "slow debuff", "debuff slow" }, { "slow skipped", "slow cure skipped" }, { "cure slow", "-> cure slow" },
     { "break in time", "break in time" }, { "prepare guard", "prepare: guard" },
@@ -657,7 +663,7 @@ for sid = 1, sessions do
             if r.outcome == "win" then bump(byKind, r.kind, "win") bump(bySize, r.size, "win") end
             for k in pairs(stats) do stats[k] = stats[k] + (r.stats[k] or 0) end
             for name, n in pairs(r.stats.items) do items[name] = (items[name] or 0) + n end
-            if r.size == 2 then for _, line in ipairs(r.modLines) do if line:find(": Cura %-> ") or line:find(": Curaga %-> ") then stats.partyHeals = stats.partyHeals + 1 end end end
+            if r.size == 2 then for _, line in ipairs(r.modLines) do if line:find(": Mass Cure %-> ") or line:find(": Mass Cura %-> ") then stats.partyHeals = stats.partyHeals + 1 end end end
             for _, line in ipairs(r.modLines) do
                 local summary = line:match("battle %d+ done: (.*)$")
                 if summary then

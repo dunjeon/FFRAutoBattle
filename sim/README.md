@@ -68,7 +68,7 @@ Game facts it copies from the design doc and the battle logs:
 - A summon is a friend unit in slot 7 with no skill list. It acts on its own.
 - Every bar has Escape. The game refuses it in a boss fight.
 - A boss fight offers one retry after a wipe. The defeat screen holds a moment first.
-- Party heal rows (Cura, Curaga) show no magnification, as the game's rows can.
+- Cure, Cura and Curaga have the cost and power of the game's rows. Party heal rows (the invented Mass Cure and Mass Cura) show no magnification, as the game's rows can.
 - A hasted ally acts twice every other round. A slowed ally or enemy loses every other turn. Haste and Slow cancel each other, as in the classic games. FFR is not confirmed.
 - The units stay on screen a moment after the last blow. Each command and each enemy action takes screen time, so the planner's 0.7 s field check sees a raise land before the next hit.
 - Enemies deal physical or magic damage. Protect softens physical, Shell softens magic. A card's `no.physical` or `no.magic` makes that kind do nothing. The `nophys` fight is Shoggoth from the book. The `hidden` fight gives an enemy a null the book does not list, so the planner has to learn it.

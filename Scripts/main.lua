@@ -3123,7 +3123,7 @@ local function turn(uid, skills, w, phase)
                 local party = partyOf(s)
                 local r
                 if Health.spellRank then
-                    r = Health.spellRank(s, missing, hurtN, party, need)
+                    r = Health.spellRank(s, missing, hurtN, party, need, Fight.healRate and Fight.healRate[uid])
                 else
                     local cost = s.cost or 0
                     if cost < 1 then cost = 1 end
@@ -5223,6 +5223,7 @@ local function ensureBattle()
     Fight.drawSeen, Fight.cureTry, Fight.cureMiss, Fight.drawRound = {}, {}, {}, {}
     Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
     Fight.kindMiss, Fight.kindNull, Fight.kindHit, Fight.hitProbe = {}, {}, {}, nil
+    Fight.healRate, Fight.healProbe = {}, nil
     Fight.guardOn = {}
     Fight.veil = nil
     Fight.supportRun = {}
@@ -5666,6 +5667,28 @@ local function act(serial)
     if finishingEarly and Fight.resonanceSent then return end
     pcall(function() noteChanges(livingSnapshot()) end)
     pcall(settleGauges)
+    -- The last heal spell's target: what it restored per point of power. A
+    -- hit or the top of the bar can only make this read low, so the most seen
+    -- in the fight is kept.
+    pcall(function()
+        local probe = Fight.healProbe
+        Fight.healProbe = nil
+        if not probe then return end
+        local now = stat(probe.target, PARAM.HP, false)
+        if not (now and now > probe.hp) then return end
+        local rate = (now - probe.hp) / probe.power
+        Fight.healRate = Fight.healRate or {}
+        local had = Fight.healRate[probe.uid]
+        if (not had) or (rate > had) then
+            Fight.healRate[probe.uid] = rate
+            if not had then
+                local line = string.format("%s heals %.2f HP per power (%s restored %d)",
+                    Fight.nameOf(probe.uid), rate, probe.name, math.floor(now - probe.hp))
+                log("%s", line)
+                appendLog("  " .. line)
+            end
+        end
+    end)
     -- The last hit's targets: a kind that twice in a row took no HP is
     -- treated as nulled on that enemy for the fight. A hit that lands clears
     -- the count.
@@ -5745,6 +5768,17 @@ local function act(serial)
                 local r = hpRatio(tid)
                 if r and (r > 0) then probeHp[tid] = r end
             end
+        end
+    end
+    -- The target's HP before a one-target heal spell goes out, to learn how
+    -- much this caster restores.
+    Fight.healProbe = nil
+    if (choice.kind == "heal") and (not choice.isItem) and (choice.attr == ATTR.MAGIC) and (not choice.isAll)
+        and choice.targets and (#choice.targets == 1) then
+        local row = skillOf(choice.id)
+        local hpNow = stat(choice.targets[1], PARAM.HP, false)
+        if row and hpNow and (hpNow > 0) and ((row.power or 0) > 0) and (row.calc ~= Health.FIXED) then
+            Fight.healProbe = { uid = uid, target = choice.targets[1], hp = hpNow, power = row.power, name = choice.name }
         end
     end
     local ok, sent = pcall(send, uid, choice, phase)
@@ -6734,7 +6768,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.44. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.45. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
