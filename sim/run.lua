@@ -573,8 +573,18 @@ local function playSession(sid, withMod)
                 end
             end
         end
+        -- The biggest enemy's HP share left at the end, for fitting the sim
+        -- to a real fight (a loss with the boss at 40% reads 0.40).
+        local bossLeft = nil
+        do
+            local big = nil
+            for _, u in pairs(B.units) do
+                if u.side == "enemy" and (u.maxHp or 0) > 0 and ((not big) or u.maxHp > big.maxHp) then big = u end
+            end
+            if big then bossLeft = math.max(0, big.hp or 0) / big.maxHp end
+        end
         results[i] = {
-            kind = fight.kind, size = size, outcome = outcome, rounds = B.round, stats = B.stats,
+            kind = fight.kind, size = size, outcome = outcome, rounds = B.round, stats = B.stats, bossLeft = bossLeft,
             violations = viol, events = B.events, modLines = B.modLines, bag = B.bag, party = members,
             foes = fight.foes, boss = fight.boss,
         }
@@ -638,6 +648,10 @@ for sid = 1, sessions do
             tally.fights = tally.fights + 1
             tally[r.outcome] = tally[r.outcome] + 1
             tally.rounds = tally.rounds + r.rounds
+            if r.outcome ~= "win" and r.bossLeft then
+                tally.lossLeft = (tally.lossLeft or 0) + r.bossLeft
+                tally.lossN = (tally.lossN or 0) + 1
+            end
             bump(byKind, r.kind, "fights")
             bump(bySize, r.size, "fights")
             if r.outcome == "win" then bump(byKind, r.kind, "win") bump(bySize, r.size, "win") end
@@ -726,6 +740,9 @@ out("Planner  win %s  loss %d  timeout %d  fled %d  avg rounds %.1f", pct(tally.
     tally.rounds / math.max(1, tally.fights))
 out("Baseline win %s  avg rounds %.1f   (attack with the strongest payable skill)", pct(tally.baseWin, tally.baseFights),
     tally.baseRounds / math.max(1, tally.baseFights))
+if (tally.lossN or 0) > 0 then
+    out("Planner losses: biggest enemy left at %.0f%% HP on average (%d fights)", 100 * tally.lossLeft / tally.lossN, tally.lossN)
+end
 out("")
 out("%-9s %6s %8s %9s", "fight", "fights", "planner", "baseline")
 local ks = {}
