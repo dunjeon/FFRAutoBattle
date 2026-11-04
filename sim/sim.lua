@@ -382,10 +382,12 @@ local function tableRows(struct, rows)
             return { IsValid = valid, GetFName = function() return FNameOf(struct) end }
         end,
         ForEachRow = function(_, fn)
+            local r = rows
+            if type(r) == "function" then r = r() end
             local ids = {}
-            for id in pairs(rows) do ids[#ids + 1] = id end
+            for id in pairs(r) do ids[#ids + 1] = id end
             table.sort(ids)
-            for _, id in ipairs(ids) do fn(tostring(id), rows[id]) end
+            for _, id in ipairs(ids) do fn(tostring(id), r[id]) end
         end,
     }
 end
@@ -451,9 +453,27 @@ function Sim.install()
         end
         return nil
     end
+    -- The planner sees skill rows the way the game gives them: a status sits
+    -- in an effect bundle (targetRelation Friendlies, TargetType SkillTarget,
+    -- as on Debrave and Poison in DT_SkillData), and the row's own
+    -- statusCondition reads 0. The sim's own battle logic keeps row.status.
+    do
+        Sim.effects, Sim.planRows = {}, {}
+        for id, row in pairs(Sim.skills) do
+            local st = row.statusCondition or 0
+            local bundle = {}
+            if st > 0 then
+                local eid = 100000 + id
+                Sim.effects[eid] = { ID = eid, statusCondition = st, EffectType = 0 }
+                bundle[1] = { effectId = eid, targetRelation = REL.FRIEND, TargetType = 6 }
+            end
+            local view = { statusCondition = 0, effectBundleList = Arr(bundle) }
+            Sim.planRows[id] = setmetatable(view, { __index = row })
+        end
+    end
     Sim.tables = Sim.tables or {
-        tableRows("SKILL_EFFECT_DATA", {}),
-        tableRows("SKILL_DATA", Sim.skills),
+        tableRows("SKILL_EFFECT_DATA", function() return Sim.effects end),
+        tableRows("SKILL_DATA", function() return Sim.planRows end),
         tableRows("CONSUMABLES_ITEM_DATA", Sim.items),
         tableRows("VISION_ITEM_DATA", {}),
     }
@@ -1751,6 +1771,9 @@ function Sim.play(maxRounds, policy)
                 for _, a in pairs(B.units) do
                     if a.side == "ally" and not a.summon then
                         a.dead, a.hp, a.mp, a.statuses, a.lb = false, a.maxHp, a.maxMp, {}, 0
+                        -- A new try: falls and raises before the wipe do not
+                        -- make a raise cycle after it.
+                        a.raisedAt, a.refellAt = nil, nil
                     elseif a.side == "enemy" then
                         a.dead, a.hp, a.statuses, a.poured, a.brokenFor = false, a.maxHp, {}, 0, 0
                     elseif a.summon then

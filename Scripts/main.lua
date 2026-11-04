@@ -459,21 +459,30 @@ local function buildSkillIndex()
                 local id = num(field(row, "ID"))
                 if not id then return end
                 local friendStatus, enemyStatus = {}, {}
+                local rel = num(field(row, "defaultTargetRelation")) or 0
+                -- Where a bundle's status lands is its TargetType, not its
+                -- targetRelation, which reads Friendlies on Debrave and Poison
+                -- too (DT_SkillData): SkillTarget (6) lands with the skill,
+                -- Self (0) on the caster, Group and the rest on the side the
+                -- bundle names.
                 local bundles = field(row, "effectBundleList")
-                if type(bundles) == "userdata" and bundles.ForEach then
+                if (type(bundles) == "userdata" or type(bundles) == "table") and bundles.ForEach then
                     bundles:ForEach(function(_, e)
                         local b = unwrap(e)
                         local eid = b and num(b.effectId)
-                        local rel = b and num(b.targetRelation)
+                        local brel = b and num(b.targetRelation)
+                        local btype = b and num(b.TargetType)
                         local st = eid and effects[eid]
                         if st and st > 0 then
-                            if rel == REL.FRIEND then friendStatus[st] = true end
-                            if rel == REL.ENEMY then enemyStatus[st] = true end
+                            local side = brel
+                            if btype == 6 then side = rel
+                            elseif btype == 0 then side = REL.FRIEND end
+                            if side == REL.FRIEND then friendStatus[st] = true end
+                            if side == REL.ENEMY then enemyStatus[st] = true end
                         end
                     end)
                 end
                 local own = num(field(row, "statusCondition")) or 0
-                local rel = num(field(row, "defaultTargetRelation")) or 0
                 if own > 0 and rel == REL.FRIEND then friendStatus[own] = true end
                 if own > 0 and rel == REL.ENEMY then enemyStatus[own] = true end
                 local name = textOf(field(row, "Name"))
@@ -1600,7 +1609,10 @@ local function pickRecoveryItem(uid, w, want, focus)
         return nil
     end
     if want == "heal" then
-        local hurt = lowestAlly(w)
+        -- The ally the heal was chosen for, when the caller names one. The
+        -- lowest ally instead skipped the kill-range marks and the 65% guard
+        -- that cleared the named one (a second Potion at 71% in the sim).
+        local hurt = (focus and focus.who) or lowestAlly(w)
         if not hurt then return nil end
         local missing = nil
         local maxv = stat(hurt.id, PARAM.HP, true)
@@ -3204,7 +3216,7 @@ local function turn(uid, skills, w, phase)
         end
         local itemLine = itemAt or 0.45
         if (not skill) and ((hurt.hp or 1) < itemLine) then
-            local item = pickRecoveryItem(uid, w, "heal")
+            local item = pickRecoveryItem(uid, w, "heal", { who = hurt })
             if item then return stamp(item) end
         end
         local blocked = false
@@ -4886,7 +4898,7 @@ local function noteChanges(now)
         local summon = (was.side == "ally") and Fight.isSummon and Fight.isSummon(id)
         if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon then
             Fight.fell[#Fight.fell + 1] = was.name
-            appendLog("  fell: " .. was.name)
+            appendLog("  fell: " .. was.name .. (was.raised and " (raised and down again before a menu)" or ""))
             local at = Fight.raisedRound and Fight.raisedRound[id]
             if at and (((Fight.rounds or 0) - at) <= 2) then
                 Fight.refell = Fight.refell or {}
@@ -5804,7 +5816,13 @@ local function act(serial)
     end
     if ((choice.kind == "revive") or (choice.itemUse == "revive")) and choice.targets then
         Fight.raisedRound = Fight.raisedRound or {}
-        for _, tid in ipairs(choice.targets) do Fight.raisedRound[tid] = Fight.rounds or 0 end
+        for _, tid in ipairs(choice.targets) do
+            Fight.raisedRound[tid] = Fight.rounds or 0
+            -- Up from the raise on: a fall before the next menu sees them up
+            -- is still a fall right after a raise (the sim's raise cycle).
+            local was = Fight.prev and Fight.prev[tid]
+            if was and was.side == "ally" and (was.hp or 0) <= 0 then was.hp = 1; was.raised = true end
+        end
     end
     -- Each ally a heal was sent to, with their HP now. Until a hit takes
     -- them below it, they count as handled: the raise hold and the critical
@@ -6724,7 +6742,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.41. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.42. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
