@@ -2152,6 +2152,24 @@ local function pickFinish(uid, finishes, w)
         if choice then choice.score = score end
         return choice
     end
+    local function rowScore(s)
+        local support = s.kind == "heal" or s.kind == "buff" or s.kind == "revive"
+            or (s.known and (s.known.use == "heal" or s.known.use == "buff" or s.known.use == "guardbuff"))
+        if support then return nil end
+        local pow = offenseOf(s)
+        local factor = 1
+        for _, u in ipairs(w.enemies or {}) do
+            local f = elementFactor(s, u)
+            if f > factor then factor = f end
+        end
+        if factor <= 0 then return nil end
+        return pow * ((factor >= 3) and 1.5 or factor)
+    end
+    -- For the wheel's log line. A heal below returns before the damage loop.
+    for _, s in ipairs(list) do
+        local okR, r = pcall(rowScore, s)
+        s.wheelScore = okR and r or nil
+    end
     if hurt and ((hurt.hp or 1) < 0.40 or wounded >= 2) then
         for _, s in ipairs(list) do
             local heal = s.kind == "heal" or s.kind == "revive" or (s.known and s.known.use == "heal")
@@ -2164,20 +2182,8 @@ local function pickFinish(uid, finishes, w)
     end
     local best, bestR = nil, -1
     for _, s in ipairs(list) do
-        local support = s.kind == "heal" or s.kind == "buff" or s.kind == "revive"
-            or (s.known and (s.known.use == "heal" or s.known.use == "buff" or s.known.use == "guardbuff"))
-        if not support then
-            local pow = offenseOf(s)
-            local factor = 1
-            for _, u in ipairs(w.enemies or {}) do
-                local f = elementFactor(s, u)
-                if f > factor then factor = f end
-            end
-            if factor > 0 then
-                local r = pow * ((factor >= 3) and 1.5 or factor)
-                if r > bestR then best, bestR = s, r end
-            end
-        end
+        local r = rowScore(s)
+        if r and r > bestR then best, bestR = s, r end
     end
     -- No finisher lands on the field: the wheel is left for the player.
     if not best then return nil end
@@ -6570,6 +6576,7 @@ local function resonanceWatch()
         Fight.resonanceSent = false
         Fight.resonanceMiss = false
         Fight.resonanceWait = false
+        Fight.wheelLogged = false
         Fight.finishScan = nil
         Fight.attackWheel = false
         return
@@ -6589,6 +6596,7 @@ local function resonanceWatch()
     pcall(buildSkillIndex)
     local bestUid, bestChoice, bestScore = nil, nil, -1e9
     local names = {}
+    local wheelNotes, wheelFoes = {}, nil
     for _, uid in ipairs(friendIds()) do
         local ratio = hpRatio(uid)
         local down = (Fight.unitDown and Fight.unitDown(uid)) or (ratio == nil) or (ratio <= 0)
@@ -6603,8 +6611,36 @@ local function resonanceWatch()
                 if okPick and choice and (choice.score or 0) > bestScore then
                     bestUid, bestChoice, bestScore = uid, choice, choice.score or 0
                 end
+                if not Fight.wheelLogged then
+                    pcall(function()
+                        wheelFoes = wheelFoes or w.enemies
+                        local rows = {}
+                        for _, s in ipairs(skills) do
+                            rows[#rows + 1] = string.format("%s %s%s", tostring(s.name), tostring(s.kind),
+                                s.wheelScore and string.format(" %.0f", s.wheelScore) or "")
+                        end
+                        local picked = (okPick and choice) and string.format(", pick %s", choice.name) or ""
+                        wheelNotes[#wheelNotes + 1] = string.format("%s %d%%: %s%s", unitName(uid),
+                            math.floor((ratio or 0) * 100 + 0.5),
+                            (#rows > 0) and table.concat(rows, ", ") or "no rows", picked)
+                    end)
+                end
             end
+        elseif not Fight.wheelLogged then
+            wheelNotes[#wheelNotes + 1] = unitName(uid) .. " can't act"
         end
+    end
+    if not Fight.wheelLogged then
+        Fight.wheelLogged = true
+        pcall(function()
+            local foes = {}
+            for _, u in ipairs(wheelFoes or {}) do
+                foes[#foes + 1] = string.format("%s %d%%", tostring(u.name), math.floor((u.hp or 0) * 100 + 0.5))
+            end
+            local line = string.format("wheel. foes %s. %s", table.concat(foes, ", "), table.concat(wheelNotes, ". "))
+            log("%s", line)
+            appendLog("  " .. line)
+        end)
     end
     if not bestChoice then
         if not Fight.resonanceMiss then
@@ -6742,7 +6778,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.42. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.43. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
