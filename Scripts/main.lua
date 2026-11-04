@@ -5781,6 +5781,29 @@ local function act(serial)
             end
         end
     end
+    -- Log only: is this debuff's status already on the enemy it goes to?
+    if choice.reason and choice.reason:find(" debuff ", 1, true) then
+        pcall(function()
+            local row = skillOf(choice.id)
+            local function sorted(set)
+                local ids = {}
+                for id in pairs(set or {}) do ids[#ids + 1] = id end
+                table.sort(ids)
+                return table.concat(ids, ",")
+            end
+            for _, tid in ipairs(choice.targets or {}) do
+                local set = statuses(tid)
+                local still = "no"
+                for id in pairs((row and row.enemyStatus) or {}) do
+                    if set[id] then still = "yes" end
+                end
+                local line = string.format("debuff check %s on %s: its status %s, on the enemy now %s, still up %s",
+                    choice.name, unitName(tid), sorted(row and row.enemyStatus), sorted(set), still)
+                log("%s", line)
+                appendLog("  " .. line)
+            end
+        end)
+    end
     -- The target's HP before a one-target heal spell goes out, to learn how
     -- much this caster restores.
     Fight.healProbe = nil
@@ -6779,7 +6802,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.46. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.47. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
