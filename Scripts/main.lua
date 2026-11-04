@@ -2350,6 +2350,7 @@ local function markDebuff(id, effect)
 end
 
 local readRisk
+local applyPendingOrder
 -- The warning list is a living foe whose next slot will hit the party.
 -- Slots before that body pour book stagger, weakness at x3 and nothing
 -- past that. The slot is spent on the body only when that sum clears the
@@ -2806,7 +2807,14 @@ local function turn(uid, skills, w, phase)
     Fight.downNow = {}
     Fight.stance = Fight.stance or {}
     for _, a in ipairs(w.allies) do
-        if a.dead then Fight.stance[a.id] = nil end
+        if a.dead then
+            Fight.stance[a.id] = nil
+            -- A heal from before the fall does not count once they are down.
+            -- A raise brings them back under 30%, and that still needs a turn.
+            Fight.claim.heal[a.id] = nil
+            if Fight.killRangeAt then Fight.killRangeAt[a.id] = nil end
+            if Fight.healMark then Fight.healMark[a.id] = nil end
+        end
         if not a.dead then Fight.claim.revive[a.id] = nil
         elseif a.acts ~= false then Fight.downNow[#Fight.downNow + 1] = a end
     end
@@ -2862,7 +2870,21 @@ local function turn(uid, skills, w, phase)
         for _, a in ipairs(w.allies) do
             if not a.dead then
                 -- A critical ally this turn can still help: not yet healed this round.
-                if ((a.hp or 1) < 0.30) and (not Fight.claim.heal[a.id]) then critical = true end
+                -- Healed since the last hit: the mark holds while HP has not
+                -- dropped below the highest HP seen since the heal. Any drop
+                -- is a hit, the same as the sim, which clears it on damage.
+                local mark = Fight.healMark and Fight.healMark[a.id]
+                local handled = false
+                if mark then
+                    local hpAbs = stat(a.id, PARAM.HP, false)
+                    if hpAbs and hpAbs < mark then
+                        Fight.healMark[a.id] = nil
+                    elseif hpAbs then
+                        Fight.healMark[a.id] = hpAbs
+                        handled = true
+                    end
+                end
+                if ((a.hp or 1) < 0.30) and (not handled) then critical = true end
                 if (a.hp or 1) < 0.50 then underHalf = true end
                 if (a.acts ~= false) and (not heldOut(a)) then
                     local worth = healWorth(unitKit(a.id))
@@ -2967,6 +2989,113 @@ local function turn(uid, skills, w, phase)
         end
     end
 
+    -- Largest HP one living foe's cast has taken off one ally. A guard
+    -- scales that down only when the same skill has already hit for less
+    -- with isDefence set. No such pair, no invented factor.
+    local function castThreat(ally)
+        local best = 0
+        local set = ally.statuses or {}
+        local phys = set[25] or set[36]
+        local mag = set[27]
+        for fid, foeBook in pairs(Fight.hitSeen or {}) do
+            if keepFoe(fid) then
+                for _, sk in pairs(foeBook) do
+                    local amount = sk.cast or 0
+                    local guarded = false
+                    if sk.dtype == 2 then guarded = mag and true or false
+                    elseif sk.dtype == 1 then guarded = phys and true or false
+                    else guarded = (mag or phys) and true or false end
+                    if guarded and ((sk.castOpen or 0) > (sk.castGuard or 0)) and ((sk.castGuard or 0) > 0) then
+                        amount = sk.castGuard
+                    end
+                    if amount > best then best = amount end
+                end
+            end
+        end
+        return best
+    end
+    if readRisk then readRisk() end
+    local ranged = nil
+    if hardField then
+        for _, a in ipairs(w.allies) do
+            if (not a.dead) and (not Fight.claim.heal[a.id]) and not (Fight.summons and Fight.summons[a.id]) then
+                local hpNow = stat(a.id, PARAM.HP, false)
+                local maxHp = stat(a.id, PARAM.HP, true)
+                local lineHp = castThreat(a)
+                -- A cast at or over max HP cannot be healed out of. That
+                -- heal would repeat every turn. After a kill-range heal, the
+                -- ally is not healed for kill range again until a hit takes
+                -- them below the HP they had when that heal was chosen. A
+                -- round count let the planner and the game disagree (a
+                -- second heal at 75% in the sim's same round).
+                local open = true
+                local rec = Fight.killRangeAt and Fight.killRangeAt[a.id]
+                if type(rec) == "table" then
+                    if (rec.hp == nil) or (hpNow == nil) or (hpNow >= rec.hp) then open = false end
+                elseif rec then
+                    open = false
+                end
+                -- AGENTS.md: claims stop a second heal in the same round. The
+                -- planner's round can end before the game's, so an ally above
+                -- 65% who had any heal in the last two passes of the party is
+                -- not healed again for kill range.
+                -- a.hp is the share the planner reports and heals by.
+                if open and ((a.hp or 0) >= 0.65) then
+                    local lastHeal = Fight.healAt and Fight.healAt[a.id]
+                    if lastHeal then
+                        local live = 0
+                        for _, b in ipairs(w.allies) do
+                            if (not b.dead) and not (Fight.summons and Fight.summons[b.id]) then live = live + 1 end
+                        end
+                        if (#(Fight.actions or {}) - lastHeal) < (math.max(live, 1) * 2) then open = false end
+                    end
+                end
+                if open and hpNow and maxHp and (maxHp > 0) and (lineHp > 0) and (lineHp < maxHp) and (hpNow <= lineHp) then
+                    if (not ranged) or ((a.hp or 1) < (ranged.hp or 1)) then ranged = a end
+                end
+            end
+        end
+    end
+    Fight.killHold = (ranged ~= nil)
+    -- True when a living foe's slot is before the main healer's next one.
+    -- No Timeline read leaves today's wait in place.
+    local function foeBeforeHealer()
+        local order = Fight.order
+        if not order or not order.current then return false end
+        if not Health.mainHealer then return false end
+        local healer = Health.mainHealer(w.allies, unitKit)
+        if not healer then return false end
+        local hid = healer.id
+        if hid == uid then return false end
+        local cur = order.current or {}
+        local nxt = order.next or {}
+        local function find(list, id)
+            for i, v in ipairs(list) do
+                if v == id then return i end
+            end
+            return nil
+        end
+        local function foeIn(list, i0, i1)
+            for i = i0, i1 do
+                local id = list[i]
+                if id and (id ~= hid) and keepFoe(id) and not (Fight.summons and Fight.summons[id]) then
+                    return true
+                end
+            end
+            return false
+        end
+        local at = find(cur, uid)
+        local healAt = find(cur, hid)
+        if at and healAt and (healAt > at) then
+            return foeIn(cur, at + 1, healAt - 1)
+        end
+        local from = (at and (at + 1)) or 1
+        if foeIn(cur, from, #cur) then return true end
+        local healNext = find(nxt, hid)
+        if not healNext then return false end
+        return foeIn(nxt, 1, healNext - 1)
+    end
+
     local function healNow(hurt, why, itemAt)
         if not hurt or Fight.claim.heal[hurt.id] then return nil end
         if Health.healerWaiting then
@@ -2983,14 +3112,26 @@ local function turn(uid, skills, w, phase)
                 return stat(id, PARAM.MP, false) or 0
             end
             if Health.healerWaiting(uid, why, hurt.hp, danger, w.allies, unitKit, mpOf, Fight.went) then
-                Fight.healLeft = Fight.healLeft or {}
-                if not Fight.healLeft[uid] then
-                    Fight.healLeft[uid] = true
-                    local line = string.format("heal left, %s waits", unitName(uid))
-                    log("%s", line)
-                    appendLog("  " .. line)
+                if Fight.killHold and foeBeforeHealer() then
+                    Fight.healLeft = Fight.healLeft or {}
+                    local key = "skip" .. tostring(uid)
+                    if not Fight.healLeft[key] then
+                        Fight.healLeft[key] = true
+                        local healer = Health.mainHealer and Health.mainHealer(w.allies, unitKit) or nil
+                        local line = string.format("heal left skipped, foe before %s", (healer and healer.name) or "?")
+                        log("%s", line)
+                        appendLog("  " .. line)
+                    end
+                else
+                    Fight.healLeft = Fight.healLeft or {}
+                    if not Fight.healLeft[uid] then
+                        Fight.healLeft[uid] = true
+                        local line = string.format("heal left, %s waits", unitName(uid))
+                        log("%s", line)
+                        appendLog("  " .. line)
+                    end
+                    return nil
                 end
-                return nil
             end
         end
         local skill, rank = nil, -1
@@ -3036,14 +3177,35 @@ local function turn(uid, skills, w, phase)
         end
         -- A group heal beats every single heal. With no party heal spell to
         -- pay, a party item goes out on that spread.
+        local function stamp(choice)
+            if choice and (why == "kill-range") and choice.reason and (not choice.reason:find("kill-range", 1, true)) then
+                choice.reason = "kill-range " .. choice.reason
+            end
+            if choice then
+                Fight.claim.heal[hurt.id] = true
+                if why == "kill-range" then
+                    Fight.killRangeAt = Fight.killRangeAt or {}
+                    local function markFor(id)
+                        return { round = Fight.rounds or 0, at = #(Fight.actions or {}), hp = stat(id, PARAM.HP, false) }
+                    end
+                    Fight.killRangeAt[hurt.id] = markFor(hurt.id)
+                    if choice.isAll then
+                        for _, id in ipairs(choice.targets or {}) do
+                            Fight.killRangeAt[id] = markFor(id)
+                        end
+                    end
+                end
+            end
+            return choice
+        end
         if (hurtN >= need) and ((not skill) or (not partyOf(skill))) then
             local item = pickRecoveryItem(uid, w, "heal", { partyOnly = true })
-            if item then Fight.claim.heal[hurt.id] = true return item end
+            if item then return stamp(item) end
         end
         local itemLine = itemAt or 0.45
         if (not skill) and ((hurt.hp or 1) < itemLine) then
             local item = pickRecoveryItem(uid, w, "heal")
-            if item then Fight.claim.heal[hurt.id] = true return item end
+            if item then return stamp(item) end
         end
         local blocked = false
         for _, s in ipairs(skills) do
@@ -3079,7 +3241,7 @@ local function turn(uid, skills, w, phase)
             local pct = math.floor((hurt.hp or 0) * 100 + 0.5)
             local choice = finishChoice(uid, skill, string.format("%s %s at %d%%", why, hurt.name, pct),
                 spread and idsOf(w.allies) or { hurt.id }, spread)
-            if choice then Fight.claim.heal[hurt.id] = true return choice end
+            if choice then return stamp(choice) end
         end
         return nil
     end
@@ -3087,6 +3249,7 @@ local function turn(uid, skills, w, phase)
     local crit = allyCritical()
     local function deferHeal()
         if phase == PHASE_BONUS then return false end
+        if Fight.killHold and foeBeforeHealer() then return false end
         if crit and (crit.hp or 1) < 0.15 then return false end
         local list = (#pool > 0) and pool or open
         -- The same hit the damage picker would cast. A summon is not a chip.
@@ -3121,12 +3284,20 @@ local function turn(uid, skills, w, phase)
         end
         return others > 0 and not otherPays and otherHeals
     end
-    if crit and phase ~= PHASE_BONUS and not deferHeal() then
-        local choice = healNow(crit, "critical")
+    -- Same slot as a critical heal. Under 30% keeps that label. Above it,
+    -- the ally is here because a cast already seen would drop them.
+    local hurt, why = crit, crit and "critical" or nil
+    if ranged and ((not crit) or ((ranged.hp or 1) < (crit.hp or 1))) then
+        hurt = ranged
+        why = ((ranged.hp or 1) < 0.30) and "critical" or "kill-range"
+    end
+    local healAt = (why == "kill-range") and 1.01 or nil
+    if hurt and (phase ~= PHASE_BONUS) and (not deferHeal()) then
+        local choice = healNow(hurt, why, healAt)
         if choice then return choice end
     end
     if phase == PHASE_BONUS or #brokenPool > 0 and phase == PHASE_BONUS then
-        local choice = healNow(crit, "critical")
+        local choice = healNow(hurt, why, healAt)
         if choice then return choice end
     end
 
@@ -5025,6 +5196,8 @@ local flushWarn
 local function finishBattle()
     if not Fight.active then return end
     Fight.active = false
+    Fight.hitSeen, Fight.hitHold, Fight.killHold = nil, nil, false
+    Fight.orderPending, Fight.orderFresh = nil, false
     local turns = #Fight.actions
     local broke = (#Fight.broke > 0) and table.concat(Fight.broke, ", ") or "nobody broken"
     local fell = (#Fight.fell > 0) and table.concat(Fight.fell, ", ") or "no one fell"
@@ -5091,6 +5264,12 @@ local function ensureBattle()
     Fight.limitSkip = {}
     Fight.cureHeld = false
     Fight.healLeft = {}
+    Fight.hitSeen = Fight.hitHold or {}
+    Fight.hitHold = nil
+    Fight.killHold = false
+    Fight.killRangeAt = {}
+    Fight.healMark = {}
+    Fight.healAt = {}
     Fight.statusTold = {}
     Fight.slowSince, Fight.slowTry, Fight.slowTold, Fight.slowUsed = {}, nil, {}, {}
     Fight.underLine = false
@@ -5305,7 +5484,7 @@ local function noteRound(uid)
     -- A round is one turn for every party member who can take one. A summon
     -- and an ally whose status takes the turn are not waited on. A round
     -- never runs past two passes of the party, so nothing can hold it open.
-    local actors, went = 0, 0
+    local actors, went, full = 0, 0, 0
     for _, id in ipairs(friendIds()) do
         local ratio = hpRatio(id)
         local summon = Fight.isSummon and Fight.isSummon(id)
@@ -5320,7 +5499,9 @@ local function noteRound(uid)
                     if set[sid] then held = true end
                 end
             end
-            if kit and kit.spells and (#kit.spells > 0) and ((not held) or Fight.went[id]) then
+            local can = (not held) or Fight.went[id]
+            if can then full = full + 1 end
+            if kit and kit.spells and (#kit.spells > 0) and can then
                 actors = actors + 1
                 if Fight.went[id] then went = went + 1 end
             end
@@ -5328,15 +5509,28 @@ local function noteRound(uid)
     end
     local since = #(Fight.actions or {}) - (Fight.roundAt or 0)
     if (actors > 0) and ((went >= actors) or (since >= actors * 2)) then
-        Fight.roundAt = #(Fight.actions or {})
+        local prev = Fight.rounds or 0
+        local nowN = #(Fight.actions or {})
+        -- The spell filter can end this round before every living ally has
+        -- acted. A kill-range heal from the round that just ended stays
+        -- marked, or the next slot heals the same ally again.
+        local short = (full > actors) and (went < full) and (since < (full * 2))
+        Fight.roundAt = nowN
         Fight.went = {}
         Fight.healLeft = {}
-        Fight.rounds = (Fight.rounds or 0) + 1
+        Fight.rounds = prev + 1
         if Fight.claim then
             Fight.claim.heal = {}
             Fight.claim.ether = {}
             Fight.claim.etherRound = false
             Fight.claim.kit = {}
+        end
+        if short and Fight.killRangeAt then
+            for _, rec in pairs(Fight.killRangeAt) do
+                if (type(rec) == "table") and (rec.round == prev) and ((nowN - (rec.at or nowN)) < full) then
+                    rec.round = Fight.rounds
+                end
+            end
         end
         Fight.afterBonus = false
     end
@@ -5364,6 +5558,7 @@ local function act(serial)
     if uid < 0 then uid = Menu.actor end
     if uid < 0 then return end
     pcall(ensureBattle)
+    if Fight.orderFresh and applyPendingOrder then pcall(applyPendingOrder) end
     if Fight.slowTry and Health.watchSlowCast and (not Fight.slowTry.out) then
         Fight.slowHeld = Fight.slowTry.key
         Fight.slowTry, Fight.slowNote = Health.watchSlowCast(Fight.slowTry, {
@@ -5610,6 +5805,22 @@ local function act(serial)
     if ((choice.kind == "revive") or (choice.itemUse == "revive")) and choice.targets then
         Fight.raisedRound = Fight.raisedRound or {}
         for _, tid in ipairs(choice.targets) do Fight.raisedRound[tid] = Fight.rounds or 0 end
+    end
+    -- Each ally a heal was sent to, with their HP now. Until a hit takes
+    -- them below it, they count as handled: the raise hold and the critical
+    -- line ask "healed since the last hit", not "healed this round", whose
+    -- end the planner and the game see at different moments.
+    if (choice.kind == "heal") or (choice.itemUse == "hp") or (choice.itemUse == "both") then
+        Fight.healMark = Fight.healMark or {}
+        local ids = choice.targets or {}
+        -- A party heal reaches every living ally, whatever its target list says.
+        if choice.isAll or (choice.reason and choice.reason:find("party heal", 1, true)) then ids = friendIds() end
+        Fight.healAt = Fight.healAt or {}
+        for _, tid in ipairs(ids) do
+            local hpNow = stat(tid, PARAM.HP, false)
+            if hpNow and hpNow > 0 then Fight.healMark[tid] = hpNow end
+            Fight.healAt[tid] = #(Fight.actions or {})
+        end
     end
     if choice.attr == ATTR.FINISH then Fight.resonanceSent = true end
     if (choice.kind == "damage") and (not choice.isItem) and (choice.attr ~= ATTR.SUMMON) then
@@ -6002,6 +6213,104 @@ end
 -- Game thread, while a party menu is open. The risk object is not kept.
 function readRisk()
     if not Fight then return end
+    -- The last skill's hit list. Numbers only; the skill object is not kept.
+    -- Reads before the fight is open sit in hitHold until ensureBattle.
+    pcall(function()
+        local vm = FindFirstOf("CPP_BtlVoiceManager")
+        if not (vm and vm.IsValid and vm:IsValid()) then return end
+        local skillObj = unwrap(vm.m_pSkillObj)
+        if not (skillObj and skillObj.IsValid and skillObj:IsValid()) then return end
+        local list = skillObj.m_DamageVariationDataList
+        if not (list and list.ForEach) then return end
+        local friends = {}
+        for _, fid in ipairs(friendIds()) do friends[fid] = true end
+        if Fight.seenAlly then
+            for fid in pairs(Fight.seenAlly) do friends[fid] = true end
+        end
+        if Fight.summons then
+            for fid in pairs(Fight.summons) do friends[fid] = nil end
+        end
+        local function actorId(v)
+            local n = num(v)
+            if n then return n end
+            local obj = unwrap(v)
+            if not obj then return nil end
+            n = num(obj.m_UniqueId)
+            if n then return n end
+            local ok, got = pcall(function() return obj:GetUniqueId() end)
+            return ok and num(got) or nil
+        end
+        local casts = {}
+        list:ForEach(function(i, e)
+            if i > 128 then return true end
+            local d = unwrap(e)
+            if not d then return end
+            local from = actorId(d.pActionUnit)
+            local to = actorId(d.pTargetUnit)
+            local row = unwrap(d.unitParameterVariationData)
+            if not from or not to or not row then return end
+            if Fight.summons and Fight.summons[from] then return end
+            if not friends[to] then return end
+            if not keepFoe(from) then return end
+            if num(row.variationParameter) ~= PARAM.HP then return end
+            if num(row.VariationType) ~= 1 then return end
+            if unwrap(row.isMiss) == true then return end
+            local value = num(row.VariationValue)
+            local before = num(row.beforeVariationValue)
+            local after = num(row.afterVariationValue)
+            -- A killing hit's HP change stops at 0. VariationValue is the
+            -- full hit, so a 900 on 500 HP counts as 900.
+            local spent = nil
+            if before and after and (before > after) then spent = before - after end
+            local dmg = value
+            if spent and ((not dmg) or (spent > dmg)) then dmg = spent end
+            if (not dmg) or (dmg <= 0) then return end
+            local sid = num(row.SkillId) or 0
+            local defended = unwrap(row.isDefence) == true
+            local dtype = num(row.DamageType) or 0
+            local key = tostring(from) .. ":" .. tostring(sid) .. ":" .. tostring(to)
+            local rec = casts[key]
+            if not rec then
+                rec = {
+                    from = from, sid = sid, dmg = 0, maxHit = 0,
+                    defended = defended, open = not defended, dtype = dtype,
+                }
+                casts[key] = rec
+            end
+            rec.dmg = rec.dmg + dmg
+            if dmg > rec.maxHit then rec.maxHit = dmg end
+            if defended then rec.defended = true else rec.open = true end
+            if dtype ~= 0 then rec.dtype = dtype end
+        end)
+        local book = Fight.hitSeen
+        if not Fight.active then
+            Fight.hitHold = Fight.hitHold or {}
+            book = Fight.hitHold
+        else
+            Fight.hitSeen = Fight.hitSeen or {}
+            book = Fight.hitSeen
+        end
+        for _, rec in pairs(casts) do
+            local foe = book[rec.from]
+            if not foe then
+                foe = {}
+                book[rec.from] = foe
+            end
+            local sk = foe[rec.sid]
+            if not sk then
+                sk = { cast = 0, hit = 0, castOpen = 0, castGuard = 0, dtype = rec.dtype }
+                foe[rec.sid] = sk
+            end
+            if rec.dmg > (sk.cast or 0) then sk.cast = rec.dmg end
+            if rec.maxHit > (sk.hit or 0) then sk.hit = rec.maxHit end
+            if rec.dtype ~= 0 then sk.dtype = rec.dtype end
+            if rec.defended and not rec.open then
+                if rec.dmg > (sk.castGuard or 0) then sk.castGuard = rec.dmg end
+            elseif rec.dmg > (sk.castOpen or 0) then
+                sk.castOpen = rec.dmg
+            end
+        end
+    end)
     local ids = {}
     local ok = pcall(function()
         local tl = FindFirstOf("CPP_VM_BtlTimeLine")
@@ -6029,6 +6338,30 @@ function readRisk()
         if (not rec.settled) and (not seen[id]) then gone[#gone + 1] = id end
     end
     for _, id in ipairs(gone) do settleWarn(id) end
+end
+
+-- Party menu or a decide, on the game thread. The Timeline hook only
+-- copies ids. Walking the hit list or the warning list inside that hook
+-- runs while the game is swapping the turn order.
+applyPendingOrder = function()
+    if not Fight then return end
+    if not Fight.active then
+        readRisk()
+        return
+    end
+    local pending = Fight.orderPending
+    Fight.orderPending = nil
+    Fight.orderFresh = false
+    if type(pending) == "table" and (#pending > 0) then
+        for i = 1, #pending do
+            local snap = pending[i]
+            noteWarnTimeline(snap.current, "broke")
+            readRisk()
+            noteWarnTimeline(snap.current, "reached")
+        end
+    else
+        readRisk()
+    end
 end
 
 function flushWarn()
@@ -6063,17 +6396,20 @@ local function hookTimeline()
             row = nil
             if not Fight then return end
             Fight.order = { current = current, next = nxt, extra = extra }
-            -- A break has to be on the record before a vanished id is settled.
-            -- The arrival mark waits until the list read can open that record.
-            noteWarnTimeline(current, "broke")
-            if readRisk then readRisk() end
-            noteWarnTimeline(current, "reached")
+            local q = Fight.orderPending or {}
+            if #q >= 32 then table.remove(q, 1) end
+            q[#q + 1] = { current = current, next = nxt, extra = extra }
+            Fight.orderPending = q
+            Fight.orderFresh = true
         end)
     end)
 end
 
 local function hookDecide()
     RegisterHook("/Script/mucha.CPP_BtlDelEventCmd:OnExecuteDecideCommand", function(_, value)
+        -- No game reads inside a hook beyond its own value: the risk list and
+        -- the hit walk run on the game thread right after it returns.
+        if applyPendingOrder and Fight and Fight.orderFresh then gameDelay(0, applyPendingOrder) end
         pcall(function()
             local v = value:get()
             local fromMod = (Menu.byMod == true)
@@ -6095,7 +6431,7 @@ local function hookMenu()
         local ok, name = pcall(function() return tag:get().TagName:ToString() end)
         if not ok then return end
         if name == "Delegate.Battle.Cmd.List.Begin" then
-            pcall(readRisk)
+            if applyPendingOrder and Fight and Fight.orderFresh then gameDelay(0, applyPendingOrder) end
             local actor = currentActor()
             Menu.sub = (actor == Menu.actor) and (not Menu.decided)
             Menu.actor = actor
@@ -6388,7 +6724,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.40. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.41. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

@@ -438,6 +438,17 @@ function Sim.install()
             for i, id in ipairs((B and B.risk) or {}) do ids[i] = id end
             return { IsValid = valid, RiskUnitUniqueIdList = Arr(ids) }
         end
+        -- The last enemy skill's hit rows. The planner copies the numbers.
+        if name == "CPP_BtlVoiceManager" then
+            local rows = (B and B.hitRows) or {}
+            return {
+                IsValid = valid,
+                m_pSkillObj = {
+                    IsValid = valid,
+                    m_DamageVariationDataList = Arr(rows),
+                },
+            }
+        end
         return nil
     end
     Sim.tables = Sim.tables or {
@@ -467,10 +478,10 @@ function Sim.newBattle(opts)
             bonus = 0, finish = 0, finishByMod = 0, cures = 0, cureMiss = 0, wasted = 0,
             lb1 = 0, lb2 = 0, lbHeld = 0, lbSupport = 0,
         },
-        roundHeals = {}, roundEthers = 0, passActed = {}, pot = opts.pot or false, rules = opts.rules or {},
+        roundHeals = {}, partyHealed = {}, roundEthers = 0, passActed = {}, passAt = 0, pot = opts.pot or false, rules = opts.rules or {},
         noFlee = opts.noFlee or false,
         focusHealer = opts.focusHealer or false, easy = opts.easy or false, retry = opts.retry or false,
-        risk = {},
+        risk = {}, hitRows = {},
     }
     for i, m in ipairs(opts.party) do
         local id = i - 1
@@ -570,16 +581,21 @@ local function hurt(u, amount, src)
         u.statuses[87] = nil
         amount = 0
     end
+    local applied = amount
     u.hp = u.hp - amount
     if u.called then u.hp = math.max(1, u.hp) end
     if u.side == "enemy" and amount > 0 then B.lastProgress = B.round end
     if u.side == "ally" then u.lb = math.min(u.lbMax or 200, (u.lb or 0) + math.floor(amount * 60 / u.maxHp)) end
+    if u.side == "ally" and amount > 0 and B.sinceHit then B.sinceHit[u.id] = nil end
     if u.statuses[ST.SLEEP] then u.statuses[ST.SLEEP] = nil end
     if u.hp <= 0 then
         u.hp = 0
         u.dead = true
         u.statuses = {}
         if u.side == "ally" and not u.summon then
+            -- Standing back up under 30% has not been healed this round.
+            if B.roundHeals then B.roundHeals[u.id] = nil end
+            if B.partyHealed then B.partyHealed[u.id] = nil end
             B.stats.falls = B.stats.falls + 1
             if u.raisedAt and ((B.passes or 0) - u.raisedAt) <= 1 then
                 B.stats.quickRefall = (B.stats.quickRefall or 0) + 1
@@ -590,6 +606,7 @@ local function hurt(u, amount, src)
         end
         if u.side == "enemy" then event("%s defeated", u.name) end
     end
+    return applied
 end
 
 local function heal(u, amount)
@@ -948,7 +965,11 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
     if B.phase ~= 2 and actor.side == "ally" and not actor.summon then
         B.passActed = B.passActed or {}
         if B.passDone then
-            B.passActed, B.roundHeals, B.roundEthers, B.passDone = {}, {}, 0, false
+            -- roundHeals (the overheal rule) clears with the pass, as before.
+            -- sinceHit (the raise rule) clears only when a hit lands, so the
+            -- planner and the sim don't need to agree where a round ends.
+            B.passActed, B.roundHeals, B.partyHealed, B.roundEthers, B.passDone = {}, {}, {}, 0, false
+            B.passAt = B.allyCmds or 0
         end
         B.passActed[actor.id] = true
         B.allyCmds = (B.allyCmds or 0) + 1
@@ -1009,12 +1030,13 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
             local critical, bestLiving = false, 0
             for _, a in ipairs(living("ally")) do
                 if not a.summon then
-                    -- Healed within the last pass of party commands counts as healed this round.
-                    local at = B.healedAt and B.healedAt[a.id]
-                    local size = 0
-                    for _, x in pairs(B.units) do if x.side == "ally" and not x.summon then size = size + 1 end end
-                    local recent = at and (((B.allyCmds or 0) - at) <= size)
-                    if ((a.hp / a.maxHp) < 0.30) and not recent then critical = true end
+                    -- Healed since the last hit (single or party heal), the same
+                    -- test the planner's raise hold uses (Fight.healMark).
+                    local marked = B.sinceHit and B.sinceHit[a.id]
+                    if Fight and Fight.claim and Fight.claim.heal and Fight.claim.heal[a.id] then
+                        marked = true
+                    end
+                    if ((a.hp / a.maxHp) < 0.30) and not marked then critical = true end
                     if not anyBad(a) and healPower(a) > 0 then
                         bestLiving = math.max(bestLiving, healPower(a) * 100 + (canRaise(a) and 10 or 0) + healCount(a))
                     end
@@ -1066,6 +1088,14 @@ local function check(actor, row, targets, isAll, isItem, item, byMod)
         if spec.heal and t.side == "ally" and byMod and (not t.dead) and (not isAll)
             and (not isItem) and t.statuses[97] and (row.skillAttrType == ATTR.MAGIC) then
             violate("blocked heal", "%s sent %s on %s, whose stance blocks it", actor.name, row.Name, t.name)
+        end
+        if spec.heal and t.side == "ally" and byMod and (not t.dead) then
+            B.sinceHit = B.sinceHit or {}
+            B.sinceHit[t.id] = true
+        end
+        if spec.heal and t.side == "ally" and byMod and (not t.dead) and isAll then
+            B.partyHealed = B.partyHealed or {}
+            B.partyHealed[t.id] = true
         end
         if spec.heal and t.side == "ally" and byMod and (not t.dead) and (not isAll) then
             if B.roundHeals[t.id] and (t.hp / t.maxHp) >= 0.65 then
@@ -1311,6 +1341,10 @@ function Sim.onDecide(obj, byMod)
                 end
             end
             B.passDone = (actors > 0) and (went >= actors)
+            -- The planner also ends a round after two passes, so a claim
+            -- cannot outlive the round the sim is judging.
+            local since = (B.allyCmds or 0) - (B.passAt or 0)
+            if (actors > 0) and (since >= actors * 2) then B.passDone = true end
             if B.passDone then B.passes = (B.passes or 0) + 1 end
         end
         if row.skillAttrType == ATTR.FINISH and byMod then B.stats.finishByMod = B.stats.finishByMod + 1 end
@@ -1335,6 +1369,46 @@ end
 --------------------------------------------------------------------------------
 -- Turns
 --------------------------------------------------------------------------------
+
+-- One enemy action is one cast. Poison, doom, summons, and items are not
+-- written here. isDefence is set only when Shell, Protect, or Defend reduced it.
+local function publishCast(foe, skillId, rows)
+    if not B or not rows then return end
+    local list = {}
+    for _, h in ipairs(rows) do
+        if h and h.dmg and (h.dmg > 0) then
+            list[#list + 1] = {
+                pActionUnit = foe.id,
+                pTargetUnit = h.to,
+                unitParameterVariationData = {
+                    variationParameter = 1,
+                    VariationType = 1,
+                    VariationValue = h.raw or h.dmg,
+                    beforeVariationValue = h.before,
+                    afterVariationValue = h.after,
+                    SkillId = skillId,
+                    DamageType = h.dtype,
+                    isDefence = h.defended and true or false,
+                    isMiss = false,
+                },
+            }
+        end
+    end
+    if #list > 0 then B.hitRows = list end
+end
+
+local function takeHit(foe, ally, raw, src, guarded)
+    if (not ally) or ally.dead or ally.gone then return nil end
+    local before = ally.hp
+    local applied = hurt(ally, raw, src) or 0
+    local dealt = before - ally.hp
+    if dealt <= 0 then return nil end
+    return {
+        to = ally.id, dmg = dealt, raw = applied, before = before, after = ally.hp,
+        defended = guarded and true or false,
+        dtype = (foe.hitKind == "magic") and 2 or 1,
+    }
+end
 
 local function enemyTurn(foe)
     foe.turns = foe.turns + 1
@@ -1405,13 +1479,15 @@ local function enemyTurn(foe)
         elseif step == 1 then
             local name = (c and c.danger and c.danger[1]) or "a heavy attack"
             event("%s used %s", foe.name, name)
+            local rows = {}
             for _, a in ipairs(allies) do
                 local dmg = atk * 3.2
-                if (foe.hitKind == "magic" and a.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and a.statuses[ST.PROTECT]) then
-                    dmg = dmg * 0.6
-                end
-                hurt(a, dmg, foe.name .. " " .. name)
+                local softened = (foe.hitKind == "magic" and a.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and a.statuses[ST.PROTECT])
+                if softened then dmg = dmg * 0.6 end
+                local hit = takeHit(foe, a, dmg, foe.name .. " " .. name, softened or a.defending)
+                if hit then rows[#rows + 1] = hit end
             end
+            publishCast(foe, 910001, rows)
             B.stats.warnLand = (B.stats.warnLand or 0) + 1
             foe.warnStep = 2
             return
@@ -1419,12 +1495,16 @@ local function enemyTurn(foe)
     end
     if c and c.danger and c.danger[1] and (foe.turns % 3 == 0) and (not foe.warn) then
         event("%s used %s", foe.name, c.danger[1])
+        local rows = {}
         for _, a in ipairs(allies) do
             local dmg = atk * 1.8
             -- Protect softens physical, Shell softens magic.
-            if (foe.hitKind == "magic" and a.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and a.statuses[ST.PROTECT]) then dmg = dmg * 0.6 end
-            hurt(a, dmg, foe.name .. " " .. c.danger[1])
+            local softened = (foe.hitKind == "magic" and a.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and a.statuses[ST.PROTECT])
+            if softened then dmg = dmg * 0.6 end
+            local hit = takeHit(foe, a, dmg, foe.name .. " " .. c.danger[1], softened or a.defending)
+            if hit then rows[#rows + 1] = hit end
         end
+        publishCast(foe, 910002, rows)
         return
     end
     -- Single hit. Provoke pulls it, Cover takes it.
@@ -1441,8 +1521,10 @@ local function enemyTurn(foe)
         if c2 and not c2.dead then target = c2 end
     end
     local dmg = atk * (0.85 + math.random() * 0.3)
-    if (foe.hitKind == "magic" and target.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and target.statuses[ST.PROTECT]) then dmg = dmg * 0.7 end
-    hurt(target, dmg, foe.name)
+    local softened = (foe.hitKind == "magic" and target.statuses[ST.SHELL]) or (foe.hitKind ~= "magic" and target.statuses[ST.PROTECT])
+    if softened then dmg = dmg * 0.7 end
+    local hit = takeHit(foe, target, dmg, foe.name, softened or target.defending)
+    if hit then publishCast(foe, 910003, { hit }) end
     if (not target.dead) and foe.statusChance > 0 and math.random() < foe.statusChance then
         local list = foe.statusList or { ST.POISON }
         local st = list[math.random(#list)]
