@@ -1640,7 +1640,11 @@ local function pickRecoveryItem(uid, w, want, focus)
             if choice then
                 choice.itemUse = "hp"
                 if Fight and Fight.claim and Fight.claim.heal then
-                    for _, id in ipairs(living) do Fight.claim.heal[id] = true end
+                    Fight.claim.itemHeal = Fight.claim.itemHeal or {}
+                    for _, id in ipairs(living) do
+                        Fight.claim.heal[id] = true
+                        Fight.claim.itemHeal[id] = true
+                    end
                 end
             end
             return tagged(choice, rare)
@@ -2774,6 +2778,12 @@ local function turn(uid, skills, w, phase)
     Fight.downNow = {}
     Fight.stance = Fight.stance or {}
     for _, a in ipairs(w.allies) do
+        -- A party item's claim does not cover an ally it left under 30%.
+        if (not a.dead) and ((a.hp or 1) < 0.30) and Fight.claim.itemHeal and Fight.claim.itemHeal[a.id] then
+            Fight.claim.heal[a.id] = nil
+            Fight.claim.itemHeal[a.id] = nil
+            appendLog(string.format("  %s still critical after a party item, claim released", tostring(a.name)))
+        end
         if a.dead then
             Fight.stance[a.id] = nil
             -- A heal from before the fall does not count once they are down.
@@ -5497,6 +5507,7 @@ local function noteRound(uid)
         Fight.rounds = prev + 1
         if Fight.claim then
             Fight.claim.heal = {}
+            Fight.claim.itemHeal = {}
             Fight.claim.ether = {}
             Fight.claim.etherRound = false
             Fight.claim.kit = {}
@@ -6768,7 +6779,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.45. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.46. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

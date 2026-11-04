@@ -31,7 +31,7 @@ This repo is the only copy under git. The installed mod folder, `FFRS/Binaries/W
 - Spend the element on the card. No card means stagger factor 1 and the live stagger number. Libra only when the name is missing or the card says the weakness shifts. A paid chip does not close that scout.
 - A weakness may finish a gauge when nothing in that element can chip it without finishing. When a weakness can still chip another enemy in the pool, the hit moves there.
 - One debuff goes on the enemy with a dangerous attack, or on the largest gauge.
-- Claims stop a second heal, a second revive, or a second Ether in the same round.
+- Claims stop a second heal, a second revive, or a second Ether in the same round. A party item's heal claim does not cover an ally still under 30% at the next turn.
 - Common shop items only, outside a boss fight. In a boss fight a rare item is spent when no common item does the job: a raise at once, a heal or MP item only under dire need (an ally down, an ally under 30%, or most of the living party under half). Dire need lifts the one-Ether-per-round limit. Scrolls and knives are thrown in a boss fight on a weakness the bar cannot pay, or when nothing payable lands. Tents and Healing Spring stay put. A Pot fight spends nothing.
 - The Resonance wheel is the player's. Detect the phase. Do not send a normal spell as a Finish Blow. Do not guess command-bar ids as Vision ids.
 - Battle speed stays with the game. Do not read it, write it, multiply it, clamp it, or move its marks. Do not bind the speed key.
