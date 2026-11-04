@@ -5234,6 +5234,7 @@ local function ensureBattle()
     Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
     Fight.kindMiss, Fight.kindNull, Fight.kindHit, Fight.hitProbe = {}, {}, {}, nil
     Fight.healRate, Fight.healProbe = {}, nil
+    Fight.debuffWatch = nil
     Fight.guardOn = {}
     Fight.veil = nil
     Fight.supportRun = {}
@@ -5678,6 +5679,33 @@ local function act(serial)
     if finishingEarly and Fight.resonanceSent then return end
     pcall(function() noteChanges(livingSnapshot()) end)
     pcall(settleGauges)
+    -- Log only: when the last debuff's status shows on its enemy, and when it
+    -- goes. Nothing reads this but the log.
+    pcall(function()
+        local watch = Fight.debuffWatch
+        if not watch then return end
+        local set = statuses(watch.target)
+        local up = false
+        for id in pairs(watch.ids) do
+            if set[id] then up = true end
+        end
+        local since = #(Fight.actions or {}) - watch.at
+        local line = nil
+        if up and (not watch.seen) then
+            watch.seen = true
+            line = string.format("debuff %s seen on %s, %d commands after the cast", watch.name, watch.foe, since)
+        elseif watch.seen and (not up) then
+            line = string.format("debuff %s gone from %s, %d commands after the cast", watch.name, watch.foe, since)
+            Fight.debuffWatch = nil
+        elseif (not watch.seen) and (since >= 12) then
+            line = string.format("debuff %s not seen on %s in %d commands", watch.name, watch.foe, since)
+            Fight.debuffWatch = nil
+        end
+        if line then
+            log("%s", line)
+            appendLog("  " .. line)
+        end
+    end)
     -- The last heal spell's target: what it restored per point of power. A
     -- hit or the top of the bar can only make this read low, so the most seen
     -- in the fight is kept.
@@ -5801,7 +5829,31 @@ local function act(serial)
                     choice.name, unitName(tid), sorted(row and row.enemyStatus), sorted(set), still)
                 log("%s", line)
                 appendLog("  " .. line)
+                if row and next(row.enemyStatus or {}) then
+                    Fight.debuffWatch = { target = tid, foe = unitName(tid), name = choice.name,
+                        ids = row.enemyStatus, at = #(Fight.actions or {}), seen = false }
+                end
             end
+        end)
+    end
+    -- Log only: a healer who hits with a heal's MP in hand while someone is under half.
+    if (choice.kind == "damage") and (not choice.isItem) and (phase ~= PHASE_FINISH) then
+        pcall(function()
+            local kit = unitKit(uid)
+            if not (kit and ((kit.healScore or 0) >= 50) and ((kit.healCost or 0) > 0) and ((mpNow or 0) >= kit.healCost)) then
+                return
+            end
+            local bits, hurt = {}, false
+            for _, id in ipairs(friendIds()) do
+                local ratio = hpRatio(id)
+                if ratio and (ratio > 0) then
+                    if ratio < 0.50 then hurt = true end
+                    local claimed = Fight.claim and Fight.claim.heal and Fight.claim.heal[id]
+                    bits[#bits + 1] = string.format("%s %d%%%s", unitName(id), math.floor(ratio * 100 + 0.5),
+                        claimed and " claimed" or "")
+                end
+            end
+            if hurt then appendLog(string.format("  healer %s hits with %d MP: %s", who, mpNow or 0, table.concat(bits, ", "))) end
         end)
     end
     -- The target's HP before a one-target heal spell goes out, to learn how
@@ -6802,7 +6854,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.47. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.1.48. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

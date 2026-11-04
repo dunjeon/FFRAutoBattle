@@ -22,6 +22,8 @@ The game loads `Scripts/main.lua`, `Scripts/known.lua`, and `Scripts/mobs.lua`. 
 
 This repo is the only copy under git. The installed mod folder, `FFRS/Binaries/Win64/ue4ss/Mods/FFRAutoBattle/` in the game, holds only `Scripts/`, `config.ini`, `enabled.txt`, and the runtime files. Do not put a git repo or the docs there. After a change, parse, then copy `Scripts/*.lua` into the installed `Scripts/`. Read `battle_log.txt` from the installed folder.
 
+FFRProbe and the other research tools stay off in testing builds. Only FFRAutoBattle and UE4SS's own default mods load. A probe mod runs only when the player asks for it.
+
 ## Rules that keep the planner general
 
 - Party size sets how long a round is: one turn for each party member who can take one. It never switches a rule. Where a rule needs "most of the party", it is a share of the living party, the same at any size.
