@@ -103,16 +103,21 @@ function M.warnedCast(foeBook, risk, rowOf, ally)
         local row = rowOf(id)
         local amount = foeBook[id] and foeBook[id].fullTo and foeBook[id].fullTo[ally]
         if (not amount) and row and ((row.power or 0) > 0) then
-            local rate = nil
+            -- The middle of what its moves did per point of power, so one critical
+            -- doesn't set the size of a move that hasn't landed yet.
+            local rates = {}
             for sid, sk in pairs(foeBook) do
                 local other = rowOf(sid)
                 local did = sk.fullTo and sk.fullTo[ally]
                 if did and other and ((other.power or 0) > 0) and (other.dmgType == row.dmgType) then
-                    local r = did / other.power
-                    if (not rate) or (r > rate) then rate = r end
+                    rates[#rates + 1] = did / other.power
                 end
             end
-            if rate then amount = rate * row.power end
+            if #rates > 0 then
+                table.sort(rates)
+                local mid = rates[math.ceil(#rates / 2)]
+                amount = mid * row.power
+            end
         end
         if amount and ((not worst) or (amount > worst)) then worst, worstRow = amount, row end
     end

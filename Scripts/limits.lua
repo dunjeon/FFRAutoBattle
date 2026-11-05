@@ -2,7 +2,9 @@
 -- name a fight, a character, or a Vision, and it does not touch the battle
 -- libraries.
 --
--- What each Limit row is for, from its effects (rows.lua):
+-- The live row has cost and no element. This book names the element, how
+-- many gauges the row spends, and what the row is for. Checked against the
+-- public Limit Burst lists on 2026-11-03.
 --   lb-setup  goes out before the break: the target is easier to stagger.
 --   lb-break  goes out as a gauge nears its break: the party's next actions
 --             count for more (gauge fill, or every action twice).
@@ -11,6 +13,7 @@
 --   lb-revive raises the party.
 -- An ordinary skill that shares a name is not a Limit Burst. The caller
 -- applies a row only when the live attribute is a Limit Burst.
+-- Lightning is stored as thunder, the same word the enemy book uses.
 
 local BOOK = {}
 
@@ -18,6 +21,12 @@ local function fold(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
     return n
+end
+
+local function hasName(key, limit)
+    if key == limit then return true end
+    local stripped = key:gsub("^limit burst[:%s]+", ""):gsub("^limit[:%s]+", "")
+    return stripped == limit
 end
 
 local function copyOf(row)
@@ -31,8 +40,8 @@ local M = {}
 -- Filled from the game's rows (rows.lua).
 function M.load(t) BOOK = t end
 
--- The row wins. The row's stagger wins when it has one. A known
--- stagger stays when the rows has none. The caller uses this only for
+-- Book role wins. The book's stagger wins when it has one. A known
+-- stagger stays when the book has none. The caller uses this only for
 -- a live Limit Burst.
 function M.apply(known, fact)
     if not fact then return known end
@@ -56,6 +65,9 @@ function M.lookup(name)
     local key = fold(name)
     if key == "" then return nil end
     if BOOK[key] then return copyOf(BOOK[key]) end
+    for limit, row in pairs(BOOK) do
+        if hasName(key, limit) then return copyOf(row) end
+    end
     return nil
 end
 

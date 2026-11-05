@@ -1,11 +1,13 @@
--- Items. The item rows and the rules for which item to spend. The planner
+-- Items. The item book and the rules for which item to spend. The planner
 -- reads the bag and sends the command. This file does not name a fight, a
 -- character, or a Vision, and it does not touch the battle libraries.
 --
 -- Common shop items only, outside a boss fight. In a boss fight a rare item
 -- is spent when no common item does the job, the cheapest rank first: a
--- raise at once, a heal or MP item only under dire need. Attack items are
--- thrown on a weakness the bar cannot pay, or when nothing payable lands.
+-- raise at once, a heal or MP item only under dire need. Scrolls and knives
+-- are thrown in a boss fight on a weakness the bar cannot pay, or when
+-- nothing payable lands. Tents and Healing Spring stay put. A fight where no
+-- foe can hurt the party spends nothing.
 
 local BOOK = { items = {}, leave = {}, attack = {} }
 -- Status ids, the same as health.lua.
@@ -90,7 +92,7 @@ end
 -- The bag line for the log.
 function M.bagLine(out, answered)
     if #out == 0 then
-        return string.format("bag: no recovery items (%d item ids answered)", answered or 0)
+        return string.format("bag: no potion, ether, or phoenix down (%d item ids answered)", answered or 0)
     end
     local bits = {}
     for _, it in ipairs(out) do
@@ -127,7 +129,7 @@ local function firstOf(list, pred)
     return nil
 end
 
--- Smallest item that covers the gap. If none covers, the largest amount.
+-- Smallest potion that covers the gap. If none covers, the largest amount.
 -- No readable amount keeps the first matching item.
 function M.choosePotion(items, missing)
     local first, cover, coverAmt, best, bestAmt = nil, nil, nil, nil, -1
@@ -149,7 +151,9 @@ function M.choosePotion(items, missing)
 end
 
 -- True when this item can clear a status that is on the ally right now.
--- Poison and blind qualify only on the self-care line.
+-- Poison and blind qualify only on the self-care line. Slow is not an
+-- item unless a cure has already been seen to clear it. Remedy never
+-- qualifies for poison, blind, or slow.
 function M.itemClears(name, statuses, soft)
     local row = CURE_ITEM[fold(name)]
     if row == nil then
@@ -165,6 +169,24 @@ function M.itemClears(name, statuses, soft)
             if soft and SOFT[id] then return true end
         end
     end
+    return false
+end
+
+-- The last of an item that cures doom stays for doom, or for a lock on the main
+-- healer. healerOf(allies) is the party's main healer.
+function M.holdDoomCure(name, count, target, allies, healerOf)
+    local clears = CURE_ITEM and CURE_ITEM[fold(name)]
+    if not ((clears == true) or (type(clears) == "table" and clears[DOOM])) then return false end
+    if (not count) or (count > 1) then return false end
+    if target and target.statuses and target.statuses[DOOM] then return false end
+    local healer = healerOf and healerOf(allies) or nil
+    if healer and target and (healer.id == target.id) and anyOf(target.statuses, LOCK) then
+        return false
+    end
+    for _, a in ipairs(allies or {}) do
+        if (not a.dead) and a.statuses and a.statuses[DOOM] then return true end
+    end
+    if healer and (not healer.dead) and anyOf(healer.statuses, LOCK) then return true end
     return false
 end
 
@@ -223,8 +245,9 @@ function M.recovery(owned, want, ctx)
     return it, (fromRare and it.rare) and true or false
 end
 
--- A cure item for who, or nil. The second return is true when the bag held a cure
--- item that doesn't clear this status. ctx: soft (the self-care line).
+-- A cure item for who, or nil. The second return is true when the bag held
+-- a cure item that this status or the last-Remedy rule kept back.
+-- ctx: soft (the self-care line), allies, healerOf.
 function M.cure(owned, who, ctx)
     ctx = ctx or {}
     local items = pools(owned, false)
@@ -232,6 +255,7 @@ function M.cure(owned, who, ctx)
     local it = firstOf(items, function(row)
         if row.kind ~= "cure" then return false end
         saw = true
+        if M.holdDoomCure(row.name, row.count, who, ctx.allies, ctx.healerOf) then return false end
         return M.itemClears(row.name, who and who.statuses, ctx.soft)
     end)
     return it, saw

@@ -410,8 +410,8 @@ function M.new(path, clock)
             end
         end
         for _, s in ipairs(rec.short or {}) do
-            self:flag("short of MP for a " .. tostring(s.need) .. ", MP item in the bag",
-                tag .. ", wanted " .. tostring(s.what) .. (s.spent and " (MP item already spent this round)" or ""))
+            self:flag("short of MP for a " .. tostring(s.need) .. ", Ether in the bag",
+                tag .. ", wanted " .. tostring(s.what) .. (s.spent and " (Ether already spent this round)" or ""))
         end
         if (down > 0) and (not caring) and rec.canRaise then
             self:flag("no raise with an ally down, raise payable", tag .. ", " .. down .. " down")
