@@ -142,22 +142,30 @@ local function limitOf(row)
 end
 
 -- An Esper's moves, from the game's AI row. The first listed move is its
--- signature, which gives its element. With no damage move past its basic attack
--- it is a support Esper.
+-- signature, which gives its element and the power a spell's row would give.
+-- The summon effect names the unit it puts on the field. With no damage move
+-- past its basic attack it is a support Esper.
 local function esperOf(row, units, skills)
     local fx = has(row, E.SUMMON)
     local uid = fx and fx.params and fx.params[2]
     local unit = uid and units[uid]
     local stay = fx and fx.turns
     local info = { role = "guard" }
+    if uid then info.unit = uid end
     if stay and stay > 0 then info.turns = stay end
     for i, id in ipairs((unit and unit.moves) or {}) do
         local move = skills[id]
         if move then
             if i == 1 then
                 info.element = move.element
+                if wide(move) then info.area = true end
                 if move.dmgType == PHYS then info.phys = true end
                 if move.dmgType == MAGIC then info.magic = true end
+                local hits = move.hits or 1
+                if hits < 1 then hits = 1 end
+                local power = (move.power or 0) * hits
+                if power > 0 then info.power = power end
+                if move.accuracy then info.accuracy = move.accuracy end
             end
             if (move.effect == 1) and (move.varType ~= UP) and (move.attr ~= A_FIGHT) then info.role = "damage" end
         end

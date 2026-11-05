@@ -1181,7 +1181,7 @@ local function counterScale()
     return 1
 end
 
--- A friend id, an ally id, or a body with no HP is not a foe.
+-- A friend id, an ally id, a summoned unit, or a body with no HP is not a foe.
 -- The enemy-target list has included the actor. A shared name does not.
 local function keepFoe(id)
     if not id or not Fight then return false end
@@ -1189,6 +1189,8 @@ local function keepFoe(id)
         if Fight.seenFoe then Fight.seenFoe[id] = nil end
         return false
     end
+    if Fight.summons and Fight.summons[id] then return drop() end
+    if Fight.isSummon and Fight.isSummon(id) then return drop() end
     for _, fid in ipairs(friendIds()) do
         if fid == id then return drop() end
     end
@@ -1489,7 +1491,8 @@ local function friendAction(skill)
 end
 
 local function legalize(uid, skill, targets, isAll)
-    if skill.target == TGT.SELF then return targets, false end
+    -- A self row is the caster. Aiming it at a foe is not a legal command.
+    if skill.target == TGT.SELF then return { uid }, false end
     local rel = REL.ENEMY
     if friendAction(skill) then rel = REL.FRIEND end
     local legal = targetsFor(uid, skill, rel)
@@ -2028,16 +2031,25 @@ local function worldOf(uid, boss, summoned)
     end
     if Fight then
         if not Fight.seenAlly then Fight.seenAlly = {} end
-        -- The party is on the field when the fight begins. A friend that
-        -- arrives later with no skill list, or one the Esper book names, is
-        -- a summon: it is not healed, raised, counted, or waited on, and it
-        -- stays one for the fight.
+        -- The party is on the field when the fight begins. A friend the summon
+        -- row names by unit id, or one that arrives as that call, is a summon:
+        -- it is not healed, raised, counted, or waited on, and it stays one
+        -- for the fight.
         Fight.summons = Fight.summons or {}
         local party = {}
+        local live = false
         for _, a in ipairs(allies) do
-            if (a.id ~= uid) and Fight.isSummon then Fight.isSummon(a.id, a.name) end
-            if not Fight.summons[a.id] then party[#party + 1] = a end
+            if Fight.isSummon then Fight.isSummon(a.id, a.name) end
+            if Fight.summons[a.id] then
+                if not a.dead then live = true end
+            else
+                party[#party + 1] = a
+            end
         end
+        Fight.summonLive = live
+        -- Seen only from this scan. A one-off id during the summon command
+        -- is not the unit leaving on the next turn.
+        if live and Fight.esperOut then Fight.esperOut.seen = true end
         if #party > 0 then allies = party end
         for _, a in ipairs(allies) do
             if not a.dead then Fight.seenAlly[a.id] = a.name end
@@ -2131,7 +2143,7 @@ Fight = {
     debuffOn = {}, debuffSeen = {}, debuffTold = {},
     went = {}, rounds = 0, seenFoe = {}, planTag = nil, afterBonus = false,
     fieldTold = false, chipped = false,
-    esperOut = nil, esperTold = false, esperSkip = {},
+    esperOut = nil, esperTold = false, esperSkip = {}, summonLive = false,
     limitUntagged = {}, limitSkip = {},
     cureHeld = false,
     healLeft = {},
@@ -2140,15 +2152,84 @@ Fight = {
     underLine = false,
 }
 
+-- The catalog id on a battle unit. The summon row stores the same id.
+local function catalogOf(id)
+    local function from(p)
+        if not (p and p.IsValid and p:IsValid()) then return nil end
+        local ok, v = pcall(function() return p:GetUnitId() end)
+        return ok and num(v) or nil
+    end
+    local found = from(paramOf(id))
+    if found then return found end
+    local bfl = battleLib()
+    if not (bfl and bfl:IsValid()) then return nil end
+    local ok, p = pcall(function() return bfl:GetBattleUnitParameter(id, false) end)
+    if ok then return from(p) end
+    return nil
+end
+
 -- The summon test, wherever the party is read. See worldOf.
 Fight.isSummon = function(id, name)
     Fight.summons = Fight.summons or {}
-    if Fight.summons[id] then return true end
-    if (not Fight.openIds) or Fight.openIds[id] or (Fight.seenAlly and Fight.seenAlly[id]) then return false end
-    local esper = Espers.lookup and Espers.lookup(name or unitName(id))
-    if esper or (#equippedIds(id) == 0) then
+    if not id then return false end
+    local function take(catalog)
         Fight.summons[id] = true
+        if Fight.seenAlly then Fight.seenAlly[id] = nil end
+        -- A scan that filed this unit as an enemy does not keep that label.
+        if Fight.seenFoe then Fight.seenFoe[id] = nil end
+        local mark = Fight.esperOut
+        if mark and (not mark.who) then
+            mark.who = id
+            if catalog and (not mark.unit) then mark.unit = catalog end
+        end
         return true
+    end
+    if Fight.summons[id] then return take(catalogOf(id)) end
+    local body = paramOf(id)
+    if not body then
+        local bfl = battleLib()
+        if bfl and bfl:IsValid() then
+            local okBody, q = pcall(function() return bfl:GetBattleUnitParameter(id, false) end)
+            if okBody and q and q.IsValid and q:IsValid() then body = q end
+        end
+    end
+    -- The catalog id is what the summon row stores. Relation is this scan only.
+    local catalog = catalogOf(id)
+    local mark = Fight.esperOut
+    local called = mark and mark.unit and catalog and (catalog == mark.unit)
+    if body then
+        local okRel, rel = pcall(function() return body:GetRelation() end)
+        if okRel and (num(rel) == REL.ENEMY) then
+            -- The unit this call put on the field can show up on the enemy
+            -- list when the friend list misses it. That body is still the
+            -- call. An enemy already filed, or a second body with the same
+            -- row, stays an enemy.
+            local already = Fight.seenFoe and Fight.seenFoe[id]
+            local bound = mark and mark.who and (mark.who ~= id)
+            if called and not already and not bound then return take(catalog) end
+            return false
+        end
+    end
+    -- Whoever was here when the fight opened is the party.
+    if Fight.openIds and Fight.openIds[id] then return false end
+    local listed = catalog and Espers.isUnit and Espers.isUnit(catalog)
+    if called or listed then return take(catalog) end
+    -- The unit id could not be read. A friend who was not here at the start,
+    -- while a call is still waiting, is the unit that call put on the field.
+    local friend = false
+    if (not catalog) and mark and (not mark.seen) and Fight.openIds
+        and not (Fight.seenAlly and Fight.seenAlly[id]) then
+        for _, fid in ipairs(friendIds()) do
+            if fid == id then friend = true break end
+        end
+    end
+    if friend and not (Fight.unitDown and Fight.unitDown(id)) then return take(nil) end
+    if (not Fight.openIds) or (Fight.seenAlly and Fight.seenAlly[id]) then return false end
+    local esper = Espers.lookup and Espers.lookup(name or unitName(id))
+    if esper then return take(catalog) end
+    -- No skill list, and the Esper rows were not loaded: the only signal left.
+    if (not (Espers.loaded and Espers.loaded())) and (#equippedIds(id) == 0) then
+        return take(catalog)
     end
     return false
 end
@@ -3725,113 +3806,120 @@ local function turn(uid, skills, w, phase)
         end
         return n, who
     end
-    local function esperParty()
-        local party = 0
-        for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
-        if party < 1 then
-            for _, a in ipairs(w.allies) do
-                if not a.dead then party = party + 1 end
-            end
-        end
-        if party < 1 then party = 2 end
-        return party
+    local function releaseEsper(mark)
+        if (not mark) or mark.told then return end
+        mark.told = true
+        local line = "esper " .. (mark.name or "summon") .. " finished"
+        log("%s", line)
+        appendLog("  " .. line)
+        Fight.claim.esper = false
+        Fight.summoned = false
+        Fight.esperOut = nil
     end
     local function esperStill()
+        -- Out until that unit has acted and has then left the ally list.
+        -- One scan that misses it, before that action, is not it leaving.
         local mark = Fight.esperOut
-        if not mark or not Espers.stillOut then return false end
-        local up = Espers.stillOut(mark.at or 0, #(Fight.actions or {}), mark.turns, esperParty())
-        if (not up) and (not mark.told) then
-            mark.told = true
-            local line = "esper " .. (mark.name or "summon") .. " finished"
-            log("%s", line)
-            appendLog("  " .. line)
-            Fight.claim.esper = false
-            Fight.summoned = false
+        local live = Fight.summonLive and true or false
+        if Espers.holding and Espers.holding(mark, live) then
+            return true
         end
-        return up
+        if mark then releaseEsper(mark) end
+        return false
     end
     local weaknessFits
-    local function summonChoice(mode, strongOnly)
+    local function summonChoice()
         if not Espers.best then return nil end
         if esperStill() then return nil end
         if Fight.claim.esper then return nil end
-        local list = (#pool > 0) and pool or open
-        if #list == 0 then list = w.enemies end
-        if #list == 0 then return nil end
+        -- A boss, a danger move, or a hit that would kill is worth a call.
+        -- A common fight spends the turn on its own skills.
+        if not (hardField or Fight.boss) then
+            if not Fight.esperCommon then
+                for _, s in ipairs(skills) do
+                    if (s.attr == ATTR.SUMMON) and (useOf(s) ~= "skip") then
+                        Fight.esperCommon = true
+                        local line = "esper held: common fight"
+                        log("%s", line)
+                        appendLog("  " .. line)
+                        break
+                    end
+                end
+            end
+            return nil
+        end
+        local field = (#w.enemies > 0) and w.enemies or ((#pool > 0) and pool or open)
+        if #field == 0 then return nil end
+        -- The foe this call is for: a dangerous body, else the largest gauge.
         local preferId, preferGauge, dangerGauge = nil, -1, -1
-        local near, long = false, false
-        for _, u in ipairs(list) do
+        for _, u in ipairs(field) do
             local card = mobOf(u)
-            local gauge, remain, empty = gaugeOfEnemy(u)
-            local ratio = 1
-            if gauge > 0 then ratio = remain / gauge end
-            if not empty then
-                if gauge > preferGauge then
-                    preferId, preferGauge = u.id, gauge
-                end
-                if card and card.danger and card.danger[1] and (gauge > dangerGauge) then
-                    dangerGauge = gauge
-                    preferId = u.id
-                end
-                if ratio <= 0.40 then near = true end
-                if ratio > 0.40 then long = true end
+            local gauge = gaugeOfEnemy(u)
+            if gauge > preferGauge then preferId, preferGauge = u.id, gauge end
+            if card and card.danger and card.danger[1] and (gauge > dangerGauge) then
+                dangerGauge = gauge
+                preferId = u.id
             end
         end
-        if (mode == "break") and (not near) then return nil end
-        if (mode == "again") and (not Fight.esperOut) then return nil end
-        if (mode == "later") and Fight.esperOut then return nil end
-        -- An Esper is the caster's best damage for its MP. It waits only if the
-        -- MP wouldn't cover two more heals afterward, not for a share of the bar.
+        if not preferId then preferId = field[1].id end
+        -- One heal stays payable. Two heals, and a share of the bar, do not.
         local healKit = unitKit(uid)
         local healCost = (healKit and ((healKit.healScore or 0) > 0) and healKit.healCost) or 0
-        local function canSpare(s)
-            return ((w.mp or 0) - (s.cost or 0)) >= (healCost * 2)
-        end
-        if ((mode == "again") or (mode == "later")) and (not long) then return nil end
         local hits = {}
-        -- The signature hits every living enemy, not only the current plan.
-        local field = (#w.enemies > 0) and w.enemies or list
         for _, u in ipairs(field) do
-            local gauge, remain = gaugeOfEnemy(u)
-            local ratio = 1
-            if gauge > 0 then ratio = remain / gauge end
-            hits[#hits + 1] = { id = u.id, prefer = (u.id == preferId), ratio = ratio, foe = u }
+            hits[#hits + 1] = { id = u.id, prefer = (u.id == preferId), foe = u }
         end
         local cands = {}
         for _, s in ipairs(skills) do
             if (s.attr == ATTR.SUMMON) and pay(s) and (useOf(s) ~= "skip") then
                 local fact = (Espers.lookup and Espers.lookup(s.name)) or nil
-                if not fact then fact = { role = "damage", use = "summon" } end
-                local scored, blocked = {}, false
-                for _, h in ipairs(hits) do
-                    local factor = elementFactor({ known = fact, name = s.name }, h.foe)
-                    if fact.element and (factor <= 0) then blocked = true end
-                    scored[#scored + 1] = { factor = factor, prefer = h.prefer, ratio = h.ratio }
+                if (not fact) and not (Espers.loaded and Espers.loaded()) then
+                    fact = { role = "damage", use = "summon" }
                 end
-                if blocked and fact.element then
-                    Fight.esperSkip = Fight.esperSkip or {}
-                    local key = (s.name or "summon") .. ":" .. fact.element
-                    if not Fight.esperSkip[key] then
-                        Fight.esperSkip[key] = true
-                        local line = "esper " .. (s.name or "summon") .. " skipped, " .. fact.element .. " null"
-                        log("%s", line)
-                        appendLog("  " .. line)
+                if fact then
+                    local scored, blocked = {}, false
+                    local foes = {}
+                    for _, h in ipairs(hits) do
+                        local factor = elementFactor({ known = fact, name = s.name }, h.foe)
+                        local lands = fact.area or h.prefer
+                        if (fact.role ~= "guard") and lands and (factor <= 0) then blocked = true end
+                        scored[#scored + 1] = { factor = factor, prefer = h.prefer }
+                        if lands then foes[#foes + 1] = h.foe end
                     end
-                end
-                local care = not blocked
-                if care and (mode ~= "setup") and (not canSpare(s)) then care = false end
-                if care then
-                    local kit = unitKit(uid)
-                    local need = 0
-                    if kit and ((kit.healScore or 0) > 0) then need = kit.healCost or 0 end
-                    if (need > 0) and (((w.mp or 0) - (s.cost or 0)) < need) then care = false end
-                end
-                if care and (mode == "setup") then
-                    local room = weaknessFits(s.cost or 0) or (#w.enemies >= 3) or (not weaknessFits(0))
-                    if not room then care = false end
-                end
-                if care then
-                    cands[#cands + 1] = { ref = s, fact = fact, hits = scored }
+                    if blocked and fact.element then
+                        Fight.esperSkip = Fight.esperSkip or {}
+                        local key = (s.name or "summon") .. ":" .. fact.element
+                        if not Fight.esperSkip[key] then
+                            Fight.esperSkip[key] = true
+                            local line = "esper " .. (s.name or "summon") .. " skipped, " .. fact.element .. " null"
+                            log("%s", line)
+                            appendLog("  " .. line)
+                        end
+                    end
+                    if (not blocked) and (((w.mp or 0) - (s.cost or 0)) >= healCost) then
+                        -- The same number a spell uses: what this caster's call
+                        -- did to these foes, or the signature's power scaled by
+                        -- this caster's other hits. Nil until there is either.
+                        local dealt, kills = nil, 0
+                        if Known.measure and Fight.dealtBook and (fact.role ~= "guard") then
+                            local sum, any = 0, false
+                            for _, foe in ipairs(foes) do
+                                local factor = elementFactor({ known = fact, name = s.name }, foe)
+                                local fit = Known.measure.damageFit(factor)
+                                local est = (fact.power or 0) * fit
+                                if est <= 0 then est = nil end
+                                local real = Known.measure.expect(Fight.dealtBook, uid, s.id, foe.id, est, fact.accuracy or s.accuracy)
+                                if real then
+                                    any = true
+                                    if real > 0 then sum = sum + real end
+                                    local hp = stat(foe.id, PARAM.HP, false)
+                                    if hp and (hp > 0) and (real >= hp) then kills = kills + 1 end
+                                end
+                            end
+                            if any then dealt = sum end
+                        end
+                        cands[#cands + 1] = { ref = s, fact = fact, hits = scored, dealt = dealt, kills = kills }
+                    end
                 end
             end
         end
@@ -3845,32 +3933,18 @@ local function turn(uid, skills, w, phase)
             end
             log("esper equipped: %s", table.concat(names, ", "))
         end
-        local picked = Espers.best(cands, mode)
+        local picked = Espers.best(cands)
         if not picked then return nil end
-        -- Ahead of a heal, only an Esper that hits a weakness on this field.
-        if strongOnly and ((Espers.score(picked.fact, picked.hits, mode) or 0) < 60) then return nil end
         local s, fact = picked.ref, picked.fact
-        local foe = nil
-        for _, h in ipairs(hits) do
-            if h.prefer then foe = h.foe end
-        end
-        if not foe then foe = list[1] end
-        local spread = aoeOf(s)
-        local why = "setup esper"
-        if mode == "break" then why = "esper before the break" end
-        if mode == "again" then why = "esper again" end
-        if mode == "later" then why = "esper" end
-        why = why .. " " .. (s.name or "summon")
+        local why = "esper " .. (s.name or "summon")
         if fact.element then
             why = why .. " " .. fact.element
         elseif fact.role == "guard" then
             why = why .. " support"
         end
-        local choice = finishChoice(uid, s, why, spread and idsOf(list) or { foe.id }, spread)
-        if choice then
-            choice.esperTurns = fact.turns
-            Fight.claim.esper = true
-        end
+        -- The summon row aims at the caster. The unit it brings does the hitting.
+        local choice = finishChoice(uid, s, why, { uid }, false)
+        if choice then choice.esperTurns = fact.turns end
         return choice
     end
     weaknessFits = function(extra)
@@ -3887,13 +3961,14 @@ local function turn(uid, skills, w, phase)
     end
     Fight.underLine = false
     local halfN, halfWho = underMark()
-    local opening = false
     local recoverGate = halfWho and true or false
-    -- An Esper on a weakness can out-damage the whole party, so it goes ahead of a
-    -- heal nobody will die without. Raises and critical heals have already had
-    -- this slot, and the Esper's own check keeps MP for two heals after it.
-    if (phase == 0) and (not opening) and hardField and (not allyCritical()) and (not dead) then
-        local choice = summonChoice(Fight.esperOut and "again" or "later", true)
+    -- The Esper that fits a boss, or a field with a danger move or a hit that
+    -- would kill, once raises and a critical heal have had the slot. A common
+    -- fight does not spend one. A hit this fight has measured outranks the
+    -- signature's element. The call stays out until that unit has acted and
+    -- has then left.
+    if (phase == 0) and (not allyCritical()) and (not dead) then
+        local choice = summonChoice()
         if choice then return choice end
     end
     if halfWho and phase ~= PHASE_BONUS and not deferHeal() and recoverGate then
@@ -4700,22 +4775,6 @@ local function turn(uid, skills, w, phase)
             local choice = setupLimit()
             if choice then return choice end
         end
-        if bossFight and style ~= "aggressive" then
-            local choice = summonChoice("setup")
-            if choice then return choice end
-        end
-    end
-    if (phase == 0) and hardField and (style ~= "aggressive") and (not allyCritical()) then
-        local someoneDown = false
-        for _, a in ipairs(w.allies) do
-            if a.dead then someoneDown = true end
-        end
-        if not someoneDown then
-            local choice = summonChoice("break")
-            if (not choice) and Fight.esperOut then choice = summonChoice("again") end
-            if (not choice) and (not Fight.esperOut) then choice = summonChoice("later") end
-            if choice then return choice end
-        end
     end
     -- A barrier Limit for the party goes up on a hard field. It is held while
     -- its status shows and cast again once that status has shown and gone,
@@ -5467,6 +5526,10 @@ Known.repSnap = function(extra)
     end
     local function addFoe(id)
         if snap.foes[id] or snap.allies[id] then return end
+        -- The summon is on the friend list, and a missed scan has put that
+        -- same id on the enemy list. The report does not call it a foe.
+        if Fight.summons and Fight.summons[id] then return end
+        if Fight.isSummon and Fight.isSummon(id) then return end
         local hp = stat(id, PARAM.HP, false)
         if hp and hp > 0 then snap.foes[id] = unitOf(id, true) end
     end
@@ -5564,7 +5627,8 @@ Known.repHandFlush = function()
         local targets = {}
         for _, tid in ipairs(h.targets or {}) do
             local foe, friend = snap.foes[tid], snap.allies[tid]
-            local t = { name = (foe and foe.name) or (friend and friend.name) or tostring(tid) }
+            local called = (not foe) and (not friend) and Fight.summons and Fight.summons[tid]
+            local t = { name = (foe and foe.name) or (friend and friend.name) or (called and unitName(tid)) or tostring(tid) }
             if foe and row and kind == "damage" then t.factor = elementFactor(row, { id = tid, name = foe.name }) end
             targets[#targets + 1] = t
         end
@@ -5638,7 +5702,8 @@ Known.repDecide = function(uid, choice, phase)
     local targets = {}
     for _, tid in ipairs(choice.targets or {}) do
         local foe, friend = snap.foes[tid], snap.allies[tid]
-        local t = { name = (foe and foe.name) or (friend and friend.name) or tostring(tid) }
+        local called = (not foe) and (not friend) and Fight.summons and Fight.summons[tid]
+        local t = { name = (foe and foe.name) or (friend and friend.name) or (called and unitName(tid)) or tostring(tid) }
         if foe and choice.kind == "damage" then
             t.factor = elementFactor(skillOf(choice.id) or choice, { id = tid, name = foe.name })
             t.weakPaid = weakBy[tid]
@@ -5831,7 +5896,9 @@ local function ensureBattle()
     Fight.fieldTold = false
     Fight.chipped = false
     Fight.esperOut = nil
+    Fight.summonLive = false
     Fight.esperTold = false
+    Fight.esperCommon = false
     Fight.esperSkip = {}
     Fight.limitUntagged = {}
     Fight.limitSkip = {}
@@ -6109,15 +6176,23 @@ local function noteRound(uid)
     end
 end
 
-local function markSummon(skill, turns)
+local function markSummon(skill, turns, caster, sid)
     if not (skill and skill.attr == ATTR.SUMMON) then return end
     local fact = (Espers.lookup and Espers.lookup(skill.name)) or nil
     local stay = turns or (fact and fact.turns)
+    local prev = Fight.esperOut
+    local same = prev and ((prev.sid and (prev.sid == (sid or skill.id))) or (prev.name == (skill.name or "summon")))
     Fight.esperOut = {
-        at = #(Fight.actions or {}),
+        at = (same and prev.at) or #(Fight.actions or {}),
         turns = stay,
         name = skill.name or "summon",
         told = false,
+        unit = (fact and fact.unit) or (same and prev.unit) or nil,
+        seen = same and prev.seen or false,
+        acted = same and prev.acted or false,
+        who = same and prev.who or nil,
+        caster = caster or (same and prev.caster) or nil,
+        sid = sid or skill.id or (same and prev.sid) or nil,
     }
     Fight.summoned = true
     Fight.claim = Fight.claim or {}
@@ -6235,6 +6310,7 @@ local function act(serial)
         Fight.claim.hone = {}
         Fight.claim.esper = false
         Fight.esperOut = nil
+        Fight.summonLive = false
         Fight.debuffOn, Fight.debuffSeen = {}, {}
         Fight.kitOn, Fight.luckToss = {}, {}
         if Fight.claim then Fight.claim.kit = {} end
@@ -6253,7 +6329,10 @@ local function act(serial)
     end
     pcall(noteMp, uid)
     local actorName = unitName(uid)
-    if Espers.lookup and Espers.lookup(actorName) then
+    -- The summoned unit is not a party member. Its name often does not match
+    -- the skill that called it, so the field's summon mark counts too.
+    if (Espers.lookup and Espers.lookup(actorName)) or (Fight.isSummon and Fight.isSummon(uid, actorName)) then
+        if Fight.esperOut then Fight.esperOut.acted = true end
         local line = actorName .. " acts on its own"
         log("%s", line)
         appendLog("  " .. line)
@@ -6586,7 +6665,7 @@ local function act(serial)
     end
     Fight.actions[#Fight.actions + 1] = line
     if choice.attr == ATTR.SUMMON then
-        markSummon(choice, choice.esperTurns)
+        markSummon(choice, choice.esperTurns, uid, choice.id)
         if Fight.esperOut then Fight.esperOut.caster, Fight.esperOut.sid = uid, choice.id end
     end
     rememberCast(who, choice.name)
@@ -6667,6 +6746,11 @@ local function noteHand(v)
             end
         end
         if foe then return end
+    end
+    -- A command from a friend who was not in the opening party is the summoned
+    -- unit acting. The ally list can omit that unit until this command.
+    if Fight.esperOut and uid and (uid >= 0) and Fight.openIds and (not Fight.openIds[uid]) then
+        Fight.esperOut.acted = true
     end
     local skill = (not isItem) and skillOf(actionId) or nil
     local name = (skill and skill.name) or ("command " .. tostring(actionId))
@@ -6771,7 +6855,7 @@ local function noteHand(v)
         Fight.drawRound = Fight.drawRound or {}
         Fight.drawRound[Kits.key(name)] = Fight.rounds or 0
     end
-    if skill and (skill.attr == ATTR.SUMMON) then markSummon(skill) end
+    if skill and (skill.attr == ATTR.SUMMON) then markSummon(skill, nil, uid, skill.id) end
     if skill and (skill.attr == ATTR.FINISH) then Fight.resonanceSent = true end
     if phase == PHASE_FINISH then Fight.resonanceSent = true end
     local cost = 0
@@ -6950,7 +7034,11 @@ function readRisk(hitsOnly)
             if not from or not to or not row then return end
             -- What really hit hard. Each hit counts once, and one cast's hits on
             -- one enemy add up before they go in the book.
+            if Fight.esperOut and Fight.isSummon and not (Fight.summons and Fight.summons[from]) then
+                Fight.isSummon(from)
+            end
             local fromSummon = Fight.summons and Fight.summons[from]
+            if fromSummon then friends[from] = nil end
             if Known.measure and (friends[from] or fromSummon) and (not friends[to]) then
                 pcall(function()
                     local value = num(row.VariationValue)
@@ -6974,6 +7062,7 @@ function readRisk(hitsOnly)
                     local byFrom, bySid = from, sid
                     if fromSummon then
                         local out = Fight.esperOut
+                        if out then out.acted = true end
                         if not (out and out.caster and out.sid) then return end
                         byFrom, bySid = out.caster, out.sid
                     end

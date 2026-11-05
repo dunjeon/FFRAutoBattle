@@ -49,4 +49,11 @@ local esper = { id = 22, name = "Sprite", attr = 7, effect = 0, varType = 0, dmg
 local d2 = R.build({ skills = { [20] = bio, [21] = gale, [22] = esper }, units = { [70] = { name = "Sprite Unit", elements = {}, status = {}, traits = {}, moves = { 21, 20 } } }, items = {} })
 check(d2.espers["sprite"].element == "wind" and d2.espers["sprite"].role == "damage", "an Esper's element and role come from its moves")
 check(d2.espers["sprite"].turns == nil, "a summon row with no duration does not invent a stay")
+check(not d2.espers["sprite"].area, "a single-target signature is not an area hit")
+check(d2.espers["sprite"].unit == 70 and d2.espers["sprite"].power == 20, "the summon row keeps the unit it calls and its signature's power")
+local roar = { id = 23, name = "Roar", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 2, rel = 2, cost = 0, power = 40, breakPower = 10, element = "thunder", effects = {} }
+local ramuh = { id = 24, name = "Caller", attr = 7, effect = 0, varType = 0, dmgType = 0, target = 0, rel = 1, cost = 50, power = 0, breakPower = 0, effects = { { type = 37, status = 0, params = { 2, 71 }, turns = -1 } } }
+local d4 = R.build({ skills = { [23] = roar, [24] = ramuh }, units = { [71] = { name = "Caller Unit", elements = {}, status = {}, traits = {}, moves = { 23 } } }, items = {} })
+check(d4.espers["caller"].element == "thunder" and d4.espers["caller"].area, "a group signature is an area hit of that element")
+check(d4.espers["caller"].unit == 71 and d4.espers["caller"].power == 40, "a group signature keeps that unit and its power")
 os.exit(fails == 0 and 0 or 1)
