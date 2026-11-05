@@ -595,7 +595,18 @@ local function buildSkillIndex()
             dt:ForEachRow(function(_, row)
                 local u = units[num(field(row, "ID"))]
                 if u then
-                    u.highRisk, u.counters = {}, {}
+                    u.highRisk, u.counters, u.moves = {}, {}, {}
+                    for _, key in ipairs({ "skillRandData1", "skillRandData2" }) do
+                        local list = field(row, key)
+                        if list and list.ForEach then
+                            pcall(function()
+                                list:ForEach(function(_, e)
+                                    local n = num(unwrap(e).SkillId)
+                                    if n and n > 0 then u.moves[#u.moves + 1] = n end
+                                end)
+                            end)
+                        end
+                    end
                     idList(field(row, "highRiskSkillIdList"), u.highRisk)
                     idList(field(row, "counterSkillIdList"), u.counters)
                 end
@@ -4239,7 +4250,7 @@ local function turn(uid, skills, w, phase)
     -- even if a bigger one is being saved. On a boss that enrages when the fight
     -- drags on, an area Limit could kill the add that starts that, so while an
     -- add is up after two kills only a single-target Limit goes, until the boss
-    -- is under 15%.
+    -- is under 8%. Three fights took 5,700 to 9,700 between that kill and the wipe.
     if ((phase == 0) or (phase == PHASE_BONUS)) and hardField then
         local ready = false
         for _, s in ipairs(skills) do
@@ -4270,10 +4281,12 @@ local function turn(uid, skills, w, phase)
                     for _, u in ipairs(w.enemies) do
                         if u.id ~= bossU.id then addUp = true end
                     end
-                    noArea = card and card.dragOn and addUp and not (hp and maxHp and (maxHp > 0) and ((hp / maxHp) < 0.15))
+                    noArea = card and card.dragOn and addUp and not (hp and maxHp and (maxHp > 0) and ((hp / maxHp) < 0.08))
                 end
                 Fight.limitUrgent, Fight.limitNoArea = true, noArea and true or false
-                local okHit, hit = pcall(castDamage, (#brokenPool > 0) and brokenPool or w.enemies, true, "limit, " .. cause .. ",")
+                -- A full bar goes on the boss, not on whichever add looks weakest.
+                local aimed = (#brokenPool > 0) and brokenPool or ((bossU and (not bossU.broken)) and { bossU }) or w.enemies
+                local okHit, hit = pcall(castDamage, aimed, true, "limit, " .. cause .. ",")
                 Fight.limitUrgent, Fight.limitNoArea = false, false
                 if okHit and hit and ((hit.attr == ATTR.LB) or (hit.known and (hit.known.use == "lb-cash"))) then return hit end
             end
@@ -4908,6 +4921,29 @@ local function turn(uid, skills, w, phase)
         choice.kitLuck = picked.luck and true or false
         Fight.claim.kit[picked.key] = true
         return choice
+    end
+    -- Poison takes 10% of max HP a turn, so on a boss even a long shot beats a
+    -- normal hit. One try a round across the party, a few tries a fight, and
+    -- none while it's on or if the boss is immune.
+    if (phase == 0) and hardField and (not allyCritical()) and (not dead) and (not Fight.claim.kit.poison) then
+        Fight.poisonTry = Fight.poisonTry or {}
+        for _, u in ipairs(w.enemies) do
+            local card = mobOf(u)
+            local tries = Fight.poisonTry[u.id] or 0
+            if card and card.boss and ((card.poisonRes or 0) < 100) and (tries < 6) and (not u.broken)
+                and not (u.statuses and u.statuses[1]) then
+                for _, s in ipairs(skills) do
+                    if s.known and s.known.poison and (s.kind ~= "heal") and pay(s) then
+                        local choice = finishChoice(uid, s, "poison " .. tostring(u.name), { u.id }, false)
+                        if choice then
+                            Fight.claim.kit.poison = true
+                            Fight.poisonTry[u.id] = tries + 1
+                            return choice
+                        end
+                    end
+                end
+            end
+        end
     end
     -- A kit waits while someone is critical or a fallen ally is still down.
     -- A fall earlier in the fight does not end it.
@@ -5756,7 +5792,7 @@ local function ensureBattle()
     Fight.recoverTold = false
     Fight.entryTold = false
     Fight.finishNote = {}
-    Fight.addSeen, Fight.addKills, Fight.mobCards = nil, nil, nil
+    Fight.addSeen, Fight.addKills, Fight.mobCards, Fight.poisonTry = nil, nil, nil, nil
     itemsLogged = false
     potLogged = false
     appendLog(string.format("== battle %d%s ==", Fight.number, Fight.boss and ", boss" or ""))
@@ -7382,7 +7418,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.3. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.5. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

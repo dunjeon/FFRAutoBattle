@@ -65,7 +65,9 @@ function M.score(fact, hits, mode)
         if mode == "break" then return nil end
         return 30
     end
-    if not fact.element then return 40 end
+    -- Poison takes a share of max HP each turn, so it beats a plain hit.
+    local floor = fact.poison and 70 or 0
+    if not fact.element then return math.max(40, floor) end
     local prefer, weak = nil, false
     local saw = false
     for _, h in ipairs(hits or {}) do
@@ -79,9 +81,9 @@ function M.score(fact, hits, mode)
     end
     if not saw then prefer = 1 end
     if prefer >= 3 then return 100 end
-    if weak then return 60 end
-    if (prefer > 0) and (prefer < 1) then return 10 end
-    return 20
+    if weak then return math.max(60, floor) end
+    if (prefer > 0) and (prefer < 1) then return math.max(10, floor) end
+    return math.max(20, floor)
 end
 
 function M.best(cands, mode)

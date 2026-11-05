@@ -7,6 +7,7 @@ local M = {}
 
 local ELEMENT = { "fire", "ice", "wind", "earth", "thunder", "water", "light", "dark" }
 local PHYS, MAGIC = 1, 2
+local UP = 0
 local T_SELF, T_GROUP, T_SPREAD, T_ALL = 0, 2, 3, 4
 local FRIEND, ENEMY = 1, 2
 local A_FIGHT, A_LB, A_SUMMON, A_FINISH, A_THROW, A_MONEY, A_MIMIC, A_MECHA = 1, 5, 7, 9, 11, 12, 14, 8
@@ -65,7 +66,7 @@ end
 -- What the row does.
 local function useOf(row)
     local hits = row.effect == 1
-    local up = row.varType == 0
+    local up = row.varType == UP
     if row.attr == A_FINISH then
         if hits and up then return "heal" end
         return hits and "finish" or "buff"
@@ -109,6 +110,7 @@ local function factOf(row)
     if use == "guardbuff" then info.guards = guardsOf(row) end
     if (use == "heal") and wide(row) then info.party = true end
     if (use == "heal") and (row.power < 50) then info.patch = true end
+    if statusOn(row, 1) and (row.rel == ENEMY) then info.poison = true end
     if use == "debuff" then
         for _, e in ipairs(row.effects) do
             if DEBUFF[e.status] then info.effect = DEBUFF[e.status] break end
@@ -135,15 +137,24 @@ local function limitOf(row)
     return info
 end
 
--- An Esper's unit row resists its own element.
-local function esperOf(row, units)
+-- An Esper's moves, from the game's AI row. The first listed move is its
+-- signature, which gives its element. With no damage move past its basic attack
+-- it is a support Esper. A move that poisons is worth knowing on a big boss.
+local function esperOf(row, units, skills)
     local fx = has(row, E.SUMMON)
     local uid = fx and fx.params and fx.params[2]
     local unit = uid and units[uid]
-    local info = { turns = 3, role = "damage", magic = true }
-    if unit then
-        for el, res in pairs(unit.elements or {}) do
-            if (res >= 2) and ELEMENT[el] then info.element = ELEMENT[el] end
+    local info = { turns = 3, role = "guard" }
+    for i, id in ipairs((unit and unit.moves) or {}) do
+        local move = skills[id]
+        if move then
+            if i == 1 then
+                info.element = move.element
+                if move.dmgType == PHYS then info.phys = true end
+                if move.dmgType == MAGIC then info.magic = true end
+            end
+            if (move.effect == 1) and (move.varType ~= UP) and (move.attr ~= A_FIGHT) then info.role = "damage" end
+            if statusOn(move, 1) then info.poison = true end
         end
     end
     return info
@@ -216,7 +227,7 @@ local function itemOf(item, row, books)
     local price = item.price or 0
     local rare = (price >= 2000) or (not item.sale)
     local rank = math.floor(price / 1000) + 1
-    if row.effect == 1 and row.varType ~= 0 then
+    if row.effect == 1 and row.varType ~= UP then
         books.attack[key] = { element = row.element, magic = (row.dmgType == MAGIC) or nil,
             phys = (row.dmgType ~= MAGIC) or nil, rank = rank }
         return
@@ -256,6 +267,7 @@ local function cardOf(u, skills)
     for id, name in pairs(STATUS) do
         if ((u.status or {})[id] or 0) >= 100 then card.ail[name] = true end
     end
+    card.poisonRes = (u.status or {})[1] or 0
     -- The game's own list of this enemy's dangerous moves, and the damage they deal.
     local danger = {}
     local kinds = {}
@@ -298,7 +310,7 @@ function M.build(raw)
             local key = fold(row.name)
             if out.known[key] == nil or row.fromUnit then out.known[key] = factOf(row) end
             if row.attr == A_LB then out.limits[key] = limitOf(row) end
-            if row.attr == A_SUMMON and has(row, E.SUMMON) then out.espers[key] = esperOf(row, raw.units or {}) end
+            if row.attr == A_SUMMON and has(row, E.SUMMON) then out.espers[key] = esperOf(row, raw.units or {}, raw.skills) end
             if row.effects then roleOf(row, out.kits) end
         end
     end
