@@ -64,9 +64,6 @@ local spent = team()
 spent[1].hp, spent[1].maxHp = 1000, 1100
 spent[2].hp, spent[2].maxHp = 1000, 1100
 check(#B.rank(spent, { heal }, 3, false) == 0, "a heal can't go over max HP, so it can't save them")
-local stance = team()
-stance[1].noSpell, stance[2].noSpell = true, true
-check(#B.rank(stance, { { heal = 900, scope = "one", spell = true } }, 3, false) == 0, "a spell heal doesn't reach an ally who can't take one")
 
 local covered = opt(cover, MAGIC)
 check(#B.rank(team(), { covered }, 3, false) == 0, "cover isn't counted on a group hit")

@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.24, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.26, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -65,7 +65,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.2.24.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v0.2.26.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -119,9 +119,8 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 - **A foe that can die this turn dies this turn.** A measured killing blow comes before heals and raises.
 - **The team prepares for a big hit.** When the game warns of a dangerous move, each character estimates that hit against each ally, then uses whichever guard, Shell, Protect, Cover, heal, item, or Defend saves the most of them. If nothing would save anyone, they keep hitting.
 - **Multicast is a normal choice.** A spell cast on All costs the same MP and does about 40% to each target, so it is picked when that total is better.
-- **An Esper on a weakness comes early.** It goes ahead of a heal nobody will die without. Raises and critical heals still come first.
-- **Support earns its turn.** Buffs and debuffs go out when they fit the fight. A debuff follows the damage the party and the foe really deal.
-- **Spending goes by need.** Rare items are saved for a boss, a foe with dangerous moves, or a real emergency. A fight where nothing can hurt the party spends no items.
+- **Support earns its turn.** Guards go out for a warned hit. Haste, Provoke, and Cover go out when they fit the fight, and a defense debuff follows the damage the party really deals. There is no list of special skills, so a skill the mod has no general rule for is left for you.
+- **Spending goes by need.** Rare items are saved for a boss, a foe with dangerous moves, or a real emergency.
 
 An ally who is confused, charmed, or berserk is left to the game. If a fight stalls for five rounds with no enemy losing HP, the party escapes when the game allows it. Take it Easy never escapes.
 

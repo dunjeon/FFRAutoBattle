@@ -1,48 +1,23 @@
 -- Debuffs. The planner calls these. This file does not name a fight,
 -- a character, or a Vision, and it does not touch the battle libraries.
 --
--- protect is physical defense down. shell is magic defense down.
--- attack is physical attack down. Those three have no status id, so each
--- is spent once on the danger body, or on the largest gauge.
--- blind and silence are spent on a caster. charm, confuse, poison, and
--- slow are a fallback when none of those is equipped.
--- A status still on the body is not cast again. Once it has been seen and
--- then drops, it can be refreshed. The book ail list is a full immunity.
-
-local STATUS = {
-    poison = 1,
-    blind = 2,
-    silence = 4,
-    confuse = 6,
-    charm = 8,
-    slow = 12,
-}
+-- A defense debuff makes the party's own damage land harder, so it follows what
+-- this party really deals. Other debuffs have no general rule, so they aren't cast.
+-- A status still on the body is not cast again. Once it has been seen and then
+-- drops, it can be refreshed. An immune foe is skipped.
 
 local RANK = {
-    deprotect = 50,
-    deshell = 40,
-    debrave = 30,
-    defaith = 30,
-    silence = 20,
-    blind = 10,
-}
-
-local FALLBACK = {
-    charm = true,
-    confuse = true,
-    poison = true,
-    slow = true,
+    defenseDown = 50,
+    mindDown = 40,
 }
 
 -- Which of this party's damage each defense debuff helps.
-local HELPS = { deprotect = "physical", deshell = "magic" }
--- Which of a foe's damage each offense debuff cuts.
-local CUTS = { debrave = "physical", defaith = "magic" }
+local HELPS = { defenseDown = "physical", mindDown = "magic" }
 -- Under this share of the damage it would touch, a debuff isn't worth a turn.
 local WORTH = 0.2
 
--- A debuff's rank. A defense debuff follows what this party really deals: the
--- larger share goes first, still ahead of the others. share: { physical, magic }.
+-- A debuff's rank. The larger share of this party's damage goes first.
+-- share: { physical, magic }.
 local function rankOf(effect, share)
     local base = effect and RANK[effect]
     if not base then return 0 end
@@ -54,23 +29,6 @@ local function rankOf(effect, share)
 end
 
 local M = {}
-M.STATUS = STATUS
-
--- How much of this foe's damage is physical and how much magic: what it has really
--- dealt, or before any hit, the kind of its dangerous moves. Nil with neither.
--- foeBook: its hit book, skill id to { total, dtype }. hits: "physical" or "magic".
-function M.dealsOf(foeBook, hits)
-    local phys, magic = 0, 0
-    for _, sk in pairs(foeBook or {}) do
-        if sk.dtype == 1 then phys = phys + (sk.total or 0) end
-        if sk.dtype == 2 then magic = magic + (sk.total or 0) end
-    end
-    local total = phys + magic
-    if total > 0 then return { physical = phys / total, magic = magic / total } end
-    if hits == "physical" then return { physical = 1, magic = 0 } end
-    if hits == "magic" then return { physical = 0, magic = 1 } end
-    return nil
-end
 
 function M.effectOf(skill)
     local info = skill and skill.known
@@ -79,19 +37,13 @@ function M.effectOf(skill)
     return effect
 end
 
-function M.matter(effect)
-    return RANK[effect] ~= nil
-end
-
 local function immune(effect, foe)
     local ail = foe and foe.ail
     return (ail and effect and ail[effect]) and true or false
 end
 
--- True while this effect should not be cast again.
--- No status id means the claim lasts the fight.
--- A claimed status that has never been seen stays claimed, so a resist
--- is not cast every turn. Seen, then gone, is a refresh.
+-- True while this effect should not be cast again. With no status on the row, the
+-- claim lasts the fight.
 -- skill: the live row. When it lists the status it puts on the enemy, that
 -- status showing is the timer: held while it shows, refreshed once it is gone.
 local function rowStatus(skill)
@@ -110,30 +62,11 @@ function M.up(effect, foe, on, seen, skill)
         end
         return false
     end
-    local id = STATUS[effect]
-    local statuses = foe.statuses
-    if id and statuses and statuses[id] then return true end
-    local claimed = on and on[foe.id] and on[foe.id][effect]
-    if not claimed then return false end
-    if not id then return true end
-    local saw = seen and seen[foe.id] and seen[foe.id][effect]
-    if not saw then return true end
-    return false
+    return (on and on[foe.id] and on[foe.id][effect]) and true or false
 end
 
-local function classOk(effect, foe, fallback)
-    local cuts = CUTS[effect]
-    if cuts and foe.deals and ((foe.deals[cuts] or 0) < WORTH) then return false end
-    if RANK[effect] then
-        if (effect == "silence") or (effect == "blind") then
-            return foe.counter == "magic"
-        end
-        return foe.prefer and true or false
-    end
-    if fallback and FALLBACK[effect] then
-        return foe.prefer and true or false
-    end
-    return false
+local function classOk(effect, foe)
+    return (RANK[effect] and foe.prefer) and true or false
 end
 
 local function openFoe(foe)
@@ -159,16 +92,15 @@ local function preferAbout(foes)
     return false
 end
 
-function M.choose(skills, foes, on, seen, fallback, share)
+function M.choose(skills, foes, on, seen, share)
     if preferAbout(foes) then return nil end
     local bestS, bestF, bestRank = nil, nil, 0
     for _, skill in ipairs(skills or {}) do
         local effect = M.effectOf(skill)
         local rank = rankOf(effect, share)
-        if (rank == 0) and fallback and effect and FALLBACK[effect] then rank = 1 end
         if rank > 0 then
             for _, foe in ipairs(foes or {}) do
-                if openFoe(foe) and classOk(effect, foe, fallback) and (not immune(effect, foe))
+                if openFoe(foe) and classOk(effect, foe) and (not immune(effect, foe))
                     and (not M.up(effect, foe, on, seen, skill)) then
                     if better(rank, foe, bestRank, bestF) then
                         bestS, bestF, bestRank = skill, foe, rank
@@ -180,24 +112,22 @@ function M.choose(skills, foes, on, seen, fallback, share)
     if not bestS then return nil end
     local effect = M.effectOf(bestS)
     local claimed = on and on[bestF.id] and on[bestF.id][effect]
-    local saw = seen and seen[bestF.id] and seen[bestF.id][effect]
     local why = "setup"
-    if claimed and (saw or rowStatus(bestS)) then why = "refresh" end
+    if claimed then why = "refresh" end
     return bestS, bestF, why
 end
 
 -- The effect that would have been spent, except every open body it fits is immune.
-function M.immuneEffect(skills, foes, fallback, share)
+function M.immuneEffect(skills, foes, share)
     if preferAbout(foes) then return nil end
     local found = nil
     for _, skill in ipairs(skills or {}) do
         local effect = M.effectOf(skill)
         local rank = rankOf(effect, share)
-        local fb = (rank == 0) and fallback and effect and FALLBACK[effect]
-        if (rank > 0) or fb then
+        if rank > 0 then
             local anyFit, anyImmune = false, false
             for _, foe in ipairs(foes or {}) do
-                if openFoe(foe) and classOk(effect, foe, fallback) then
+                if openFoe(foe) and classOk(effect, foe) then
                     if immune(effect, foe) then anyImmune = true else anyFit = true end
                 end
             end

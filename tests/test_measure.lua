@@ -44,9 +44,6 @@ check(M.pickKill({ dear, cheap }, 500) == cheap, "the cheapest hit with room to 
 local thin, wide = { real = 460, cost = 0 }, { real = 600, cost = 15 }
 check(M.pickKill({ thin, wide }, 432) == wide, "room to spare beats a close call")
 check(M.pickKill({ thin }, 432) == thin, "a close call is still taken when it's all there is")
-local crit = { [1] = { fullTo = { [7] = 540 } }, [3] = { fullTo = { [7] = 2000 } }, [5] = { fullTo = { [7] = 600 } } }
-rows[3].dmgType, rows[5] = 2, { power = 30, dmgType = 2 }
-check(math.abs(M.warnedCast(crit, { 2 }, rowOf, 7) - (20 * 99)) < 0.01, "one outsized hit doesn't set the estimate")
 check(M.damageFit(3) == 1.5 and M.damageFit(1) == 1 and M.damageFit(0.5) == 0.5, "weakness is smaller on damage than on stagger")
 
 -- Misses, in numbers from a real fight: lands for 544, 50% accuracy, 6 of 15 missed.

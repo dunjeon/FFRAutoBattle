@@ -3,7 +3,7 @@
 --
 -- A summon stays about three of its own turns, then leaves. The party can
 -- call it again. The element is the signature hit. A support row has no
--- element. Lightning is stored as thunder, the same word the enemy book uses.
+-- element.
 
 local BOOK = {}
 
@@ -11,12 +11,6 @@ local function fold(name)
     local n = (name or ""):lower()
     n = n:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
     return n
-end
-
-local function hasName(key, esper)
-    if key == esper then return true end
-    local stripped = key:gsub("^summon[:%s]+", ""):gsub("%s+esper$", "")
-    return stripped == esper
 end
 
 local function copyOf(row)
@@ -36,9 +30,6 @@ function M.lookup(name)
     local key = fold(name)
     if key == "" then return nil end
     if BOOK[key] then return copyOf(BOOK[key]) end
-    for esper, row in pairs(BOOK) do
-        if hasName(key, esper) then return copyOf(row) end
-    end
     return nil
 end
 

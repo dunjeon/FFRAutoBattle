@@ -85,8 +85,8 @@ local function dies(hp, hit)
 end
 
 -- team: { id, hp, maxHp, hit (full size against this ally), share (what gets
--- through now), statuses, actsFirst (acts again before the hit), noSpell }.
--- option: { key, through, cover, status, turns, heal, scope, spell, cost }.
+-- through now), statuses, actsFirst (acts again before the hit) }.
+-- option: { key, through, cover, status, turns, heal, scope, cost }.
 -- Returns the options that save someone, best first, each with its targets.
 function M.rank(team, options, selfId, singleTarget)
     local me = nil
@@ -98,7 +98,6 @@ function M.rank(team, options, selfId, singleTarget)
         local before = a.hit * a.share
         local hp, after = a.hp, before
         if opt.heal then
-            if opt.spell and a.noSpell then return false, 0 end
             hp = math.min(a.hp + opt.heal, a.maxHp or (a.hp + opt.heal))
         else
             if opt.status and a.statuses and a.statuses[opt.status] then return false, 0 end
