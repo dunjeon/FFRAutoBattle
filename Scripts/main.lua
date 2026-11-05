@@ -63,6 +63,15 @@ do
         log("rows unavailable: %s", tostring(rows))
     end
 end
+do
+    local okR, report = pcall(dofile, DIR .. "/Scripts/report.lua")
+    if okR and type(report) == "table" then
+        Known.report = report.new(DIR .. "/battle_report.txt")
+        pcall(Known.report.trim, Known.report)
+    else
+        log("report unavailable: %s", tostring(report))
+    end
+end
 local function knownOf(skill)
     local map = Known.skills
     if not map or not skill or not skill.name then return nil end
@@ -266,6 +275,7 @@ local function keepFights(text, keep)
 end
 
 local function appendLog(line)
+    if Known.report and type(line) == "string" then pcall(Known.report.note, Known.report, line) end
     if type(line) == "string" and line:match("^== battle ") then
         local read = io.open(LOG_PATH, "r")
         local text, size = "", 0
@@ -4092,7 +4102,8 @@ local function turn(uid, skills, w, phase)
             if not pay(s) then return end
             local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
             if spendLb and (not hardField) then return end
-            if spendLb and lbSaved(uid, s) then return end
+            if spendLb and Fight.limitNoArea and aoeOf(s) then return end
+            if spendLb and lbSaved(uid, s) and (not Fight.limitUrgent) then return end
             -- An area Limit hits every living enemy. A nulled element stays off.
             if spendLb and aoeOf(s) and s.known and s.known.element and (#w.enemies > 0) then
                 local blocked = false
@@ -4224,6 +4235,50 @@ local function turn(uid, skills, w, phase)
         return finishChoice(uid, bestS, reason, targets, bestSpread)
     end
 
+    -- A full bar stops waiting, and a stagger on the largest gauge spends a Limit
+    -- even if a bigger one is being saved. On a boss that enrages when the fight
+    -- drags on, an area Limit could kill the add that starts that, so while an
+    -- add is up after two kills only a single-target Limit goes, until the boss
+    -- is under 15%.
+    if ((phase == 0) or (phase == PHASE_BONUS)) and hardField then
+        local ready = false
+        for _, s in ipairs(skills) do
+            if isHit(s, true) and pay(s) and ((s.attr == ATTR.LB) or (useOf(s) == "lb-cash")) then ready = true end
+        end
+        if ready then
+            local cause = nil
+            local points, top = stat(uid, PARAM.LB, false), stat(uid, PARAM.LB, true)
+            if points and top and (top > 0) and (points >= top) then cause = "bar full" end
+            if (not cause) and (#brokenPool > 0) then
+                local most, brokeMost = 0, 0
+                for _, u in ipairs(w.enemies) do
+                    local gauge = gaugeOfEnemy(u) or 0
+                    if gauge > most then most = gauge end
+                end
+                for _, u in ipairs(brokenPool) do
+                    local gauge = gaugeOfEnemy(u) or 0
+                    if gauge > brokeMost then brokeMost = gauge end
+                end
+                if brokeMost >= most then cause = "stagger open" end
+            end
+            if cause then
+                local noArea = false
+                if bossU and ((Fight.addKills or 0) >= 2) then
+                    local card = mobOf(bossU)
+                    local hp, maxHp = stat(bossU.id, PARAM.HP, false), stat(bossU.id, PARAM.HP, true)
+                    local addUp = false
+                    for _, u in ipairs(w.enemies) do
+                        if u.id ~= bossU.id then addUp = true end
+                    end
+                    noArea = card and card.dragOn and addUp and not (hp and maxHp and (maxHp > 0) and ((hp / maxHp) < 0.15))
+                end
+                Fight.limitUrgent, Fight.limitNoArea = true, noArea and true or false
+                local okHit, hit = pcall(castDamage, (#brokenPool > 0) and brokenPool or w.enemies, true, "limit, " .. cause .. ",")
+                Fight.limitUrgent, Fight.limitNoArea = false, false
+                if okHit and hit and ((hit.attr == ATTR.LB) or (hit.known and (hit.known.use == "lb-cash"))) then return hit end
+            end
+        end
+    end
     if phase == PHASE_BONUS then
         -- A bonus opens the next break-time Limit.
         if Fight.claim then Fight.claim.lbBreak = false end
@@ -5273,9 +5328,340 @@ local function showBadge(msg)
     if Hud.badgeShow then Hud.badgeShow(msg) end
 end
 
+-- battle_report.txt. Log only: nothing here picks a command, and nothing here
+-- can stop one. A failure is logged once and the report stops for that step.
+-- These read the game, so they run from a menu turn or the timer, never a hook.
+Known.repRun = function(fn, ...)
+    if not Known.report then return end
+    local ok, err = pcall(fn, ...)
+    if (not ok) and (not Known.repErr) then
+        Known.repErr = true
+        log("report step failed: %s", tostring(err))
+        pcall(Known.report.note, Known.report, "report step failed: " .. tostring(err))
+    end
+end
+
+-- A unit's table row. A body that has fallen still has its row.
+Known.repRow = function(id)
+    local F = Known.report and Known.report.fight
+    if not F then return nil end
+    F.rowOf = F.rowOf or {}
+    if F.rowOf[id] then return F.rowOf[id] end
+    local bfl = battleLib()
+    if not (bfl and bfl:IsValid()) then return nil end
+    local ok, rowId = pcall(function() return num(bfl:GetBattleUnitParameter(id, false):GetUnitId()) end)
+    if ok and rowId then F.rowOf[id] = rowId end
+    return F.rowOf[id]
+end
+
+-- The relation list can come back empty for enemies in the game, so the
+-- enemies the fight has seen and this command's targets count too.
+Known.repSnap = function(extra)
+    local function unitOf(id, isFoe)
+        local set = statuses(id)
+        local hp = stat(id, PARAM.HP, false)
+        return { name = isFoe and unitName(id) or Fight.nameOf(id), hp = hp, maxHp = stat(id, PARAM.HP, true),
+            mp = stat(id, PARAM.MP, false), maxMp = stat(id, PARAM.MP, true), lb = stat(id, PARAM.LB, false),
+            gauge = stat(id, PARAM.BREAK, false), maxGauge = stat(id, PARAM.BREAK, true), statuses = set,
+            down = (hp == nil) or (hp <= 0) or ((Fight.unitDown and Fight.unitDown(id)) and true) or false }
+    end
+    local snap = { allies = {}, foes = {} }
+    for _, id in ipairs(friendIds()) do
+        if not (Fight.isSummon and Fight.isSummon(id)) then snap.allies[id] = unitOf(id, false) end
+    end
+    local function addFoe(id)
+        if snap.foes[id] or snap.allies[id] then return end
+        local hp = stat(id, PARAM.HP, false)
+        if hp and hp > 0 then snap.foes[id] = unitOf(id, true) end
+    end
+    for _, id in ipairs(members(REL.ENEMY)) do addFoe(id) end
+    for id in pairs(Fight.seenFoe or {}) do addFoe(id) end
+    for _, id in ipairs(extra or {}) do addFoe(id) end
+    return snap
+end
+
+-- Once per ally and enemy a fight: what the mod knows about them.
+Known.repCards = function(snap)
+    local F = Known.report.fight
+    if not F then return end
+    -- Each unit's table row. A hit can land after a body is gone.
+    for _, list in ipairs({ snap.foes, snap.allies }) do
+        for id in pairs(list) do Known.repRow(id) end
+    end
+    local function set(t)
+        local o = {}
+        for k in pairs(t or {}) do o[#o + 1] = tostring(k) end
+        table.sort(o)
+        return (#o > 0) and table.concat(o, ",") or "-"
+    end
+    for id, u in pairs(snap.foes) do
+        local key = tostring(id) .. ":" .. tostring(u.name)
+        if not F.cardSeen[key] then
+            F.cardSeen[key] = true
+            local card = mobOf({ id = id, name = u.name })
+            local p = paramOf(id)
+            local okU, unitId = pcall(function() return num(p:GetUnitId()) end)
+            Known.report:write({
+                string.format("  enemy %s, uid %s, row %s", tostring(u.name), tostring(id), tostring(okU and unitId)),
+                string.format("    weak %s; half %s; absorb %s; null %s; immune %s", set(card and card.weak), set(card and card.half),
+                    set(card and card.absorb), set(card and card.no), set(card and card.ail)),
+                string.format("    danger %s; hits %s; counter %s; shift %s; drags on %s; hp %s/%s, gauge %s/%s", (card and card.danger and table.concat(card.danger, ",")) or "-",
+                    tostring(card and card.hits), tostring(card and card.counter), tostring(card and card.shift), tostring(card and card.dragOn), tostring(u.hp), tostring(u.maxHp), tostring(u.gauge), tostring(u.maxGauge)),
+                "    traits: " .. ((card and card.traits and table.concat(card.traits, " / ")) or "-"),
+            })
+        end
+    end
+    for id, u in pairs(snap.allies) do
+        local key = "a" .. tostring(id)
+        if (not F.cardSeen[key]) and (not u.down) then
+            F.cardSeen[key] = true
+            local p = paramOf(id)
+            local function row(kind) return tostring(stat(id, kind, false)) end
+            local okU, unitId = pcall(function() return num(p:GetUnitId()) end)
+            local okV, vision = pcall(function() return num(p:GetEquipmentId(4, 0)) end)
+            local lines = { string.format("  ally %s, uid %s, unit %s, vision %s: level %s, hp %s/%s, mp %s/%s, atk %s def %s int %s mind %s agi %s",
+                tostring(u.name), tostring(id), tostring(okU and unitId), tostring(okV and vision), row(10), tostring(u.hp), tostring(u.maxHp),
+                tostring(u.mp), tostring(u.maxMp), row(5), row(6), row(7), row(8), row(9)) }
+            for _, s in ipairs(usableOf(id)) do
+                local info = s.known or {}
+                lines[#lines + 1] = string.format("    bar %s id %s: cost %s, power %s, stagger %s, hits %s, attr %s, dmg %s, element %s, target %s, use %s, kind %s%s",
+                    tostring(s.name), tostring(s.id), tostring(s.cost), tostring(s.power), tostring(s.breakPower), tostring(s.hits), tostring(s.attr),
+                    tostring(s.dmgType), tostring(info.element or s.element), tostring(s.target), tostring(info.use), tostring(s.kind), s.lbCost and (", gauges " .. tostring(s.lbCost)) or "")
+            end
+            Known.report:write(lines)
+        end
+    end
+end
+
+Known.repBegin = function()
+    local diff, rates = nil, {}
+    pcall(function()
+        local lib = StaticFindObject("/Script/mucha.Default__CPP_BFL_SaveDataPlayer")
+        if lib and lib:IsValid() then
+            diff = num(lib:GetGameDifficulty())
+            for _, k in ipairs({ "GetCurDifficultyHpRate", "GetCurDifficultyDamageTakenRate", "GetCurDifficultyDamageGivenRate" }) do
+                local ok, v = pcall(function() return lib[k](lib) end)
+                if ok then rates[#rates + 1] = (k:gsub("GetCurDifficulty", "")) .. " " .. tostring(num(v) or v) end
+            end
+        end
+    end)
+    Known.report:begin({ number = Fight.number, boss = Fight.boss,
+        difficulty = "difficulty " .. tostring(diff) .. ((#rates > 0) and (" (" .. table.concat(rates, ", ") .. ")") or "") })
+    local names = {}
+    for _, e in ipairs(ownedRecovery() or {}) do names[#names + 1] = tostring(e.name) .. " x" .. tostring(e.count) end
+    Known.report:write("  bag: " .. table.concat(names, ", "))
+end
+
+-- The player's commands count like the mod's: in the report and in learn.lua.
+Known.repHandFlush = function()
+    local list = Fight.repHand
+    if not list or #list == 0 then return end
+    Fight.repHand = {}
+    local R = Known.report
+    if not R.fight then Known.repBegin() end
+    for _, h in ipairs(list) do
+        local snap = Known.repSnap(h.targets)
+        local who = (h.uid and h.uid >= 0) and Fight.nameOf(h.uid) or "you"
+        local row = (not h.isItem) and skillOf(h.id) or nil
+        local kind = h.kind or (row and row.kind) or "other"
+        if kind == "ether" then kind = "mp" end
+        local targets = {}
+        for _, tid in ipairs(h.targets or {}) do
+            local foe, friend = snap.foes[tid], snap.allies[tid]
+            local t = { name = (foe and foe.name) or (friend and friend.name) or tostring(tid) }
+            if foe and row and kind == "damage" then t.factor = elementFactor(row, { id = tid, name = foe.name }) end
+            targets[#targets + 1] = t
+        end
+        local me = h.uid and snap.allies[h.uid]
+        R:decide({ byHand = true, who = who, uid = h.uid, phase = h.phase, round = Fight.rounds, mp = me and me.mp, maxMp = me and me.maxMp, lb = me and me.lb,
+            name = h.name, id = h.id, kind = kind, reason = "sent by the player", cost = h.cost, attr = h.attr, dmgType = h.dmgType, targets = targets })
+    end
+end
+
+Known.repDecide = function(uid, choice, phase)
+    local R = Known.report
+    if not R.fight then Known.repBegin() end
+    Known.repHandFlush()
+    local snap = Known.repSnap(choice.targets)
+    R:field(snap)
+    Known.repCards(snap)
+    local me = snap.allies[uid]
+    local mp = me and me.mp or 0
+    local could, weakBy, canHeal, canRaise, isHealer = {}, {}, false, false, false
+    local shortHeal, shortRaise, shortWeak = nil, nil, {}
+    local limitReady, bestValue, bestName = nil, nil, nil
+    local brokenFoes = {}
+    for id, f in pairs(snap.foes) do
+        if (f.hp or 0) > 0 and (f.gauge or 1) <= 0 then brokenFoes[id] = f end
+    end
+    local function hitValue(s)
+        local top = 0
+        for id, f in pairs(brokenFoes) do
+            local x = elementFactor(s, { id = id, name = f.name })
+            local v = (s.power or 0) * ((s.hits and s.hits > 0) and s.hits or 1) * ((x >= 3) and 1.5 or x)
+            if v > top then top = v end
+        end
+        return top
+    end
+    local usable = usableOf(uid)
+    for _, s in ipairs(usable) do
+        local cost = s.cost or 0
+        if cost <= mp then
+            if s.kind == "heal" and s.attr ~= ATTR.ITEM then canHeal = true end
+            if s.kind == "revive" then canRaise = true end
+            if s.attr == ATTR.LB and s.kind == "damage" then limitReady = limitReady or s.name end
+            if s.kind == "damage" and next(brokenFoes) then
+                local v = hitValue(s)
+                if (not bestValue) or v > bestValue then bestValue, bestName = v, s.name end
+            end
+            local fit = {}
+            if s.kind == "damage" then
+                for id, f in pairs(snap.foes) do
+                    if (f.hp or 0) > 0 then
+                        local x = elementFactor(s, { id = id, name = f.name })
+                        fit[#fit + 1] = tostring(f.name) .. " x" .. tostring(x)
+                        if x >= 3 and s.attr ~= ATTR.SUMMON then weakBy[id] = weakBy[id] or s.name end
+                    end
+                end
+            end
+            could[#could + 1] = string.format("%s %s%s", tostring(s.name), tostring(cost), (#fit > 0) and (" (" .. table.concat(fit, ", ") .. ")") or "")
+        elseif s.attr ~= ATTR.SUMMON and s.attr ~= ATTR.LB and s.attr ~= ATTR.ITEM then
+            -- On the bar, but MP is short. Read against what went out, below.
+            if s.kind == "heal" then shortHeal = shortHeal or s.name end
+            if s.kind == "revive" then shortRaise = shortRaise or s.name end
+            if s.kind == "damage" then
+                for id, f in pairs(snap.foes) do
+                    if (f.hp or 0) > 0 and elementFactor(s, { id = id, name = f.name }) >= 3 then
+                        shortWeak[id] = shortWeak[id] or s.name
+                    end
+                end
+            end
+        end
+        if s.kind == "heal" and s.attr == ATTR.MAGIC then isHealer = true end
+    end
+    local targets = {}
+    for _, tid in ipairs(choice.targets or {}) do
+        local foe, friend = snap.foes[tid], snap.allies[tid]
+        local t = { name = (foe and foe.name) or (friend and friend.name) or tostring(tid) }
+        if foe and choice.kind == "damage" then
+            t.factor = elementFactor(skillOf(choice.id) or choice, { id = tid, name = foe.name })
+            t.weakPaid = weakBy[tid]
+        end
+        if friend and friend.maxHp and friend.maxHp > 0 then t.pct = math.floor(100 * (friend.hp or 0) / friend.maxHp + 0.5) end
+        targets[#targets + 1] = t
+    end
+    local claims = {}
+    for id in pairs((Fight.claim and Fight.claim.heal) or {}) do
+        local u = snap.allies[id]
+        claims[#claims + 1] = tostring(u and u.name or id)
+    end
+    local function names(list)
+        local o = {}
+        for _, id in ipairs(list or {}) do
+            local u = snap.allies[id] or snap.foes[id]
+            o[#o + 1] = tostring(u and u.name or id)
+        end
+        return table.concat(o, " ")
+    end
+    local kind = choice.kind or "other"
+    if choice.itemUse == "hp" or choice.itemUse == "both" then kind = "heal" end
+    if choice.itemUse == "revive" then kind = "revive" end
+    if choice.itemUse == "mp" then kind = "mp" end
+    if kind == "item" and type(choice.reason) == "string" and choice.reason:find("^throw") then kind = "throw" end
+    -- Needed something MP couldn't pay, with an Ether in the bag, and did
+    -- something else. Log only: this is evidence for the Ether rule, not a rule.
+    -- A boss or a danger move only. Elsewhere the job is to hit hard and often
+    -- and stay alive, and an Ether turn isn't worth weighing.
+    local short = {}
+    if (kind ~= "mp") and Fight.threat then
+        local etherIn = false
+        for _, e in ipairs(ownedRecovery() or {}) do
+            if e.kind == "mp" or (e.mp and not e.hp) then etherIn = true end
+        end
+        if etherIn then
+            local lowU, downN = nil, 0
+            for id, u in pairs(snap.allies) do
+                if u.down then
+                    downN = downN + 1
+                elseif u.maxHp and u.maxHp > 0 and (u.hp or 0) / u.maxHp < 0.30 and not (Fight.claim and Fight.claim.heal and Fight.claim.heal[id]) then
+                    lowU = u
+                end
+            end
+            local spent = Fight.claim and Fight.claim.etherRound
+            local function add(need, what) short[#short + 1] = { need = need, what = what, spent = spent and true or false } end
+            local caring = (kind == "heal") or (kind == "revive") or (kind == "cure")
+            if lowU and shortHeal and (not canHeal) and (not caring) then add("heal", shortHeal .. " for " .. tostring(lowU.name)) end
+            if (downN > 0) and shortRaise and (not canRaise) and (not caring) then add("raise", shortRaise) end
+            if choice.kind == "damage" then
+                for _, t in ipairs(targets) do
+                    if t.factor and t.factor < 3 and (not t.weakPaid) then
+                        for _, tid in ipairs(choice.targets or {}) do
+                            if shortWeak[tid] and snap.foes[tid] and snap.foes[tid].name == t.name then
+                                add("weakness", shortWeak[tid] .. " on " .. tostring(t.name))
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local row = skillOf(choice.id)
+    -- A Multicast row is its own row in the game's table, with the same name.
+    local function allRowFor(wanted)
+        local allNames = Known.allMagNames or {}
+        if not Known.allMagNames then
+            for _, r in pairs(SkillIdx or {}) do
+                if r.allMag and r.name then allNames[r.name] = true end
+            end
+            Known.allMagNames = allNames
+        end
+        for _, s in ipairs(usable) do
+            if (s.cost or 0) <= mp and s.attr == ATTR.MAGIC and s.kind == wanted and allNames[s.name] then return s.name end
+        end
+        return nil
+    end
+    local multicastSweep, multicastHeal = nil, nil
+    if not choice.isAll then
+        local foesUp, low = 0, true
+        for _, f in pairs(snap.foes) do
+            if (f.hp or 0) > 0 then
+                foesUp = foesUp + 1
+                if (f.gauge or 0) <= 0 or (f.maxGauge or 0) <= 0 or f.gauge / f.maxGauge > 0.25 then low = false end
+            end
+        end
+        if foesUp >= 2 and low then multicastSweep = allRowFor("damage") end
+        local up, hurt = 0, 0
+        for _, a in pairs(snap.allies) do
+            if not a.down then
+                up = up + 1
+                if a.maxHp and a.maxHp > 0 and (a.hp or 0) / a.maxHp < 0.5 then hurt = hurt + 1 end
+            end
+        end
+        if up >= 2 and hurt * 2 > up then multicastHeal = allRowFor("heal") end
+    end
+    local chosenValue = (kind == "damage") and next(brokenFoes) and hitValue(row or choice) or nil
+    R:decide({ short = short, now = Fight.order and names(Fight.order.current) or nil, limitReady = limitReady, value = chosenValue, bestValue = bestValue, bestName = bestName,
+        multicastSweep = multicastSweep, multicastHeal = multicastHeal, who = Fight.nameOf(uid), uid = uid, phase = phase, round = Fight.rounds, mp = me and me.mp, maxMp = me and me.maxMp, lb = me and me.lb,
+        name = choice.name, id = choice.id, kind = kind, reason = choice.reason, cost = choice.cost, attr = choice.attr,
+        dmgType = row and row.dmgType, targets = targets, could = could, isAll = choice.isAll, canHeal = canHeal, canRaise = canRaise,
+        isHealer = isHealer, itemHeal = (choice.itemUse == "hp") or (choice.itemUse == "both"),
+        next = Fight.order and ("now " .. names(Fight.order.current) .. " | next " .. names(Fight.order.next)) or nil,
+        risk = names(Fight.risk), claims = table.concat(claims, ",") })
+end
+
+Known.repFinish = function()
+    local R = Known.report
+    if not R.fight then return end
+    Known.repHandFlush()
+    R:finish({ rounds = Fight.rounds, wheelOpen = Fight.repWheelOpen, wheelSent = Fight.repWheelSent })
+    Fight.repWheelOpen, Fight.repWheelSent = 0, 0
+end
+
 local flushWarn
 local function finishBattle()
     if not Fight.active then return end
+    Known.repRun(Known.repFinish)
     Fight.active = false
     Fight.hitSeen, Fight.hitHold, Fight.killHold = nil, nil, false
     Fight.orderPending, Fight.orderFresh = nil, false
@@ -5963,6 +6349,7 @@ local function act(serial)
             Fight.healProbe = { uid = uid, target = choice.targets[1], hp = hpNow, power = row.power, name = choice.name }
         end
     end
+    Known.repRun(Known.repDecide, uid, choice, phase)
     local ok, sent = pcall(send, uid, choice, phase)
     if not ok then
         log("send failed: %s", tostring(sent))
@@ -6216,6 +6603,13 @@ local function noteHand(v)
     rememberCast(who, name)
     Fight.actions[#Fight.actions + 1] = line
     Fight.last = { who = who, skill = name }
+    -- For the report. This is a game hook, so nothing is read here: the timer
+    -- or the next menu turn records it.
+    if Known.report then
+        Fight.repHand = Fight.repHand or {}
+        Fight.repHand[#Fight.repHand + 1] = { uid = uid, id = actionId, name = name, kind = kind, targets = targets, phase = phase,
+            isItem = isItem, cost = skill and skill.cost, attr = skill and skill.attr, dmgType = skill and skill.dmgType }
+    end
     Fight.prevHit = { who = who, skill = name, kind = kind, id = targets[1] }
     if (kind == "damage") and targets[1] then Fight.building = targets[1] end
     Fight.claim = Fight.claim or {}
@@ -6446,6 +6840,20 @@ function readRisk()
             local to = actorId(d.pTargetUnit)
             local row = unwrap(d.unitParameterVariationData)
             if not from or not to or not row then return end
+            -- Every hit record, for the report: the numbers on this row only.
+            if Known.report and Known.report.fight then
+                Known.repRun(function()
+                    local fromFriend, toFriend = friends[from] and true or false, friends[to] and true or false
+                    local sidR = num(row.SkillId)
+                    local sk = sidR and skillOf(sidR)
+                    Known.report:hit({ from = from, to = to, skill = sidR, skillName = (sk and sk.name) or tostring(sidR),
+                        fromName = fromFriend and Fight.nameOf(from) or unitName(from), toName = toFriend and Fight.nameOf(to) or unitName(to),
+                        fromFriend = fromFriend, toFriend = toFriend, param = num(row.variationParameter), vtype = num(row.VariationType),
+                        value = num(row.VariationValue), before = num(row.beforeVariationValue), after = num(row.afterVariationValue),
+                        breakValue = num(row.breakDamageValue), miss = unwrap(row.isMiss) == true, defended = unwrap(row.isDefence) == true,
+                        onBreak = unwrap(row.isOnBreak) == true, trigger = unwrap(row.isTriggeredBreak) == true })
+                end)
+            end
             if Fight.summons and Fight.summons[from] then return end
             if not friends[to] then return end
             if not keepFoe(from) then return end
@@ -6809,6 +7217,7 @@ local function resonanceWatch()
             for _, u in ipairs(wheelFoes or {}) do
                 foes[#foes + 1] = string.format("%s %d%%", tostring(u.name), math.floor((u.hp or 0) * 100 + 0.5))
             end
+            Fight.repWheelOpen = (Fight.repWheelOpen or 0) + 1
             local line = string.format("wheel. foes %s. %s", table.concat(foes, ", "), table.concat(wheelNotes, ". "))
             log("%s", line)
             appendLog("  " .. line)
@@ -6836,6 +7245,7 @@ local function resonanceWatch()
         return
     end
     Fight.resonanceSent = true
+    Fight.repWheelSent = (Fight.repWheelSent or 0) + 1
     local who = unitName(bestUid)
     local line = string.format("resonance %s by %s -> %s", bestChoice.name, who, bestChoice.reason)
     log("%s", line)
@@ -6856,6 +7266,28 @@ gameLoop(700, function()
         -- A fall between turns is noted here too, so the last one before
         -- the battle ends, such as a wipe, still reaches the log.
         pcall(function() noteChanges(livingSnapshot()) end)
+        -- The report opens on the timer too, so a fight's first commands count
+        -- even when the player sends them by hand.
+        if Known.report and Fight.active then
+            Known.repRun(function()
+                if not Known.report.fight then Known.repBegin() end
+                Known.repHandFlush()
+                local snapNow = Known.repSnap()
+                Known.report:field(snapNow)
+                Known.repCards(snapNow)
+                -- Hit records are read when a menu opens, and a wipe opens none.
+                -- A fall reads them for a few ticks so the killing blow is logged.
+                local F = Known.report.fight
+                if F and ((F.falls or 0) > (F.fallsRead or 0)) then
+                    F.fallsRead = F.falls
+                    F.readLeft = 3
+                end
+                if F and ((F.readLeft or 0) > 0) then
+                    F.readLeft = F.readLeft - 1
+                    if readRisk then pcall(readRisk) end
+                end
+            end)
+        end
         return
     end
     absent = absent + 1
@@ -6950,7 +7382,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.1. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.3. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
