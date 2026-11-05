@@ -77,14 +77,14 @@ function M.noteCast(book, from, skill, landed)
     book.land[key] = rec
 end
 
--- How often this hit lands, 0 to 1. Until this fight has seen a cast, the row's
--- accuracy is the answer. After that, the casts are the answer. Rows list 0 for
--- no roll and over 100 for a sure hit.
+-- How often this hit lands, 0 to 1. Until a cast has landed, the row's accuracy
+-- is the answer. Misses alone do not retire it. Once one has landed, the casts
+-- are the answer. Rows list 0 for no roll and over 100 for a sure hit.
 function M.landRate(book, from, skill, accuracy)
     local listed = 1
     if accuracy and (accuracy > 0) and (accuracy < 100) then listed = accuracy / 100 end
     local rec = book and book.land[tostring(from) .. ":" .. tostring(skill)]
-    if not rec or rec.casts < 1 then return listed end
+    if not rec or rec.casts < 1 or rec.landed < 1 then return listed end
     return rec.landed / rec.casts
 end
 

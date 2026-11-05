@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.24, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.27, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -118,10 +118,10 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 - **Stagger is the main source of damage.** The party builds the gauge, then goes all in while the enemy is staggered, including Limit Bursts. It does not stop to prepare during a stagger.
 - **A foe that can die this turn dies this turn.** A measured killing blow comes before heals and raises.
 - **The team prepares for a big hit.** When the game warns of a dangerous move, each character estimates that hit against each ally, then uses whichever guard, Shell, Protect, Cover, heal, item, or Defend saves the most of them. If nothing would save anyone, they keep hitting.
-- **Multicast is a normal choice.** A spell cast on All costs the same MP and does about 40% to each target, so it is picked when that total is better.
+- **Multicast is a normal choice.** An All cast is its own row. The planner uses that row's magnification.
 - **An Esper on a weakness comes early.** It goes ahead of a heal nobody will die without. Raises and critical heals still come first.
 - **Support earns its turn.** Buffs and debuffs go out when they fit the fight. A debuff follows the damage the party and the foe really deal.
-- **Spending goes by need.** Rare items are saved for a boss, a foe with dangerous moves, or a real emergency. A fight where nothing can hurt the party spends no items.
+- **Spending goes by need.** The item table has no rare flag, so a rare item is not saved apart from a common one. A fight where nothing can hurt the party spends no items.
 
 An ally who is confused, charmed, or berserk is left to the game. If a fight stalls for five rounds with no enemy losing HP, the party escapes when the game allows it. Take it Easy never escapes.
 

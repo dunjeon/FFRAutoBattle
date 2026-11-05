@@ -91,6 +91,26 @@ function M.matter(effect)
     return RANK[effect] ~= nil
 end
 
+-- Records what is showing on this foe, so a status that goes later reads as worn
+-- off, not as a resist. watch: foe id to effect to the status ids its row lists.
+function M.noteSeen(foe, on, watch, seen)
+    local set = foe and foe.statuses
+    if not (set and seen) then return end
+    local function mark(effect)
+        seen[foe.id] = seen[foe.id] or {}
+        seen[foe.id][effect] = true
+    end
+    for effect, id in pairs(STATUS) do
+        if set[id] then mark(effect) end
+    end
+    local ids = watch and watch[foe.id]
+    for effect in pairs((on and on[foe.id]) or {}) do
+        for sid in pairs((ids and ids[effect]) or {}) do
+            if set[sid] then mark(effect) end
+        end
+    end
+end
+
 local function immune(effect, foe)
     local ail = foe and foe.ail
     return (ail and effect and ail[effect]) and true or false
@@ -116,14 +136,16 @@ function M.up(effect, foe, on, seen, skill)
         for sid in pairs(map) do
             if foe.statuses and foe.statuses[sid] then return true end
         end
-        return false
+    else
+        local id = STATUS[effect]
+        if id and foe.statuses and foe.statuses[id] then return true end
     end
-    local id = STATUS[effect]
-    local statuses = foe.statuses
-    if id and statuses and statuses[id] then return true end
     local claimed = on and on[foe.id] and on[foe.id][effect]
     if not claimed then return false end
-    if not id then return true end
+    -- No status to watch: the claim lasts the fight. A listed status that
+    -- was claimed and never seen is a resist, so it is not cast every turn.
+    -- Seen, then gone, is a refresh.
+    if (not map) and (not STATUS[effect]) then return true end
     local saw = seen and seen[foe.id] and seen[foe.id][effect]
     if not saw then return true end
     return false

@@ -5,8 +5,9 @@
 -- Common items first. A rare item, from the item row's own flag, is spent
 -- when no common item does the job and the need is real: someone down,
 -- someone a hit already seen would kill, or MP short of a skill the field
--- needs. Scrolls and knives are thrown when nothing the bar can pay will
--- land. Tents and Healing Spring stay put. A fight where no foe can hurt
+-- needs. Scrolls and knives are thrown when the bar has no weakness that
+-- will land. A neutral spell does not hold a weakness item back. Tents and
+-- Healing Spring stay put. A fight where no foe can hurt
 -- the party spends nothing.
 
 local BOOK = { items = {}, leave = {}, attack = {} }
@@ -67,8 +68,8 @@ function M.entry(id, name, count, f)
     end
     if rareRow and rareRow.use == "out" then return nil end
     local hp, mp, kind = false, false, nil
-    if listed == "hp" then hp, kind = true, "heal" end
-    if listed == "mp" then mp = true end
+    if listed == "hp" or listed == "both" then hp, kind = true, "heal" end
+    if listed == "mp" or listed == "both" then mp = true end
     if listed == "revive" then kind = "revive" end
     if listed == "cure" then kind = "cure" end
     local use = rareRow and rareRow.use
@@ -150,6 +151,31 @@ function M.choosePotion(items, missing)
     return first
 end
 
+-- The MP item for a gap, using the amounts the game's rows give. A one-target
+-- item comes before a party item, since a party item spends more on one need.
+-- The smallest that covers the gap, or if none does, the largest. A row with no
+-- fixed amount, such as a percentage restore, comes last.
+function M.chooseMp(items, missing)
+    local need = (missing and (missing > 0)) and missing or 0
+    local function usable(it) return it.mp and (it.kind ~= "revive") end
+    local function sized(party)
+        local cover, coverAmt, best, bestAmt = nil, nil, nil, -1
+        for _, it in ipairs(items or {}) do
+            local amount = it.amount
+            if usable(it) and ((it.party and true or false) == party) and amount and (amount > 0) then
+                if (amount >= need) and ((not cover) or (amount < coverAmt)) then
+                    cover, coverAmt = it, amount
+                end
+                if amount > bestAmt then best, bestAmt = it, amount end
+            end
+        end
+        return cover or best
+    end
+    return sized(false) or sized(true)
+        or firstOf(items or {}, function(it) return usable(it) and not it.party end)
+        or firstOf(items or {}, usable)
+end
+
 -- True when this item can clear a status that is on the ally right now.
 -- Poison and blind qualify only on the self-care line. Slow is not an
 -- item unless a cure has already been seen to clear it. Remedy never
@@ -196,7 +222,7 @@ end
 -- ctx.spread (most of the living party is under half: a party item is a
 -- group heal and beats every single heal), ctx.partyOnly (a party item or
 -- nothing). Without the spread, a single item goes first.
--- want "mp": ctx.dire.
+-- want "mp": ctx.missing (MP the actor is short), ctx.dire.
 function M.recovery(owned, want, ctx)
     ctx = ctx or {}
     local items, rares = pools(owned)
@@ -208,7 +234,7 @@ function M.recovery(owned, want, ctx)
     elseif want == "heal" then
         local function heals(row) return row.hp or row.kind == "heal" end
         local function group(row) return heals(row) and row.party end
-        if ctx.spread then
+        if ctx.spread or ctx.partyOnly then
             it = firstOf(items, group)
             if (not it) and ctx.dire then
                 local big = firstOf(rares, group)
@@ -233,7 +259,7 @@ function M.recovery(owned, want, ctx)
             end
         end
     elseif want == "mp" then
-        it = firstOf(items, function(row) return row.mp and row.kind ~= "revive" end)
+        it = M.chooseMp(items, ctx.missing)
         if (not it) and ctx.dire then
             it = firstOf(rares, function(row) return row.mp and row.kind ~= "revive" and not row.hp end)
                 or firstOf(rares, function(row) return row.mp and row.kind ~= "revive" end)

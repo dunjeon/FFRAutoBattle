@@ -54,6 +54,9 @@ check(M.hitFactor(1, 2.25, true) == 1.5, "a hit's own multiplier gives the break
 -- Misses, in numbers from a real fight: lands for 544, 50% accuracy, 6 of 15 missed.
 local m = M.new()
 check(M.landRate(m, 1, 5, 50) == 0.5, "before the first cast, the row's accuracy is the guess")
+local onlyMiss = M.new()
+M.noteCast(onlyMiss, 1, 5, false)
+check(M.landRate(onlyMiss, 1, 5, 50) == 0.5, "a miss with no land still uses the row")
 check(M.landRate(m, 1, 5, 100) == 1 and M.landRate(m, 1, 5, 500) == 1 and M.landRate(m, 1, 5, 0) == 1 and M.landRate(m, 1, 5, nil) == 1, "100, over 100, 0 and missing all mean it doesn't miss")
 M.add(m, 1, 5, 9, 544, nil, false)
 for i = 1, 15 do M.noteCast(m, 1, 5, i > 6) end

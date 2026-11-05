@@ -1,2 +1,517 @@
 []  Fina use only “Medica” with a female Vision.
 She doesn't have that problem with a male vision. This needs tested before a solution is blindly put in place.
+
+================================================================================
+BUG SWEEP, 2026-11-05, planner v0.2.27, commit 62a4501 (branch testing)
+By Claude, for review. Nothing below has been fixed.
+================================================================================
+
+HOW THIS WAS CHECKED
+
+Each finding has one or more of these tags. Nothing was run in the game.
+  [ran]   Reproduced by running the real module in Lua 5.4 with fake inputs.
+  [data]  Checked against research/gamedata and research/extracted.
+  [read]  From reading the code only. Not reproduced.
+
+The 191 test checks pass and every script compiles. Some tests lock in bad
+behavior. tests/test_measure.lua expects the one-miss rule in bug 2.
+
+Please try to prove these wrong before fixing them. Bug 5 is an inference and
+needs one reported fight to confirm.
+
+
+BIGGEST IMPACT
+
+1. Stagger planning ignores the live gauge. [read, data]
+   Where: main.lua:2947 (gaugeOfEnemy), main.lua:3041-3047, main.lua:4469,
+   main.lua:4818, main.lua:5985 (ledgerOnly).
+   What: gaugeOfEnemy works out what is left as the book gauge minus Fight.poured,
+   the mod's own running total. The live value is stored as u.breakLeft, but only
+   basicAttack reads it (main.lua:5198).
+   Effect: research/game-surface.md lists Expert gauges at 1.6x the book size. A
+   foe reads as "empty" at about 62% of its real gauge and moves to brokenPool.
+   Stagger then scores zero and break Limits lose their target. The running total
+   is never corrected while a live read exists, because releaseGauge only runs
+   when ledgerOnly is true.
+   Also: the total ignores missed casts and Esper stagger.
+
+2. One miss retires a skill for the fight. [ran]
+   Where: measure.lua:83-89 (landRate), main.lua:2966 (staggerOf), main.lua:4456.
+   What: after one cast that missed, landRate returns 0. Expected damage and
+   stagger both become 0, so the skill loses to anything else and is rarely chosen
+   again. It only returns through the fallback swing.
+   Reproduced: noteCast(book, 1, 100, false), then landRate(book, 1, 100, 100)
+   returns 0.0.
+   Conflict: rule-compliance-todo.txt step 2 says "Until a cast lands, use the
+   row's accuracy."
+   Related [read]: the dedupe key for a miss includes the command count
+   (main.lua:7058). The same miss may be counted again if it is still in the hit
+   list after the next command.
+
+3. Heals can go to the wrong person. [ran, read]
+   Where: main.lua:3406-3428 (healNow), main.lua:3438, main.lua:1495 (legalize).
+   What: healNow doesn't exclude self-only heals, and free heals rank highest
+   because cost is floored at 1. spellRank gave Chakra 100, Cure 33.3, Curaga 30.
+   Effect: legalize sends a self row to the caster, but the hurt ally is still
+   marked as healed. They get no heal, and the claim stops others healing them.
+
+4. Nothing is ever "rare". [ran, data]
+   Where: main.lua:588, items.lua:70-73, items.lua:236.
+   What: main.lua reads Rare and IsRare. CONSUMABLES_ITEM_DATA has neither field,
+   so every item is common.
+   Reproduced:
+     - Only an Elixir in the bag, ally missing 100 HP, not dire: picks Elixir.
+     - Only a Megalixir, same case: picks Megalixir.
+     - A bag listing Mist X-Ether first, wanting MP: picks Mist X-Ether over Ether.
+   Bag order comes from pairs() (main.lua:1715) and the common list isn't sorted,
+   so the MP pick is arbitrary.
+   Also: rows.lua files Elixir under items as "both", and Items.entry has no case
+   for a listed "both". It never counts as restoring MP unless the game's
+   IsAbleRecoverMagicPoint answers yes.
+   Docs: README line 124 says rare items are saved.
+
+5. All-casts look about 2.5x too strong. [data, inference]
+   Where: main.lua:558-567, main.lua:2806, main.lua:4462. Commit c535da7 removed
+   the 0.4 share.
+   What: the 28 rows with isApplyAllMag true that have a single-target twin have
+   the same power and stagger as that twin. Fire 17 goes to All 17, and Cure 200
+   goes to All 200. Twin rows without the flag run 0.4x to 0.86x. README line 121
+   says an All cast does about 40%.
+   Inference: the flag probably means the game applies its own scaling, so the
+   row's number is not what the cast does. No table found so far states that
+   scale.
+   Effect: untried All casts and brace heal amounts are overestimated.
+   To confirm: compare one All cast's damage per target to its single-target cast
+   in battle_report.txt.
+
+6. Multi-hit skills are overrated. [data]
+   Where: main.lua:1104-1113 (offenseOf), main.lua:7144, rows.lua:164-167.
+   What: code uses power times hitCount. hitDamageRatioList sums to 1.0 on all 258
+   multi-hit rows, so magnification looks like the total.
+   Example: Crimson Onslaught, magnification 33, 12 hits, reads as 396.
+   Effect: an untried multi-hit skill is overrated until this fight measures it.
+   The same factor goes into the caster's est sum, which skews their other
+   estimates.
+
+
+OTHER BUGS THAT CHANGE PLAY
+
+7. Stance state carries into the next fight. [read]
+   Where: main.lua:5860 (ensureBattle), main.lua:3393, main.lua:2769, main.lua:3996.
+   What: Fight.stance and Fight.stanceEnded are never reset, except on a fallen
+   ally. The party-restored path at main.lua:6295 doesn't reset them either.
+   Effect: Witching Hour isn't recast, and spell heals on that ally stay blocked.
+   Possible fix: status 50 is DemonForm, so the live status could be the record.
+
+8. Escapes get disabled for the session. [read]
+   Where: main.lua:4668-4671, main.lua:6542, main.lua:6851.
+   What: escapeSent, escapeTold and noEscape are never reset between fights.
+   Effect: the next fight logs a false "escape refused". Two successful escapes
+   set noEscape for the rest of the session.
+
+9. Resonance finisher choice is broken. [read]
+   Where: main.lua:2437-2443, main.lua:2456, main.lua:2470, main.lua:7521.
+   - factor starts at 1 and only rises, so "if factor <= 0" can't trigger. A
+     finisher every foe nulls still scores.
+   - It aims at the lowest-HP foe, even one that nulls or absorbs the element.
+     The score used the best factor on any foe.
+   - A care heal scores 1. resonanceWatch takes the highest score across the party,
+     so any ally's damage finisher beats it.
+
+10. Dead foes still count as threats. [read]
+    Where: main.lua:1606-1618 (allyExposed). Compare castThreat at main.lua:3244,
+    which checks keepFoe.
+    What: allyExposed reads every foe's record, including foes already dead.
+    Effect: one dead attacker's big hit can keep hardFight true and direNeed on.
+
+11. Resisted debuffs get recast. [ran]
+    Where: debuffs.lua:112-120, debuffs.lua:192, main.lua:4938.
+    What: when the row lists a status, Debuffs.up ignores the claim and returns
+    false unless the status shows.
+    Reproduced: claimed, never seen, row lists status 16. up returned false, and
+    choose returned the same skill with why "refresh".
+    Effect: MP goes on a foe that keeps resisting. The comment above M.up says a
+    resist should not be cast every turn.
+
+12. Brace party items often do nothing. [ran]
+    Where: main.lua:2841, items.lua:211-218.
+    What: brace ranks a party item, then calls pickRecoveryItem with partyOnly.
+    Items.recovery only looks at party items when spread is true, and spread needs
+    enough allies already exposed.
+    Reproduced: partyOnly true, spread false returns nil, so the option is skipped.
+
+13. A second fallen ally waits. [read]
+    Where: main.lua:3151-3153, main.lua:3172.
+    What: only the top-priority fallen ally is considered. While a raise is claimed
+    for them, other raisers don't raise anyone else.
+
+14. Confused allies can still get a command. [read]
+    Where: main.lua:5303-5305, main.lua:6437-6438. README line 126.
+    What: consider returns nil to leave them to the game. act then calls
+    kitFallback, which doesn't check outOfControl.
+    Limit: only matters if the game opens a menu for that ally.
+
+15. Free-attack parties never count as having hit. [read]
+    Where: main.lua:6598, main.lua:4995, main.lua:5035, kits.lua:425-428.
+    What: only a hit that costs MP sets Fight.chipped. timedOk is only worked out
+    after that, and afterHit needs it.
+    Effect: timed buffs and defense formations never go out for a party that only
+    uses free attacks.
+
+
+SMALLER ISSUES
+
+16. Slow cure is one use per fight. [ran] health.lua:35, health.lua:458-463,
+    health.lua:559. SLOW_YES is never set, though the comment says a working cure
+    can be used again.
+17. Heal claims are uneven. [read] A party spell heal claims only the main target
+    (main.lua:3438). A party item claims everyone (main.lua:1823).
+18. A cure blocks healing. [read] Cures write to the heal claim (main.lua:3644), so
+    that ally can't be healed for the round unless they take more damage.
+19. The Esper hold has no way out. [read] espers.lua:85-91. A call that never acts,
+    or acts but is never seen in a scan, blocks later calls for the fight.
+20. Some checks can never fire. [data] skill.effect is only ever 0 or 1 in the
+    table, so comparing it to EFF.CURE, REVIVE, DEFEND, ANALYZE or COVER never
+    matches. The Dead target state is 1, but main.lua:1235 and main.lua:1738 test
+    for 2. rows.lua currently covers for this.
+21. Basic attack lookup stops early. [read] main.lua:1465-1473 breaks on the first
+    Fight row even if it can't be used. usableOf at main.lua:2402 checks first.
+22. Report multicast flags never fire. [read] main.lua:5776 reads r.allMag, which
+    is never set. The field is appliesAll.
+23. Report summary can crash. [ran] report.lua:473 uses %d, which fails on a
+    fractional stagger value, and that fight's summary is lost. Not known whether
+    the game sends fractions.
+24. Possible performance cost. [read] pollTriggers runs FindFirstOf every 16 ms
+    (main.lua:7656, main.lua:7696). Cost not measured.
+25. Tables aren't rebuilt after a partial load. [read] main.lua:442 returns once
+    SkillIdx exists, even if other tables were missing on that pass. Not seen
+    happening.
+26. Startup log is misleading. [read] main.lua:7705 counts Mobs before the tables
+    are read, so it always says "Bestiary 0".
+27. README is out of date. README line 5 says 0.2.24, and the code is 0.2.27. Line
+    121 conflicts with the code on the 40%, and line 124 is false until bug 4 is
+    fixed.
+
+
+FIXED AFTER THAT REVIEW
+
+These edits are in the working tree only. They are not committed, and they are not in the game folder. The fights below were played on commit 62a4501, before these edits.
+
+The live BreakPoint is what gaugeOfEnemy scores from when the read exists. The book ledger remains the fallback when the read is missing. The Twinscythe fight did treat foes as empty while the live bar still had points. See CHECK OF THAT RESPONSE below.
+A miss with no land keeps the row's accuracy. Once a cast has landed, the fight's lands are the rate.
+A finisher every living foe nulls or absorbs is not sent, and it aims only at a foe that takes the hit. When someone is down or a recorded hit would kill them, that heal wins the wheel over a damage finisher, including when the current warning says 0 would fall. On the Leviathan wheel that would have sent Healing Wind instead of Ascension. That fight was played before this change.
+The report's multicast flag reads appliesAll. The startup line no longer says Bestiary 0. The real count is logged when the rows are read.
+
+Not changed: the 0.4 All-cast share, and the Esper hold. The 0.4 share stays out because the Leviathan Fire and Fira pair is two single-target rows. The hold stays because this log never printed a release.
+
+
+REVIEW OF THE LOGGED FIGHTS, 2026-11-05
+
+Two fights with Reporting on, planner v0.2.27. Battle 1 was three Twinscythes. Battle 2 was Leviathan and Orbs of Light. Nobody fell. The files are battle_log.txt, battle_report.txt, and UE4SS.log from that session. A bug these fights never reached is unchanged.
+
+1. The book gauge and the live gauge are both used, and they disagreed on the Twinscythes.
+   The opening line said gauge 120. The report's live bar was 192, which is 120 x 1.6.
+   The break was announced when the live bar hit 0, not when the book filled.
+   UE4SS: "TwinscytheB staggered (223/120)" and later "(204/120)". The ledger was already past 120, and past 192, when the live bar emptied.
+   The command that broke them was "fill", and "fill" means the planner already treated them as empty. At 13:15:04 Nichol's Watera was "fill 3 foes" with live bars at 34/192, 44/192, and 45/192, none broken. At 13:15:07 Lasswell's Fira (id 225010) was "fill 3 foes fire" with those bars at 24/192, 34/192, and 35/192. That cast is what took them to 0 and status 89. The sweep's failure did happen in this fight. The played build scored the gauge from the book minus the ledger. worldOf is what marked the break, from the live BreakPoint.
+   Leviathan's book and live bar both started at 1000. The report counted it down through 892, 822, 708, 566, 447, 321, 300, 117, 105, 81, 34, and then 0 with the break status. The warnings used those same numbers. UE4SS said "Leviathan staggered (672/1000)": the ledger had 672 when the live bar hit 0. When the live bar was 34, a book-minus-ledger remain was still hundreds. Orbs were "staggered (147/180)" against a live bar of 180.
+   1.6x is not every foe. The Twinscythe book was 120 and the live max was 192. Leviathan was 1000 on both.
+
+5. The Fire and Fira pair on Leviathan does not test an All cast.
+   Rain's Fire was id 220010, one hit for 262, break 21.
+   Rain's Fira on Leviathan was id 220020, the single row: two hits, 237 and 248, break 12 each. Per power that is about the same as Fire. It says nothing about All casts.
+   The All row is 225010. Lasswell cast it on the Twinscythes, about 170 to 190 a hit, two hits, on a fire weakness. No single-target Fire or Fira from Lasswell landed on those foes. Rain's later single Fira on TwinscytheB was id 220020 and a different caster.
+   The 0.4 share stays out. These hits do not show an All cast at about 40%, and they do not close the question. An All cast that has not landed yet is still estimated from the row.
+
+9. The wheel lists a pick for each character, then sends the highest score.
+   On Leviathan the party was at 40%, 29%, 55%, and 31%. Fina's own pick was Healing Wind. The command sent was Rain's Ascension, logged at 540. The heal scores 1 in the code, so it lost.
+   The warned hit would have dropped no one ("0 would fall"). Rain at 40% was under a hit of 847 recorded against 1585 HP, which is why a heal was even in Fina's list.
+   On the Twinscythe wheel, Fina's only finisher was Healing Wind and it was not picked. Care was off (party at 93%, 65%, 77%, 66%). Ascension was sent.
+
+19. The hold is the rule that was played. This fight did not show it letting go.
+   The Twinscythe fight logged "esper held: common fight" and called nothing.
+   Leviathan called one Ramuh. He acted (Lightning, Thundara, Judgment Bolt), then Dismiss Vision. battle_log.txt, battle_report.txt, and UE4SS.log have no "esper Ramuh finished" and no "acts on its own."
+   After the dismiss, Ramuh was on the payable bar again (cost 50, and Fina had the MP) in a boss fight, and it was not called. The menu listing it is not a release. summonChoice prints the finished line when the hold lets go. The line never printed.
+   A call that never acts, or acts but is never seen on an ally scan, stays out for the rest of the fight. That is the side that stopped a second Esper arriving before the first had acted. Whether a scan set Ramuh's seen flag is not in this log.
+
+22. The report never printed a multicast flag. The flag is read from r.allMag. The skill row stores appliesAll.
+
+26. This launch logged "Bestiary 0" at 19:14:00. The fights still had enemy cards after that, so the bestiary loaded later. The startup line counted too early.
+
+Fina / Medica did not show up.
+   Her vision was 13045. The first fight names her Archwitch Fina. Her bar was Cure, Cura, Banish, and the rest. No row was named Medica. She cast Flame Scrolls, Banishra, and Ramuh. She did not cast Cure or Cura.
+
+These fights never reached 3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 23, 24, 25, and 27, so the sweep's reading there still stands.
+   Bug 2's one-miss rule was not hit. There are no miss lines. The miss-count dedupe was not hit either.
+   Bug 6 was reached through Fira. Crimson Onslaught and Infinity Drive were on Rain's bar and were not cast. The Fira hits are under the check below. Bug 6 is not fixed.
+   The one heal that went out was Rain's First Aid on Nichol at 16%, the lowest ally. That does not test the Chakra ranking.
+   Witching Hour was on the bar and was not cast. No escape, no second fallen ally.
+
+
+CLAUDE'S RESPONSE TO THE REVIEW, 2026-11-05
+
+The fight logs were not available for this response. It uses the numbers quoted in
+the review above, plus the code and the skill rows.
+This was checked against the uncommitted changes listed under FIXED AFTER THAT
+REVIEW. Claude made no code changes. All 192 test checks pass with those changes.
+Line numbers under 1 are from commit 62a4501. Other line numbers are current.
+
+1. Now fixed: gaugeOfEnemy reads the live BreakPoint. Kept here for the record.
+   Disagree with the review: this did happen in these fights.
+   The review says no foe was treated as empty while its live bar was up. It also
+   says the command that broke the Twinscythes was "fill".
+   "fill" is only sent when open is empty (main.lua:4567-4571). A foe that isn't
+   broken yet only leaves open if the running total says it is empty
+   (main.lua:3047). The other path, waiting, needs a gaugeWas record, which only
+   releaseGauge writes, and releaseGauge doesn't run with live reads.
+   Cost: no turns were lost, because the party kept hitting. But that hit was picked
+   with stagger scoring zero (main.lua:4469).
+   The total is off both ways: 223 against a live 192, and 672 against a live 1000.
+   When Leviathan's live bar was at 34, the planner still thought hundreds were left.
+   Correction to the sweep: 1.6x doesn't apply to every foe. The Twinscythes went
+   from 120 to 192, but Leviathan was 1000 on both. The 62% figure only applies to
+   some foes. The running total is still wrong.
+
+6. Disagree: this was reached, so it should come off the "never reached" list.
+   Crimson Onslaught wasn't cast, but Fira is a multi-hit skill and it was.
+     Rain's Fire: row power 17, row break 17, 1 hit. Damage 262, 15.4 per power.
+                  Break logged 21.
+     Rain's Fira: row power 33, row break 19, 2 hits, ratios 0.5 and 0.5.
+                  Damage 237 + 248 = 485, 14.7 per power. Break logged 12 + 12 = 24.
+   If each hit carried the full power, Fira would be near 1,000, not 485. Break
+   matches too: Fire's 21/17 ratio predicts about 23.5 for Fira.
+   It is only two casts, but this supports magnification being the total. Treat as
+   confirmed. Not fixed yet.
+
+19. Not settled.
+   Siren and Ramuh being payable with no second call is also what a stuck hold would
+   look like. The fight only left the hold if the log has "esper Ramuh finished"
+   (main.lua:3825). The review doesn't cite that line. The hold was left unchanged
+   on the basis that this fight left it, so that still needs checking.
+   To check: search that fight's log for the line.
+
+5. Still open.
+   Fire against Fira compares two different spells, so it doesn't test All against
+   single. The useful detail is which row that Fira used:
+     225010, the All row: 485 is full size, so there is no 40% cut and bug 5 is wrong.
+     220020, the single row: this says nothing about All-casts.
+   To check: the report line for that cast shows the id. The 0.4 share was left out
+   on the basis of these hits, so that decision depends on the same check.
+
+9. Now fixed. Agree with the review, with one thing to check.
+   Fina's Healing Wind lost to Ascension, as predicted. A care heal now beats any
+   damage finisher. On the Leviathan wheel, that means the heal goes out even though
+   "0 would fall". Care turns on when someone is down or a recorded hit would kill
+   them, whether or not the warned hit would. Check that this is the intended rule.
+
+22, 26. Agree. Both confirmed, and both now fixed.
+
+2. Now fixed: a skill keeps the row's accuracy until a cast lands, then uses the
+   fight's lands. Still open from the sweep: the dedupe key for a miss includes the
+   command count, so the same miss may be counted twice. After the first land, that
+   would lower the rate.
+
+Fina / Medica: agree. Still not reproduced. It needs a fight where she uses it.
+
+New lead, 28. Scrolls may be thrown when they aren't needed. [read]
+   Where: the thrown-item block in turn, at "if not paidWeak" in main.lua. Compare
+   the items.lua header and rule-compliance-todo.txt step 3.
+   What: the code throws whenever nothing payable hits a weakness. The header and the
+   plan say only when nothing payable will land.
+   Evidence so far: Fina threw Flame Scrolls and also had Banishra on her bar.
+   To check: see in the report whether Banishra would have landed on those turns.
+
+Revised order
+   Already fixed: 1, 2, 9, 22, 26.
+   Ready to fix, with no more fights needed: 3, 4, 6, 7, 8.
+   Needs a log line first: 5 and 19.
+   Needs a report check first: 28.
+   This replaces the suggested order at the end of this file.
+
+
+CHECK OF THAT RESPONSE, against the same two fights
+
+Claude did not have the logs. The line checks are below. No planner code was changed for this check. Claude's revised order is not a work list.
+
+1. Agree with Claude. The review sentence that said this did not happen was wrong.
+   "fill" is only sent when the open list is empty (main.lua, the #open == 0 and #brokenPool > 0 branch). Watera at 13:15:04 and Lasswell's Fira at 13:15:07 were both "fill" while the live bars were still 24/192 to 45/192 and status 89 was not set. The live-gauge edit under FIXED is the change for that. It is not installed. The 1.6x note is right to narrow: Twinscythes 120 book against 192 live, Leviathan 1000 on both, and the ledger was still wrong on Leviathan (672 against a live 1000, and hundreds left in the book when the live bar was 34).
+
+6. Agree. Take it off the "never reached" list. The confirming pair is Rain on Leviathan, both single rows, no weakness: Fire id 220010, power 17, one hit, 262 damage, break 21. Fira id 220020, power 33, two hits at 0.5 and 0.5, 237 + 248 = 485, break 12 + 12. About 15 damage per power either way. A full power on each Fira hit would have been near 1000. Magnification reads as the total on these two casts. Crimson Onslaught was not cast. Not fixed.
+
+19. Agree it is not settled, and the log answers the check Claude asked for.
+   There is no "esper Ramuh finished". Ramuh did act and did Dismiss. Fina could still pay Ramuh 50 afterward, on a boss, and the planner did not call it. That is what a hold that never released looks like. The hold was left unchanged. Do not treat this fight as proof it let go.
+
+5. The id check is done. Rain's Leviathan Fira is 220020, the single row. The All row 225010 is Lasswell's Fira on the Twinscythes. Bug 5 stays open. Do not put the 0.4 share back. Do not close it from the Leviathan pair.
+
+9. The care-heal change is in the working tree, and it is the rule Claude asked about. A heal whose reason contains "resonance heal" wins the wheel over every damage finisher. Care is someone down, or a recorded hit that would kill them now. The warned hit can still say 0 would fall. On the Leviathan wheel the party was at 40%, 29%, 55%, and 31%, the warning said 0 would fall, and the recorded Killer Tsunami hits (847, 665, 286, 486) would drop Lasswell at 29%. The played fight sent Ascension at 540. This change would have sent Fina's Healing Wind. It has not been played.
+
+22 and 26. Agree. Both are fixed in the working tree. The played launch still logged "Bestiary 0" at 19:14:00, and that report never printed a multicast flag, because the played build read allMag.
+
+2. Agree on the land-rate change. This fight has no miss lines, so the leftover dedupe (the miss key includes the command count) was not seen.
+
+Fina / Medica. Agree. Still not reproduced. Vision 13045. No Medica row on her bar.
+
+28. The report check supports the lead. It is not fixed.
+   Fina's command 3, 13:14:56, Flame Scroll I id 209 on TwinscytheC, why "throw Flame Scroll I on TwinscytheC weakness". The could-pay line lists Banishra 15 at x1 on all three Twinscythes, and Banish at x1. Those would have landed. They are not a weakness. Her command 12, 13:15:39, is the same throw on TwinscytheC, with Banishra still payable at x1 on TwinscytheC and TwinscytheB.
+   She did cast Banishra later: id 225300 on the Twinscythes (burst), id 210260 on Leviathan, and id 225300 again on Leviathan and the Orbs. She was able to use it.
+   Nichol's Flame Scroll on the Orbs is a real fire weakness. That throw matches the weakness rule.
+   The items.lua header says a scroll goes out when nothing the bar can pay will land. The turn code throws when nothing payable hits a weakness (main.lua, "if not paidWeak").
+
+3, 4, 7, and 8 were not reached by these fights. A read of ensureBattle still shows Fight.stance, escapeSent, escapeTold, and noEscape are not cleared there. That matches the sweep's read of 7 and 8. It is not a fix, and it is not on the work list from the revised order. Bug 3's Chakra ranking was not what the one heal did. Bug 4's rare flag was not exercised. Bug 6's math is confirmed above and is also not on that work list until asked.
+
+
+THE FINA / MEDICA BUG AT THE TOP OF THIS FILE
+
+Not confirmed. No "Medica" row exists in the tables on disk, and none was on her bar in the 2026-11-05 fights. See the review above.
+
+Lead only: until a heal rate is learned, spellRank ranks heals by power per MP,
+regardless of need. main.lua:6526 only learns the rate from a one-target cast, so
+party casts never teach it. The same heal can win every time, and a different
+Vision's kit would change the result.
+
+To test: run that fight with Reporting = true. The report lists the character's
+Vision and skill rows.
+
+
+CHECKED AND FOUND FINE
+
+- No undefined globals, and no global writes.
+- The effect, status, attribute and calc IDs the code depends on match the tables.
+- Cure items clear what the code expects. Remedy clears all, the others one status.
+- Limit Burst rows that share a name don't conflict.
+- The stance-off lookup works: Witching Hour and End Witching Hour.
+
+
+CORRECTED AFTER THAT CHECK
+
+These are in the working tree. They are not committed and not in the game folder.
+lua5.4 tests/test_*.lua and luac5.4 -p Scripts/*.lua passed. The tests do not fight the game.
+
+3. A self-target heal is not sent at someone else, and that other ally is not marked healed.
+4. A bag row filed as "both" restores HP and MP. The item table FITEM_DATA has no Rare or IsRare field, so an Elixir is still not saved as rare. Price is not used as a stand-in.
+6. Magnification and breakDamageValue are the whole skill. offenseOf no longer multiplies by hit count. An Esper signature uses the same row number. Rain's Fire and single Fira on Leviathan are what this follows.
+7. Fight.stance and Fight.stanceEnded are cleared at the start of a fight and when a wipe restarts it.
+8. escapeSent, escapeTold, and noEscape are cleared the same way. The comment already said two refusals end escape for this fight.
+10. allyExposed skips a foe keepFoe rejects, including one who is already down. castThreat already did.
+11. A debuff whose row lists a status, claimed and never seen, stays claimed. Seen, then gone, is still a refresh.
+12. A caller that asks only for a party item gets one even when the party is not mostly under half.
+13. While the first fallen ally's raise is claimed, another fallen ally who can still be raised is the target.
+14. kitFallback returns nothing when the ally is out of control, the same as consider.
+15. A free hit counts as the fight being underway, so a defense that waits for the first hit can go out for a party that only uses free attacks.
+17. A party heal spell claims every ally it covers, the same as a party item.
+18. A cure claims a cure, not the heal slot, so an Esuna does not block an HP heal.
+21. The basic-attack lookup keeps going until it finds a Fight row that ally can use.
+23. The report summary rounds a fractional stagger before %d, so one fraction does not drop the summary.
+27. README says 0.2.27, says an All cast uses its own row's magnification, and says the item table has no rare flag.
+
+Left as they are:
+
+5. All-casts stay on the row's own magnification. The Leviathan Fire and Fira pair is two single rows. The 0.4 share stays out.
+16. SLOW_YES stays unset. settleSlow says Slow ending is not proof the cure did it, so there is nothing honest to store.
+19. The Esper hold stays. This log never printed "esper Ramuh finished".
+20. The effect-id compares that cannot match stay. rows.lua already classifies those rows.
+24. pollTriggers was not measured.
+25. A partial table load was not seen.
+28. Scrolls stay. Fina's Flame Scroll I on TwinscytheC hit for 946 while Banishra on those foes hit for about 96 a piece. The throw was the weakness the bar could not pay. The items.lua header now says that. A neutral spell does not hold a weakness item back.
+2. The miss key still includes the command count. This fight had no misses, so that double-count was not seen.
+
+
+CLAUDE'S SECOND CHECK, AND THREE MORE CORRECTIONS
+
+Claude read the code changes in CORRECTED AFTER THAT CHECK. Three of them had
+problems the tests did not catch. All three are now fixed, and these fixes replace
+the matching notes above.
+
+These are in the working tree and in the game folder as of the copy before this
+test. They are not committed and not played. All 204 test checks pass and every
+script compiles. Only the debuff fix has new tests. The other two are in main.lua,
+which the tests cannot run.
+
+15. A free hit was ending the opening setup.
+   Problem: any free hit set Fight.chipped, and that flag also closes the opening
+   setup block. If a fighter's free Attack went first, the next ally lost their
+   opener, guard, and first debuff. Only refreshes ran after that. Setup Limit keeps
+   a later path.
+   Fix: new flag Fight.hitLanded, set by any hit that is not setup or an Esper. It
+   drives only the two kit checks that wait for the first hit: timedOk and the
+   chipped value passed to Kits.pick. Fight.chipped is paid hits only again, as it was
+   at commit 62a4501. tossOk still reads Fight.chipped. Both flags clear at the start
+   of a fight and when a wipe restarts it.
+
+11. The main debuffs could not refresh.
+   Problem: "seen, then gone" needs a sighting, but noteDebuffSeen only looped over
+   Debuffs.STATUS, which has no deprotect, deshell, debrave, or defaith. Those four
+   were never marked as seen, so once one wore off it stayed claimed for the fight.
+   The earlier test passed because it filled in the sighting by hand.
+   Fix: markDebuff now keeps the status ids from the cast's own row in Fight.debuffIds.
+   New Debuffs.noteSeen reads a foe's statuses against those ids. It runs at the top
+   of every turn, so a status that shows and wears off between debuff turns still
+   counts. A status that never shows still reads as a resist and isn't recast.
+   Tests: 4 new checks in tests/test_debuffs.lua go through noteSeen.
+
+6. The multi-hit fix was only half done.
+   Problem: offenseOf stopped multiplying by hits, but the recorded estimate in
+   readRisk still did. After Rain's Fira the damage ratio read 7.3 instead of
+   14.7, so an untried spell of the same power was estimated at 242 instead of about
+   485.
+   Fix: that estimate uses the row's power only. The report's hitValue had the same
+   multiplier, and that is gone too.
+
+To check in the next fight with Reporting on:
+   - An ally with a debuff or opener still casts it after a free Attack goes first.
+   - A debuff that wore off comes back as "refresh". The log's "debuff ... gone from"
+     line shows when it wore off.
+   - An untried spell's estimate is close to what it then does.
+
+
+DECIDED BY THE OWNER: THE ESPER HOLD AND THE MP ITEM ORDER
+
+These are in the working tree and in the game folder as of the copy before this
+test. They are not committed and not played. All 212 test checks pass and every
+script compiles.
+
+4. MP items are chosen by the game's amounts. Fixed.
+   Problem: an MP need took the first MP item in arbitrary bag order. With Megalixir
+   listed first, it was picked over an Ether.
+   Fix: new Items.chooseMp, and pickRecoveryItem now passes the MP the actor is short.
+     - One-target items come before party items.
+     - The smallest that covers the gap, or if none does, the largest.
+     - A row with no fixed amount, such as Elixir, comes last.
+   Run on the real item rows, with Megalixir, Elixir, Mist X-Ether, X-Ether, Turbo
+   Ether, and Ether in the bag:
+     short 30 picks Ether, short 100 picks Turbo Ether, short 250 and 999 pick X-Ether.
+   Limit: this only sets the order. If an Elixir is all that's left, it can still be
+   spent. Saving it would need its own rule, and none was added.
+   Tests: 8 new checks in tests/test_debuffs.lua.
+
+19. The Esper hold now logs what it sees. The release is NOT fixed yet.
+   The one-Esper result looks like a bug, so the plan is to fix the release. The log
+   doesn't show why it failed, so this step only adds logging. The hold's behavior is
+   unchanged, and these lines don't affect any choice.
+   New lines, written only when they change and only with Reporting on:
+     esper hold: <name> acted yes/no, seen yes/no, on the field yes/no, claimed
+       yes/no, holding yes/no
+     esper call held: <reason>
+   The reasons are: the last call is still out, a call is claimed, no row fits (MP,
+   the heal kept back, or a null), no row scored, an ally is down, an ally is critical.
+
+   Next step: play one boss fight where an Esper gets called, with Reporting on, then
+   read those lines after the Esper leaves:
+     - "acted no": the unit's action was never recorded.
+     - "seen no": the unit never showed in an ally scan.
+     - "on the field yes" after it left: the summon list still has it as alive.
+     - "holding no" and "esper ... finished", then a different "call held" reason: the
+       hold let go, and that reason is what stopped the second call.
+   Keep the rule: no second Esper while the first is still out.
+
+
+SMALLER LEFTOVERS, NOT FIXED
+
+- Self-heal users still count as healers. A Chakra user's score of 101 beats First
+  Aid's 16, so the First Aid user can wait for someone who can't heal them. [read]
+- allyExposed now calls keepFoe for every foe, and it runs for each ally many times a
+  turn. Caching once per turn may help. The cost is not measured. [read]
+- 5 still needs the same caster using both the single and All rows on the same foe.
+- Party MP items may be sent wrong. Heal items have a party path, but the MP path sends
+  every item at one target with IsAll false, including Mist Ether. Whether the game
+  accepts that is not known. The new order makes these rarer. [read]

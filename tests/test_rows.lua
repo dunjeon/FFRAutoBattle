@@ -56,4 +56,8 @@ local ramuh = { id = 24, name = "Caller", attr = 7, effect = 0, varType = 0, dmg
 local d4 = R.build({ skills = { [23] = roar, [24] = ramuh }, units = { [71] = { name = "Caller Unit", elements = {}, status = {}, traits = {}, moves = { 23 } } }, items = {} })
 check(d4.espers["caller"].element == "thunder" and d4.espers["caller"].area, "a group signature is an area hit of that element")
 check(d4.espers["caller"].unit == 71 and d4.espers["caller"].power == 40, "a group signature keeps that unit and its power")
+local twinHit = { id = 26, name = "Twinbolt", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 0, power = 33, breakPower = 19, element = "thunder", hits = 2, effects = {} }
+local twinCaller = { id = 27, name = "Twin Caller", attr = 7, effect = 0, varType = 0, dmgType = 0, target = 0, rel = 1, cost = 50, power = 0, breakPower = 0, effects = { { type = 37, status = 0, params = { 2, 72 }, turns = -1 } } }
+local d5 = R.build({ skills = { [26] = twinHit, [27] = twinCaller }, units = { [72] = { name = "Twin Unit", elements = {}, status = {}, traits = {}, moves = { 26 } } }, items = {} })
+check(d5.espers["twin caller"].power == 33, "a multi-hit signature keeps the row magnification, not magnification times hits")
 os.exit(fails == 0 and 0 or 1)

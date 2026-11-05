@@ -161,9 +161,7 @@ local function esperOf(row, units, skills)
                 if wide(move) then info.area = true end
                 if move.dmgType == PHYS then info.phys = true end
                 if move.dmgType == MAGIC then info.magic = true end
-                local hits = move.hits or 1
-                if hits < 1 then hits = 1 end
-                local power = (move.power or 0) * hits
+                local power = move.power or 0
                 if power > 0 then info.power = power end
                 if move.accuracy then info.accuracy = move.accuracy end
             end

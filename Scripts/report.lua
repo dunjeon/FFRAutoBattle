@@ -471,7 +471,7 @@ function M.new(path, clock)
             local list = {}
             for _, s in ipairs(a.order) do list[#list + 1] = s .. " x" .. a.skills[s] end
             lines[#lines + 1] = string.format("      %s: %d turns, MP spent %d, lowest MP %s, lowest HP %d%%, falls %d, damage logged %d, stagger logged %d, healed %d (overheal %d), hits taken %d for %d",
-                name, a.turns, a.mpSpent, tostring(a.mpLow), a.hpLow, a.falls, a.dealt, a.staggered, a.healed, a.overheal, a.hitsTaken, a.dmgTaken)
+                name, a.turns, a.mpSpent, tostring(a.mpLow), a.hpLow, a.falls, a.dealt, math.floor((a.staggered or 0) + 0.5), a.healed, a.overheal, a.hitsTaken, a.dmgTaken)
             if #list > 0 then lines[#lines + 1] = "        " .. table.concat(list, ", ") end
         end
         lines[#lines + 1] = "    enemies:"
@@ -480,7 +480,7 @@ function M.new(path, clock)
             local fac = {}
             for _, k in ipairs(sortedKeys(e.byFactor)) do fac[#fac + 1] = "x" .. k .. " " .. e.byFactor[k] end
             lines[#lines + 1] = string.format("      %s: lowest HP %d%%, lowest gauge %s of %s (gauges seen %s), breaks %d, appeared %d, HP lost %d, damage logged %d, stagger logged %d; hits sent by fit: %s",
-                name, e.hpLow, tostring(e.gaugeLow), tostring(e.gaugeMax), setText(e.gaugeSeen), e.breaks, e.appeared, e.hpLost, e.damage, e.stagger, (#fac > 0) and table.concat(fac, ", ") or "-")
+                name, e.hpLow, tostring(e.gaugeLow), tostring(e.gaugeMax), setText(e.gaugeSeen), e.breaks, e.appeared, e.hpLost, e.damage, math.floor((e.stagger or 0) + 0.5), (#fac > 0) and table.concat(fac, ", ") or "-")
             if #e.moveOrder > 0 then
                 local list = {}
                 for _, mv in ipairs(e.moveOrder) do
