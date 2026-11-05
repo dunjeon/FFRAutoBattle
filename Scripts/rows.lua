@@ -110,7 +110,6 @@ local function factOf(row)
     if use == "guardbuff" then info.guards = guardsOf(row) end
     if (use == "heal") and wide(row) then info.party = true end
     if (use == "heal") and (row.power < 50) then info.patch = true end
-    if statusOn(row, 1) and (row.rel == ENEMY) then info.poison = true end
     if use == "debuff" then
         for _, e in ipairs(row.effects) do
             if DEBUFF[e.status] then info.effect = DEBUFF[e.status] break end
@@ -139,7 +138,7 @@ end
 
 -- An Esper's moves, from the game's AI row. The first listed move is its
 -- signature, which gives its element. With no damage move past its basic attack
--- it is a support Esper. A move that poisons is worth knowing on a big boss.
+-- it is a support Esper.
 local function esperOf(row, units, skills)
     local fx = has(row, E.SUMMON)
     local uid = fx and fx.params and fx.params[2]
@@ -154,7 +153,6 @@ local function esperOf(row, units, skills)
                 if move.dmgType == MAGIC then info.magic = true end
             end
             if (move.effect == 1) and (move.varType ~= UP) and (move.attr ~= A_FIGHT) then info.role = "damage" end
-            if statusOn(move, 1) then info.poison = true end
         end
     end
     return info
@@ -189,14 +187,17 @@ local function roleOf(row, books)
     if row.effect == 1 then return end
     for _, e in ipairs(row.effects or {}) do
         if FORMATION[e.status] and (row.attr ~= A_LB) then
-            books.book[key] = { kind = "formation", rank = FORMATION[e.status], turns = e.turns or 3, party = true }
+            -- Bulwark's status is a defense, so it only waits for the first hit.
+            local defense = has(row, E.DEF) and true or false
+            books.book[key] = { kind = "formation", rank = FORMATION[e.status], turns = e.turns or 3, party = true,
+                timed = (not defense) or nil, afterHit = defense or nil }
             return
         end
     end
     if has(row, E.ACT) then
-        books.book[key] = { kind = "ready", rank = 1, turns = has(row, E.ACT).turns or 3, with = "formation" }
+        books.book[key] = { kind = "ready", rank = 1, turns = has(row, E.ACT).turns or 3, with = "formation", timed = true }
     elseif has(row, E.EXTEND) then
-        books.book[key] = { kind = "ready", rank = 2, turns = 3, with = "formation" }
+        books.book[key] = { kind = "ready", rank = 2, turns = 3, with = "formation", timed = true }
     elseif has(row, E.OVERCLOCK) then
         books.book[key] = { kind = "ready", rank = (row.cost > 20) and 3 or 4, turns = 3, with = "mechabo", group = "overclock" }
     elseif has(row, E.MOGSCAN) then
@@ -204,11 +205,11 @@ local function roleOf(row, books)
     elseif has(row, E.LUCK) then
         books.book[key] = { kind = "luck", rank = 1 }
     elseif has(row, E.BREAKDEF) and row.rel == ENEMY then
-        books.book[key] = { kind = "mark", rank = 1, turns = has(row, E.BREAKDEF).turns or 3 }
+        books.book[key] = { kind = "mark", rank = 1, turns = has(row, E.BREAKDEF).turns or 3, timed = true }
     elseif (row.target == T_SELF) and has(row, E.BREAKUP) then
         local b = has(row, E.BREAKUP)
         if statusOn(row, 77) then
-            books.book[key] = { kind = "mark", rank = 2, turns = b.turns or 4, weakMagic = true }
+            books.book[key] = { kind = "mark", rank = 2, turns = b.turns or 4, weakMagic = true, timed = true }
         elseif has(row, E.DMG) then
             books.book[key] = { kind = "ready", rank = 6, turns = b.turns or 3, with = "area", offHeal = true }
         elseif has(row, E.CONT) then
@@ -267,7 +268,6 @@ local function cardOf(u, skills)
     for id, name in pairs(STATUS) do
         if ((u.status or {})[id] or 0) >= 100 then card.ail[name] = true end
     end
-    card.poisonRes = (u.status or {})[1] or 0
     -- The game's own list of this enemy's dangerous moves, and the damage they deal.
     local danger = {}
     local kinds = {}
@@ -291,7 +291,6 @@ local function cardOf(u, skills)
         if s:find("counterattacks when attacked", 1, true) then card.counter = "hit" end
         if s:find("weakness changes", 1, true) or s:find("weakness shift", 1, true) then card.shift = true end
         if s:find("summon", 1, true) or s:find("calls", 1, true) then card.call = true end
-        if s:find("drags on", 1, true) or s:find("longer the battle", 1, true) then card.dragOn = true end
     end
     return card
 end

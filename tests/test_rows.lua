@@ -25,14 +25,12 @@ check(d.limits["big one"].use == "lb-cash" and d.limits["big one"].gauges == 2 a
 check(d.items.items["sip"] == "hp" and d.items.items["clean"] == "cure" and d.items.clears["clean"][5], "items come from their skill row")
 local c = d.units[9]
 check(c.weak.thunder and c.half.water and c.no.fire and c.absorb.ice and c.ail.sleep, "resistances come from the enemy's row")
-check(c.no.physical and c.dragOn and c.danger, "traits fill in what the row's numbers can't")
+check(c.no.physical and c.danger, "traits fill in what the row's numbers can't")
 check(c.danger[1] == "Spark" and c.hits == "magic", "dangerous moves and their kind come from the game's list")
 check(d.mobs["foe"] == c, "an enemy is also found by name")
-check(c.poisonRes == 0, "a boss's poison resistance comes from its row")
 local bio = { id = 20, name = "Toxin", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 10, power = 20, breakPower = 20, effects = { { type = 2, status = 1, params = {}, turns = 5 } } }
 local gale = { id = 21, name = "Gale", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 0, power = 20, breakPower = 0, element = "wind", effects = {} }
 local esper = { id = 22, name = "Sprite", attr = 7, effect = 0, varType = 0, dmgType = 0, target = 0, rel = 1, cost = 50, power = 0, breakPower = 0, effects = { { type = 37, status = 0, params = { 2, 70 }, turns = -1 } } }
 local d2 = R.build({ skills = { [20] = bio, [21] = gale, [22] = esper }, units = { [70] = { name = "Sprite Unit", elements = {}, status = {}, traits = {}, moves = { 21, 20 } } }, items = {} })
-check(d2.known["toxin"].poison, "a poisoning hit is marked")
-check(d2.espers["sprite"].element == "wind" and d2.espers["sprite"].poison and d2.espers["sprite"].role == "damage", "an Esper's element and poison come from its moves")
+check(d2.espers["sprite"].element == "wind" and d2.espers["sprite"].role == "damage", "an Esper's element and role come from its moves")
 os.exit(fails == 0 and 0 or 1)

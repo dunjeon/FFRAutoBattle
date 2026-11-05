@@ -419,6 +419,15 @@ function M.pick(skills, ctx)
         return false
     end
 
+    -- A short buff wears off fast, so it waits until a weak hitter can cast it
+    -- with a break close enough to land while it's up. A defense waits for the
+    -- first hit. Long buffs can go any time.
+    local function inTime(row)
+        if row.timed and (not ctx.timedOk) then return false end
+        if row.afterHit and (not ctx.chipped) then return false end
+        return true
+    end
+
     local function allowed(row)
         if row.offHeal and ctx.healer then return false end
         if row.with == "formation" then return hasFormation() end
@@ -469,7 +478,7 @@ function M.pick(skills, ctx)
         for _, s in ipairs(skills) do
             local row = rowOf(s)
             local key = fold(s.name)
-            if row and (row.kind == "ready") and allowed(row) and afford(s) and followFits(s, row)
+            if row and (row.kind == "ready") and inTime(row) and allowed(row) and afford(s) and followFits(s, row)
                 and (not claim[key]) and (not groupUp(row.group))
                 and (not friendUp(s, key, row.turns, row.party))
                 and better(row.rank, bestRank) then
@@ -490,7 +499,7 @@ function M.pick(skills, ctx)
         for _, s in ipairs(skills) do
             local row = rowOf(s)
             local key = fold(s.name)
-            if row and (row.kind == "formation") and afford(s) and (not claim[key])
+            if row and (row.kind == "formation") and inTime(row) and afford(s) and (not claim[key])
                 and (not friendUp(s, key, row.turns, true))
                 and better(row.rank, bestRank) then
                 best, bestRank = s, row.rank
@@ -517,7 +526,7 @@ function M.pick(skills, ctx)
         local best, bestRank, foe = nil, nil, nil
         for _, s in ipairs(skills) do
             local row = rowOf(s)
-            if row and (row.kind == "mark") and afford(s) and better(row.rank, bestRank) then
+            if row and (row.kind == "mark") and inTime(row) and afford(s) and better(row.rank, bestRank) then
                 local hit = bestFoe(function(u)
                     if row.weakMagic and (not u.magicWeak) then return false end
                     local key = fold(s.name) .. ":" .. tostring(u.id)

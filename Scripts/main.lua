@@ -2853,24 +2853,6 @@ local function turn(uid, skills, w, phase)
         return "sync", list, large[1] or list[1]
     end
     local mode, pool, bossU = modeOf(open)
-    -- A boss that enrages when the fight drags on: its adds' deaths move that
-    -- clock along, so after two of them everything goes on the boss.
-    Fight.addSeen = Fight.addSeen or {}
-    Fight.addKills = Fight.addKills or 0
-    for id in pairs(Fight.addSeen) do
-        local hp = stat(id, PARAM.HP, false)
-        if (not hp) or (hp <= 0) then
-            Fight.addSeen[id] = nil
-            Fight.addKills = Fight.addKills + 1
-        end
-    end
-    if mode == "adds" and bossU then
-        for _, u in ipairs(pool) do Fight.addSeen[u.id] = true end
-        local card = mobOf(bossU)
-        if card and card.dragOn and (Fight.addKills >= 2) then
-            pool, mode = { bossU }, "sync"
-        end
-    end
     if style == "defensive" and allyCritical() and bossU then
         local card = mobOf(bossU)
         if card and card.danger and card.danger[1] then
@@ -2881,6 +2863,35 @@ local function turn(uid, skills, w, phase)
                 mode = "sync"
             end
         end
+    end
+    -- A gauge the party can empty within this round: setup waits and everyone
+    -- hits. Asked once a turn, only by the setup that can wait.
+    local breakCloseAnswer = nil
+    local function breakClose()
+        if breakCloseAnswer ~= nil then return breakCloseAnswer end
+        breakCloseAnswer = false
+        for _, u in ipairs(open) do
+            local _, remain, empty = gaugeOfEnemy(u)
+            if (not empty) and (remain > 0) then
+                local pour = 0
+                for _, a in ipairs(w.allies) do
+                    if (not a.dead) and (a.acts ~= false) and (not heldOut(a)) then
+                        local kit = (a.id == uid) and { spells = skills } or unitKit(a.id)
+                        local amp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
+                        local top = 0
+                        for _, s in ipairs((kit and kit.spells) or {}) do
+                            if isHit(s, false) and ((s.cost or 0) <= amp) then
+                                local gained = staggerOf(s, u)
+                                if gained > top then top = gained end
+                            end
+                        end
+                        pour = pour + top
+                    end
+                end
+                if remain <= pour then breakCloseAnswer = true end
+            end
+        end
+        return breakCloseAnswer
     end
     local tag = mode .. "/" .. style
     if Fight.planTag ~= tag then
@@ -3795,7 +3806,7 @@ local function turn(uid, skills, w, phase)
 
     -- Haste: a slowed ally first, then on a hard field with the bar above
     -- half, the healer and the strongest damage dealer. Same gate as above.
-    if (phase == 0) and Kits.pickHaste and (not allyCritical()) and (not dead) then
+    if (phase == 0) and Kits.pickHaste and (not allyCritical()) and (not dead) and (not breakClose()) then
         local healer = Health.mainHealer and Health.mainHealer(w.allies, unitKit) or nil
         local dealer, dealt = nil, -1
         for _, a in ipairs(w.allies) do
@@ -3813,7 +3824,7 @@ local function turn(uid, skills, w, phase)
         local picked = Kits.pickHaste(skills, {
             allies = w.allies, selfId = uid,
             healerId = healer and healer.id or nil, dealerId = dealer and dealer.id or nil,
-            hard = hardField and (w.boss or ((Fight.rounds or 0) >= 3)), rich = (band() == "high"),
+            hard = hardField and Fight.chipped and (w.boss or ((Fight.rounds or 0) >= 3)), rich = (band() == "high"),
             mp = w.mp or 0, pay = (band() ~= "low"),
             keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
             claim = Fight.claim.kit, sent = Fight.kitOn,
@@ -3951,7 +3962,7 @@ local function turn(uid, skills, w, phase)
     local function debuffOwed()
         if debuffOwedFlag ~= nil then return debuffOwedFlag end
         debuffOwedFlag = false
-        if Fight.chipped or (phase ~= 0) or (not hardField) or (style == "aggressive") then return false end
+        if Fight.chipped or (phase ~= 0) or (not hardField) or (style == "aggressive") or breakClose() then return false end
         if Fight.fell and (#Fight.fell > 0) then return false end
         if allyCritical() then return false end
         for _, a in ipairs(w.allies) do
@@ -3998,7 +4009,7 @@ local function turn(uid, skills, w, phase)
         Fight.guardOn[guardKind(s)] = { map = s.friendStatus or {}, seen = false }
     end
     local function guardOwed()
-        if phase ~= 0 or not hardField or style == "aggressive" then return false end
+        if phase ~= 0 or not hardField or style == "aggressive" or breakClose() then return false end
         if Fight.fell and #Fight.fell > 0 then return false end
         if allyCritical() then return false end
         for _, a in ipairs(w.allies) do
@@ -4147,7 +4158,6 @@ local function turn(uid, skills, w, phase)
             if not pay(s) then return end
             local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
             if spendLb and (not hardField) then return end
-            if spendLb and Fight.limitNoArea and aoeOf(s) then return end
             if spendLb and lbSaved(uid, s) and (not Fight.limitUrgent) then return end
             -- An area Limit hits every living enemy. A nulled element stays off.
             if spendLb and aoeOf(s) and s.known and s.known.element and (#w.enemies > 0) then
@@ -4166,14 +4176,6 @@ local function turn(uid, skills, w, phase)
                     end
                     return
                 end
-            end
-            -- A paid chip waits for the setup, unless no free hit can land on these targets.
-            if (not cashing) and (debuffOwed() or guardOwed() or lbOwed()) and ((s.cost or 0) > 0) then
-                local free = false
-                for _, u in ipairs(targets) do
-                    if freeOn(u) then free = true end
-                end
-                if free then return end
             end
             local b = band()
             local useful, pts, weak, finishes, early = 0, 0, false, false, false
@@ -4280,17 +4282,11 @@ local function turn(uid, skills, w, phase)
         local name = bestSpread and (#pool .. " foes") or bestU.name
         local reason = why .. " " .. name
         if el ~= "" and elementFactor(bestS, bestU) >= 3 then reason = reason .. " " .. el end
-        if (not cashing) and ((bestS.cost or 0) <= 0) and (debuffOwed() or guardOwed() or lbOwed()) then
-            reason = reason .. ", setup still open"
-        end
         return finishChoice(uid, bestS, reason, targets, bestSpread)
     end
 
     -- A full bar stops waiting, and a stagger on the largest gauge spends a Limit
-    -- even if a bigger one is being saved. On a boss that enrages when the fight
-    -- drags on, an area Limit could kill the add that starts that, so while an
-    -- add is up after two kills only a single-target Limit goes, until the boss
-    -- is under 8%. Three fights took 5,700 to 9,700 between that kill and the wipe.
+    -- even if a bigger one is being saved.
     if ((phase == 0) or (phase == PHASE_BONUS)) and hardField then
         local ready = false
         for _, s in ipairs(skills) do
@@ -4313,21 +4309,11 @@ local function turn(uid, skills, w, phase)
                 if brokeMost >= most then cause = "stagger open" end
             end
             if cause then
-                local noArea = false
-                if bossU and ((Fight.addKills or 0) >= 2) then
-                    local card = mobOf(bossU)
-                    local hp, maxHp = stat(bossU.id, PARAM.HP, false), stat(bossU.id, PARAM.HP, true)
-                    local addUp = false
-                    for _, u in ipairs(w.enemies) do
-                        if u.id ~= bossU.id then addUp = true end
-                    end
-                    noArea = card and card.dragOn and addUp and not (hp and maxHp and (maxHp > 0) and ((hp / maxHp) < 0.08))
-                end
-                Fight.limitUrgent, Fight.limitNoArea = true, noArea and true or false
+                Fight.limitUrgent = true
                 -- A full bar goes on the boss, not on whichever add looks weakest.
                 local aimed = (#brokenPool > 0) and brokenPool or ((bossU and (not bossU.broken)) and { bossU }) or w.enemies
                 local okHit, hit = pcall(castDamage, aimed, true, "limit, " .. cause .. ",")
-                Fight.limitUrgent, Fight.limitNoArea = false, false
+                Fight.limitUrgent = false
                 if okHit and hit and ((hit.attr == ATTR.LB) or (hit.known and (hit.known.use == "lb-cash"))) then return hit end
             end
         end
@@ -4560,7 +4546,7 @@ local function turn(uid, skills, w, phase)
     end
 
     local function castDebuff(refreshOnly)
-        if (phase ~= 0) or (not hardField) or (style == "aggressive") or (not Debuffs.choose) then
+        if (phase ~= 0) or (not hardField) or (style == "aggressive") or breakClose() or (not Debuffs.choose) then
             return nil
         end
         if allyCritical() then return nil end
@@ -4942,12 +4928,46 @@ local function turn(uid, skills, w, phase)
             end
         end
         local tosses = (Fight.luckToss and Fight.luckToss[uid]) or 0
+        -- Is a short buff worth casting now? This caster's hit has to be weak next
+        -- to the party's best, and the largest open gauge has to be breakable
+        -- within about three rounds of what the party can pour into it.
+        local timedOk = false
+        if Fight.chipped then
+            local bigFoe, bigRemain, bigGauge = nil, 0, 0
+            for _, u in ipairs(open) do
+                local gauge, remain = gaugeOfEnemy(u)
+                if gauge > bigGauge then bigFoe, bigRemain, bigGauge = u, remain, gauge end
+            end
+            local ownBest, topBest, pour = 0, 0, 0
+            for _, a in ipairs(w.allies) do
+                if (not a.dead) and (a.acts ~= false) and (not heldOut(a)) then
+                    local kit = (a.id == uid) and { spells = skills } or unitKit(a.id)
+                    local amp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
+                    local mine, stag = 0, 0
+                    for _, s in ipairs((kit and kit.spells) or {}) do
+                        if isHit(s, false) and ((s.cost or 0) <= amp) then
+                            local pow = offenseOf(s) or 0
+                            if pow > mine then mine = pow end
+                            if bigFoe then
+                                local gained = staggerOf(s, bigFoe)
+                                if gained > stag then stag = gained end
+                            end
+                        end
+                    end
+                    if a.id == uid then ownBest = mine end
+                    if mine > topBest then topBest = mine end
+                    pour = pour + stag
+                end
+            end
+            timedOk = bigFoe and (ownBest <= (topBest * 0.6)) and (bigRemain <= (pour * 3)) or false
+        end
         local picked = Kits.pick(skills, {
             allies = w.allies, foes = foes, selfId = uid,
             actions = #(Fight.actions or {}), mp = w.mp or 0, maxMp = w.maxMp or 0,
             keep = keep, pay = (band() ~= "low"), healer = healer,
             claim = Fight.claim.kit, sent = Fight.kitOn,
             tossOk = locked and (not hitting) and (not Fight.chipped) and (tosses < 2),
+            timedOk = timedOk, chipped = Fight.chipped and true or false,
         })
         if not picked then return nil end
         local ids, isAll
@@ -4969,33 +4989,10 @@ local function turn(uid, skills, w, phase)
         Fight.claim.kit[picked.key] = true
         return choice
     end
-    -- Poison takes 10% of max HP a turn, so on a boss even a long shot beats a
-    -- normal hit. One try a round across the party, a few tries a fight, and
-    -- none while it's on or if the boss is immune.
-    if (phase == 0) and hardField and (not allyCritical()) and (not dead) and (not Fight.claim.kit.poison) then
-        Fight.poisonTry = Fight.poisonTry or {}
-        for _, u in ipairs(w.enemies) do
-            local card = mobOf(u)
-            local tries = Fight.poisonTry[u.id] or 0
-            if card and card.boss and ((card.poisonRes or 0) < 100) and (tries < 6) and (not u.broken)
-                and not (u.statuses and u.statuses[1]) then
-                for _, s in ipairs(skills) do
-                    if s.known and s.known.poison and (s.kind ~= "heal") and pay(s) then
-                        local choice = finishChoice(uid, s, "poison " .. tostring(u.name), { u.id }, false)
-                        if choice then
-                            Fight.claim.kit.poison = true
-                            Fight.poisonTry[u.id] = tries + 1
-                            return choice
-                        end
-                    end
-                end
-            end
-        end
-    end
     -- A kit waits while someone is critical or a fallen ally is still down.
     -- A fall earlier in the fight does not end it.
     if phase == 0 and not allyCritical() and not dead and not supportRested()
-        and (w.boss or ((Fight.rounds or 0) >= 3)) then
+        and (w.boss or ((Fight.rounds or 0) >= 3)) and (not breakClose()) then
         local choice = castKit()
         if choice then return choice end
     end
@@ -5489,8 +5486,8 @@ Known.repCards = function(snap)
                 string.format("  enemy %s, uid %s, row %s", tostring(u.name), tostring(id), tostring(okU and unitId)),
                 string.format("    weak %s; half %s; absorb %s; null %s; immune %s", set(card and card.weak), set(card and card.half),
                     set(card and card.absorb), set(card and card.no), set(card and card.ail)),
-                string.format("    danger %s; hits %s; counter %s; shift %s; drags on %s; hp %s/%s, gauge %s/%s", (card and card.danger and table.concat(card.danger, ",")) or "-",
-                    tostring(card and card.hits), tostring(card and card.counter), tostring(card and card.shift), tostring(card and card.dragOn), tostring(u.hp), tostring(u.maxHp), tostring(u.gauge), tostring(u.maxGauge)),
+                string.format("    danger %s; hits %s; counter %s; shift %s; hp %s/%s, gauge %s/%s", (card and card.danger and table.concat(card.danger, ",")) or "-",
+                    tostring(card and card.hits), tostring(card and card.counter), tostring(card and card.shift), tostring(u.hp), tostring(u.maxHp), tostring(u.gauge), tostring(u.maxGauge)),
                 "    traits: " .. ((card and card.traits and table.concat(card.traits, " / ")) or "-"),
             })
         end
@@ -5848,7 +5845,7 @@ local function ensureBattle()
     Fight.recoverTold = false
     Fight.entryTold = false
     Fight.finishNote = {}
-    Fight.addSeen, Fight.addKills, Fight.mobCards, Fight.poisonTry, Fight.dealtBook = nil, nil, nil, nil, nil
+    Fight.mobCards, Fight.dealtBook = nil, nil
     Fight.dealtOpen = nil
     itemsLogged = false
     potLogged = false
@@ -7510,7 +7507,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.8. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.12. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
