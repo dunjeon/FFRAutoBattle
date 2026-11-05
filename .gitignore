@@ -3,3 +3,10 @@ state.txt
 *.log
 todo.txt
 sim/out/
+
+# research: game data and probe output stay local
+research/extracted/
+research/tools/
+research/probe/probe_*.txt
+luac.out
+research/gamedata/

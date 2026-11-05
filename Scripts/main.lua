@@ -53,42 +53,14 @@ local function modDir()
     return src:match("^(.*)/Scripts/[^/]+$") or "ue4ss/Mods/FFRAutoBattle"
 end
 local DIR = modDir()
-local Known = {}
+-- Every fact comes from the game's own rows, built when the tables are read.
+local Known = { skills = {} }
 do
-    local ok, loaded = pcall(dofile, DIR .. "/Scripts/known.lua")
-    if ok and type(loaded) == "table" then
-        Known = loaded
+    local ok, rows = pcall(dofile, DIR .. "/Scripts/rows.lua")
+    if ok and type(rows) == "table" then
+        Known.rows = rows
     else
-        log("known list unavailable: %s", tostring(loaded))
-    end
-    -- Names already in known.lua keep their stagger and use. The catalog only fills gaps.
-    local catOk, catalog = pcall(dofile, DIR .. "/Scripts/catalog.lua")
-    if catOk and type(catalog) == "table" and type(catalog.skills) == "table" and type(Known.skills) == "table" then
-        -- A name known.lua lists keeps its values; a field it leaves out, such
-        -- as whether the hit is physical, comes from the catalog.
-        local added, filled = 0, 0
-        for name, row in pairs(catalog.skills) do
-            if type(row) == "table" then
-                local mine = Known.skills[name]
-                if mine == nil then
-                    Known.skills[name] = row
-                    added = added + 1
-                elseif type(mine) == "table" then
-                    -- The kind of hit is one fact: known.lua's phys or magic is not joined by the other.
-                    local kinded = mine.phys or mine.magic
-                    for k, v in pairs(row) do
-                        if (mine[k] == nil) and not (kinded and ((k == "phys") or (k == "magic"))) then
-                            mine[k] = v
-                            filled = filled + 1
-                        end
-                    end
-                end
-            end
-        end
-        log("catalog %d added", added)
-        if filled > 0 then log("catalog %d fields filled", filled) end
-    elseif not catOk then
-        log("catalog unavailable: %s", tostring(catalog))
+        log("rows unavailable: %s", tostring(rows))
     end
 end
 local function knownOf(skill)
@@ -99,14 +71,6 @@ local function knownOf(skill)
     return map[key]
 end
 local Mobs = {}
-do
-    local ok, loaded = pcall(dofile, DIR .. "/Scripts/mobs.lua")
-    if ok and type(loaded) == "table" then
-        Mobs = loaded
-    else
-        log("bestiary unavailable: %s", tostring(loaded))
-    end
-end
 local Health = {}
 do
     local ok, loaded = pcall(dofile, DIR .. "/Scripts/health.lua")
@@ -185,6 +149,11 @@ end
 local function mobOf(enemy)
     if not enemy then return nil end
     local key = mobKey(enemy.name)
+    -- This enemy's own row. Rows under one name can differ.
+    if enemy.id and Known.mobRow then
+        local ok, card = pcall(Known.mobRow, enemy)
+        if ok and card then return card, key end
+    end
     return key and Mobs[key] or nil, key
 end
 
@@ -429,9 +398,10 @@ local ItemIdx = nil
 local function buildSkillIndex()
     if SkillIdx then return end
     local effects = {}
+    local effectRows = {}
     local skills = {}
     local tables = FindAllOf("DataTable") or {}
-    local effectTables, skillTables, itemTables = {}, {}, {}
+    local effectTables, skillTables, itemTables, unitTables, aiTables = {}, {}, {}, {}, {}
     for _, dt in ipairs(tables) do
         pcall(function()
             if type(dt) ~= "userdata" or not dt:IsValid() then return end
@@ -442,6 +412,10 @@ local function buildSkillIndex()
                 skillTables[#skillTables + 1] = dt
             elseif struct == "CONSUMABLES_ITEM_DATA" then
                 itemTables[#itemTables + 1] = dt
+            elseif struct == "UNIT_PARAMETER" then
+                unitTables[#unitTables + 1] = dt
+            elseif struct == "BTL_UNIT_AI_PARAMETER" then
+                aiTables[#aiTables + 1] = dt
             end
         end)
     end
@@ -449,7 +423,18 @@ local function buildSkillIndex()
         pcall(function()
             dt:ForEachRow(function(_, row)
                 local id = num(field(row, "ID"))
-                if id then effects[id] = num(field(row, "statusCondition")) or 0 end
+                if id then
+                    effects[id] = num(field(row, "statusCondition")) or 0
+                    local params = {}
+                    local list = field(row, "ParamList")
+                    if (type(list) == "userdata" or type(list) == "table") and list.ForEach then
+                        pcall(function()
+                            list:ForEach(function(i, v) params[i] = num(unwrap(v)) end)
+                        end)
+                    end
+                    effectRows[id] = { type = num(field(row, "EffectType")) or 0, status = effects[id],
+                        turns = num(field(row, "effectEndActionNum")) or 0, params = params }
+                end
             end)
         end)
     end
@@ -459,6 +444,7 @@ local function buildSkillIndex()
                 local id = num(field(row, "ID"))
                 if not id then return end
                 local friendStatus, enemyStatus = {}, {}
+                local rowEffects = {}
                 local rel = num(field(row, "defaultTargetRelation")) or 0
                 -- Where a bundle's status lands is its TargetType, not its
                 -- targetRelation, which reads Friendlies on Debrave and Poison
@@ -473,6 +459,7 @@ local function buildSkillIndex()
                         local brel = b and num(b.targetRelation)
                         local btype = b and num(b.TargetType)
                         local st = eid and effects[eid]
+                        if eid and effectRows[eid] then rowEffects[#rowEffects + 1] = effectRows[eid] end
                         if st and st > 0 then
                             local side = brel
                             if btype == 6 then side = rel
@@ -512,6 +499,9 @@ local function buildSkillIndex()
                     targetState = num(field(row, "defaultTargetState")) or 0,
                     friendStatus = friendStatus,
                     enemyStatus = enemyStatus,
+                    effects = rowEffects,
+                    dmgType = num(field(row, "DamageType")) or 0,
+                    fromUnit = (num(field(row, "hasUnit")) or 10) < 8,
                 }
             end)
         end)
@@ -540,9 +530,84 @@ local function buildSkillIndex()
                     name = (name and name ~= "") and name or ("item " .. id),
                     skillId = skillId,
                     rare = field(row, "Rare") == true or field(row, "IsRare") == true,
+                    price = num(field(row, "buyingPrice")) or 0,
+                    sale = field(row, "isAvailableSale") == true,
+                    scene = num(field(row, "usableScene")) or 0,
                 }
             end)
         end)
+    end
+    -- Enemy rows, then every fact the planner reads, from what was just walked.
+    local units = {}
+    local function readMap(map, into)
+        if not (map and map.ForEach) then return end
+        pcall(function()
+            map:ForEach(function(k, v)
+                local a, b = num(unwrap(k)), num(unwrap(v))
+                if a and b then into[a] = b end
+            end)
+        end)
+    end
+    for _, dt in ipairs(unitTables) do
+        pcall(function()
+            dt:ForEachRow(function(_, row)
+                local id = num(field(row, "ID"))
+                if not id then return end
+                local u = { name = textOf(field(row, "Name")), elements = {}, status = {}, traits = {},
+                    maxBreak = num(field(row, "MaxBreakPoint")) or 0, boss = field(row, "IsBoss") == true }
+                readMap(field(row, "ElementResistanceList"), u.elements)
+                readMap(field(row, "StatusConditionResistanceList"), u.status)
+                local traits = field(row, "Traits")
+                if traits and traits.ForEach then
+                    pcall(function()
+                        traits:ForEach(function(_, t)
+                            local text = textOf(unwrap(t) or t)
+                            if text and text ~= "" then u.traits[#u.traits + 1] = text end
+                        end)
+                    end)
+                end
+                units[id] = u
+            end)
+        end)
+    end
+    -- The game's own lists of each enemy's dangerous moves and counters.
+    local function idList(list, into)
+        if not (list and list.ForEach) then return end
+        pcall(function()
+            list:ForEach(function(_, v)
+                local n = num(unwrap(v))
+                if n and n > 0 then into[#into + 1] = n end
+            end)
+        end)
+    end
+    for _, dt in ipairs(aiTables) do
+        pcall(function()
+            dt:ForEachRow(function(_, row)
+                local u = units[num(field(row, "ID"))]
+                if u then
+                    u.highRisk, u.counters = {}, {}
+                    idList(field(row, "highRiskSkillIdList"), u.highRisk)
+                    idList(field(row, "counterSkillIdList"), u.counters)
+                end
+            end)
+        end)
+    end
+    if Known.rows and next(skills) then
+        local okB, built = pcall(Known.rows.build, { skills = skills, units = units, items = items })
+        if okB and built then
+            Known.skills = built.known
+            Known.unitCards = built.units
+            for k, v in pairs(built.mobs) do Mobs[k] = v end
+            if Limits.load then Limits.load(built.limits) end
+            if Espers.load then Espers.load(built.espers) end
+            if Kits.load then Kits.load(built.kits) end
+            if Items.load then Items.load(built.items) end
+            local cards = 0
+            for _ in pairs(built.units) do cards = cards + 1 end
+            log("rows read: %d enemy rows, %d limits", cards, (function() local n = 0 for _ in pairs(built.limits) do n = n + 1 end return n end)())
+        else
+            log("rows failed: %s", tostring(built))
+        end
     end
     local ni = 0
     for _ in pairs(items) do ni = ni + 1 end
@@ -928,6 +993,18 @@ end
 
 -- Declared here so the skill math below can read what a fight has learned.
 local Fight
+Known.mobRow = function(enemy)
+    if not (Known.unitCards and Fight) then return nil end
+    Fight.mobCards = Fight.mobCards or {}
+    local seen = Fight.mobCards[enemy.id]
+    if seen and seen.name == enemy.name then return seen.card end
+    local p = paramOf(enemy.id)
+    if not p then return nil end
+    local ok, unitId = pcall(function() return num(p:GetUnitId()) end)
+    local card = ok and unitId and Known.unitCards[unitId] or nil
+    if card then Fight.mobCards[enemy.id] = { name = enemy.name, card = card } end
+    return card
+end
 local unitKit
 
 local function hitsOf(skill)
@@ -2746,6 +2823,24 @@ local function turn(uid, skills, w, phase)
         return "sync", list, large[1] or list[1]
     end
     local mode, pool, bossU = modeOf(open)
+    -- A boss that enrages when the fight drags on: its adds' deaths move that
+    -- clock along, so after two of them everything goes on the boss.
+    Fight.addSeen = Fight.addSeen or {}
+    Fight.addKills = Fight.addKills or 0
+    for id in pairs(Fight.addSeen) do
+        local hp = stat(id, PARAM.HP, false)
+        if (not hp) or (hp <= 0) then
+            Fight.addSeen[id] = nil
+            Fight.addKills = Fight.addKills + 1
+        end
+    end
+    if mode == "adds" and bossU then
+        for _, u in ipairs(pool) do Fight.addSeen[u.id] = true end
+        local card = mobOf(bossU)
+        if card and card.dragOn and (Fight.addKills >= 2) then
+            pool, mode = { bossU }, "sync"
+        end
+    end
     if style == "defensive" and allyCritical() and bossU then
         local card = mobOf(bossU)
         if card and card.danger and card.danger[1] then
@@ -5275,6 +5370,7 @@ local function ensureBattle()
     Fight.recoverTold = false
     Fight.entryTold = false
     Fight.finishNote = {}
+    Fight.addSeen, Fight.addKills, Fight.mobCards = nil, nil, nil
     itemsLogged = false
     potLogged = false
     appendLog(string.format("== battle %d%s ==", Fight.number, Fight.boss and ", boss" or ""))
@@ -6854,7 +6950,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.1.48. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.1. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

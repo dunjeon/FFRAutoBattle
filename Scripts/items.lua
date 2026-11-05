@@ -9,106 +9,18 @@
 -- nothing payable lands. Tents and Healing Spring stay put. A Pot fight
 -- spends nothing.
 
-local BOOK = {
-    -- Shop recovery the player can buy again.
-    items = {
-        ["potion"] = "hp",
-        ["hi-potion"] = "hp",
-        ["mist potion"] = "hp",
-        ["ether"] = "mp",
-        ["mist ether"] = "mp",
-        ["phoenix down"] = "revive",
-        ["antidote"] = "cure",
-        ["antidote herb"] = "cure",
-        ["eye drops"] = "cure",
-        ["echo herb"] = "cure",
-        ["smelling salts"] = "cure",
-        ["unicorn horn"] = "cure",
-        ["gold needle"] = "cure",
-        ["herb of awakening"] = "cure",
-        ["remedy"] = "cure",
-    },
-    -- Rare recovery. Spent only in a boss fight, cheapest rank first, when no
-    -- common item covers the need. "out" never leaves the bag in battle.
-    leave = {
-        -- Healing Spring is a slow regen, too slow for a critical ally.
-        ["mist hi-potion"] = { use = "hp", rank = 1 },
-        ["x-potion"] = { use = "hp", rank = 2 },
-        ["mist x-potion"] = { use = "hp", rank = 3 },
-        ["turbo ether"] = { use = "mp", rank = 2 },
-        ["mist turbo ether"] = { use = "mp", rank = 3 },
-        ["x-ether"] = { use = "mp", rank = 4 },
-        ["mist x-ether"] = { use = "mp", rank = 5 },
-        ["phoenix pinion"] = { use = "revive", rank = 3 },
-        ["elixir"] = { use = "both", rank = 6 },
-        ["megalixir"] = { use = "both", rank = 9 },
-        ["tent"] = { use = "out" },
-        ["healing spring"] = { use = "out" },
-        -- From the game's item rows, 2026-11-03. Smoke Bomb is an escape
-        -- (skill effect Escape); the golden shells have no battle skill.
-        ["smoke bomb"] = { use = "out" },
-        ["small golden shell"] = { use = "out" },
-        ["golden shell"] = { use = "out" },
-        ["large golden shell"] = { use = "out" },
-    },
-    -- Thrown attack items, from the public item list read 2026-11-02. Scrolls
-    -- are single-target magic of their element. Knives and blades are physical;
-    -- a knife also adds its status. Thrown only in a boss fight, lowest rank first.
-    attack = {
-        ["flame scroll i"] = { element = "fire", magic = true, rank = 1 },
-        ["ice scroll i"] = { element = "ice", magic = true, rank = 1 },
-        ["wind scroll i"] = { element = "wind", magic = true, rank = 1 },
-        ["earth scroll i"] = { element = "earth", magic = true, rank = 1 },
-        -- Lightning is thunder, to match the book (mobs.lua and known.lua).
-        ["lightning scroll i"] = { element = "thunder", magic = true, rank = 1 },
-        ["water scroll i"] = { element = "water", magic = true, rank = 1 },
-        ["flame scroll ii"] = { element = "fire", magic = true, rank = 2 },
-        ["ice scroll ii"] = { element = "ice", magic = true, rank = 2 },
-        ["wind scroll ii"] = { element = "wind", magic = true, rank = 2 },
-        ["earth scroll ii"] = { element = "earth", magic = true, rank = 2 },
-        ["lightning scroll ii"] = { element = "thunder", magic = true, rank = 2 },
-        ["water scroll ii"] = { element = "water", magic = true, rank = 2 },
-        ["shuriken"] = { phys = true, rank = 1 },
-        ["knife of blind"] = { phys = true, status = "blind", rank = 1 },
-        ["knife of silence"] = { phys = true, status = "silence", rank = 1 },
-        ["knife of poison"] = { phys = true, status = "poison", rank = 2 },
-        ["knife of confuse"] = { phys = true, status = "confuse", rank = 2 },
-        ["knife of paralysis"] = { phys = true, status = "paralysis", rank = 2 },
-        ["knife of sleep"] = { phys = true, status = "sleep", rank = 2 },
-        ["fuma shuriken"] = { phys = true, rank = 3 },
-        ["chef's knife"] = { phys = true, rank = 4 },
-    },}
-
+local BOOK = { items = {}, leave = {}, attack = {} }
 -- Status ids, the same as health.lua.
-local POISON, BLIND, SILENCE, SLEEP = 1, 2, 4, 3
-local PARALYSIS, CONFUSE, PETRIFY = 5, 6, 7
-local DOOM = 11
+local POISON, BLIND, DOOM = 1, 2, 11
 local LOCK = {
     [3] = true, [4] = true, [5] = true, [6] = true, [7] = true,
     [8] = true, [9] = true, [10] = true, [11] = true,
 }
 local SOFT = { [POISON] = true, [BLIND] = true }
 
--- Shop cures and the status they clear. Remedy clears a lock only.
--- It does not clear poison, blind, or slow. A name that is not here still
--- clears a lock. It does not clear poison or blind.
-local CURE_ITEM = {
-    antidote = { [POISON] = true },
-    ["antidote herb"] = { [POISON] = true },
-    ["eye drops"] = { [BLIND] = true },
-    ["echo herb"] = { [SILENCE] = true },
-    ["smelling salts"] = { [CONFUSE] = true },
-    ["unicorn horn"] = { [PARALYSIS] = true },
-    ["gold needle"] = { [PETRIFY] = true },
-    ["herb of awakening"] = { [SLEEP] = true },
-    remedy = true,
-}
+-- What each cure item clears, from its skill row. true is every lock.
+local CURE_ITEM = {}
 
--- A scroll or knife the book does not list still reads by its name.
-local SCROLL_WORDS = {
-    flame = "fire", fire = "fire", ice = "ice", blizzard = "ice", wind = "wind",
-    earth = "earth", lightning = "thunder", thunder = "thunder", water = "water",
-}
 
 local function fold(name)
     local n = (name or ""):lower()
@@ -127,6 +39,12 @@ end
 local M = {}
 M.book = BOOK
 
+-- Filled from the game's rows (rows.lua).
+function M.load(t)
+    BOOK, CURE_ITEM = t, t.clears
+    M.book = t
+end
+
 -- "hp", "mp", "revive", "cure", or nil for a shop item name.
 function M.listed(name)
     return BOOK.items[fold(name)]
@@ -142,17 +60,8 @@ function M.entry(id, name, count, f)
     local lowered = fold(name)
     local listed = BOOK.items[lowered]
     local rareRow = BOOK.leave[lowered]
-    if (not rareRow) and lowered:find("elixir", 1, true) then rareRow = { use = "both", rank = 7 } end
     local rare = f.rare or (rareRow ~= nil)
     local throw = BOOK.attack[lowered]
-    if (not throw) and lowered:find("scroll", 1, true) then
-        for word, el in pairs(SCROLL_WORDS) do
-            if lowered:find(word, 1, true) then throw = { element = el, magic = true, rank = 3 } end
-        end
-    end
-    if (not throw) and (lowered:find("knife", 1, true) or lowered:find("shuriken", 1, true)) then
-        throw = { phys = true, rank = 4 }
-    end
     if throw then
         return { id = id, name = name, count = count, attack = throw, rank = throw.rank or 5 }
     end

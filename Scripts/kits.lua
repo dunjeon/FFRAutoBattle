@@ -8,66 +8,32 @@
 -- out before the chip. A mark sits on one enemy. A weakness is given only
 -- when the book lists none, and only once. A luck toss is spent only while
 -- a gated hit is sealed and no other hit is ready.
--- Haste, Faith, Bravery, Provoke, Cover, and the other generic buffs are
--- not in this book. A stance that blocks white-magic healing is in STANCE.
+-- Every table below is filled from the game's rows at launch.
 
-local BOOK = {
-    ["formation:assail"] = { kind = "formation", rank = 1, turns = 3, party = true },
-    ["formation:charge"] = { kind = "formation", rank = 2, turns = 3, party = true },
-    ["formation:bulwark"] = { kind = "formation", rank = 3, turns = 3, party = true },
-    ["formation:regroup"] = { kind = "formation", rank = 4, turns = 3, party = true },
-    ["tactic:fluidwarfare"] = { kind = "ready", rank = 1, turns = 3, with = "formation" },
-    ["godofwater'sblessing"] = { kind = "ready", rank = 2, turns = 3, with = "formation" },
-    ["overclockzero"] = { kind = "ready", rank = 3, turns = 3, with = "mechabo", group = "overclock" },
-    ["overclock"] = { kind = "ready", rank = 4, turns = 3, with = "mechabo", group = "overclock" },
-    ["placidity"] = { kind = "ready", rank = 5, turns = 5 },
-    ["eminentcasting"] = { kind = "ready", rank = 6, turns = 3, with = "area", offHeal = true },
-    ["stratagem"] = { kind = "mark", rank = 1, turns = 3 },
-    ["sage'seye"] = { kind = "mark", rank = 2, turns = 4, weakMagic = true },
-    ["mechamogscan"] = { kind = "weak", rank = 1, once = true },
-    ["cointoss"] = { kind = "luck", rank = 1 },
-}
+local BOOK = {}
 
 -- Skills that pull enemy attacks onto the caster. Provoke draws every
 -- enemy for about three turns. Cover takes the hits meant for one ally.
 -- Multi-Cover does that for the party. Cover has no published duration,
 -- so it is held while its live status is up, or cast once a fight when
 -- the row lists no status.
-local DRAW = {
-    ["provoke"] = { kind = "provoke", turns = 3 },
-    ["cover"] = { kind = "cover" },
-    ["multicover"] = { kind = "cover", party = true },
-}
+local DRAW = {}
 
 -- Stances that stay up until their off skill goes out. Each one lifts the
 -- caster and blocks white-magic healing on the caster. It goes up on a hard
 -- field while the caster is healthy, and comes off when the caster is under
 -- the recover line and a spell heal could reach them once it is off.
-local STANCE = {
-    ["witchinghour"] = { off = "endwitchinghour" },
-}
+local STANCE = {}
 local STANCE_OFF = {}
-for on, row in pairs(STANCE) do STANCE_OFF[row.off] = on end
 
 -- Haste. It is the answer to Slow, and it speeds the ally a long fight
 -- leans on. Hastega is the party row.
-local HASTE = {
-    ["haste"] = { party = false },
-    ["hastega"] = { party = true },
-}
+local HASTE = {}
 local SLOW_ID = 12
 
-local GATED = {
-    ["blitzstrahl"] = true,
-    ["demolisherrush"] = true,
-}
+local GATED = {}
 
-local MECHABO = {
-    ["mechabokick"] = true,
-    ["mechabotackle"] = true,
-    ["mechafatchocobo"] = true,
-    ["mechabehemoth"] = true,
-}
+local MECHABO = {}
 
 -- Spaces and a wide colon are not part of the match. The live name may
 -- write either, and the book still finds the row.
@@ -94,6 +60,18 @@ local function bodyHas(body, map)
 end
 
 local M = {}
+
+-- Fills the tables from the game's rows (rows.lua).
+function M.load(k)
+    BOOK, DRAW, HASTE, MECHABO = k.book, k.draw, k.haste, k.mechabo
+    STANCE, STANCE_OFF = {}, {}
+    for on in pairs(k.stance) do
+        local off = k.stanceOff["end" .. on]
+        if not off then off = next(k.stanceOff) and ("end" .. on) end
+        STANCE[on] = { off = "end" .. on }
+        STANCE_OFF["end" .. on] = on
+    end
+end
 
 function M.lookup(name)
     return BOOK[fold(name)]

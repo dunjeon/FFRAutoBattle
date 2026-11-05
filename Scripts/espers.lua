@@ -5,17 +5,7 @@
 -- call it again. The element is the signature hit. A support row has no
 -- element. Lightning is stored as thunder, the same word the enemy book uses.
 
-local BOOK = {
-    siren = { element = "wind", turns = 3, role = "damage", magic = true },
-    ifrit = { element = "fire", turns = 3, role = "damage", magic = true },
-    shiva = { element = "ice", turns = 3, role = "damage", magic = true },
-    ramuh = { element = "thunder", turns = 3, role = "damage", magic = true },
-    carbuncle = { turns = 3, role = "guard" },
-    odin = { turns = 3, role = "damage", phys = true },
-    titan = { element = "earth", turns = 3, role = "damage", magic = true },
-    bahamut = { turns = 3, role = "damage", magic = true },
-    leviathan = { element = "water", turns = 3, role = "damage", magic = true },
-}
+local BOOK = {}
 
 local function fold(name)
     local n = (name or ""):lower()
@@ -37,6 +27,9 @@ local function copyOf(row)
 end
 
 local M = {}
+
+-- Filled from the game's rows (rows.lua).
+function M.load(t) BOOK = t end
 
 -- The live summon name, or nil when the row is not one of these Espers.
 function M.lookup(name)

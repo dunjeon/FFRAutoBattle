@@ -1,0 +1,2 @@
+[]  Fina use only “Medica” with a female Vision.
+She doesn't have that problem with a male vision. This needs tested before a solution is blindly put in place.

@@ -15,25 +15,7 @@
 -- applies a row only when the live attribute is a Limit Burst.
 -- Lightning is stored as thunder, the same word the enemy book uses.
 
-local BOOK = {
-    ["null moon"] = { use = "lb-setup", gauges = 1, stagger = 27, phys = true },
-    ["infinity drive"] = { use = "lb-cash", gauges = 1, stagger = 25, element = "fire", phys = true },
-    ["crimson onslaught"] = { use = "lb-cash", gauges = 2, stagger = 35, element = "fire", phys = true, area = true },
-    ["transient rite"] = { use = "lb-cash", gauges = 2, stagger = 35, element = "ice", phys = true, area = true },
-    ["holy ray"] = { use = "lb-cash", gauges = 1, stagger = 25, element = "light", magic = true, area = true },
-    ["radiant restoration"] = { use = "lb-revive", gauges = 2, stagger = 50, party = true },
-    ["march of the machines"] = { use = "lb-cash", gauges = 1, stagger = 40, phys = true, area = true },
-    ["enterprise airstrike"] = { use = "lb-cash", gauges = 2, stagger = 55, phys = true, area = true },
-    ["t.r.n.d."] = { use = "lb-cash", gauges = 1, stagger = 27, element = "wind", phys = true },
-    ["glücksschmied"] = { use = "lb-cash", gauges = 2, stagger = 30, phys = true },
-    ["formation: steeled advance"] = { use = "lb-break", gauges = 1, party = true },
-    ["mirroring prism"] = { use = "lb-break", gauges = 2, party = true },
-    ["eternal veil"] = { use = "lb-guard", gauges = 1, party = true },
-    ["sakura's ultima"] = { use = "lb-cash", gauges = 2, stagger = 55, magic = true, area = true },
-    ["chaotic convergence"] = { use = "lb-cash", gauges = 1, stagger = 25, element = "dark", magic = true },
-    ["abyss graviton"] = { use = "lb-cash", gauges = 2, stagger = 40, element = "dark", magic = true },
-    ["fel meteor"] = { use = "lb-cash", gauges = 1, element = "dark", magic = true, area = true },
-}
+local BOOK = {}
 
 local function fold(name)
     local n = (name or ""):lower()
@@ -54,6 +36,9 @@ local function copyOf(row)
 end
 
 local M = {}
+
+-- Filled from the game's rows (rows.lua).
+function M.load(t) BOOK = t end
 
 -- Book role wins. The book's stagger wins when it has one. A known
 -- stagger stays when the book has none. The caller uses this only for
