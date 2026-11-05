@@ -1,28 +1,26 @@
 # The Golden Rule
 
-**We don't build a perfect run of any one battle. We build logic that can fight any battle, with any party, any Visions, any gear, and any skills.**
+**The code must work everywhere if it works anywhere.**
 
-No one-off solutions. No edge-case patches. A rule that only wins Expert Leviathan is a bad rule, even if it wins. We already gave up a win over this, and we would again.
+No one-off solutions. No edge-case patches. A decision that is right for one battle, one party, one skill, or one loadout, and wrong for another, does not go in. A win does not justify keeping it.
 
 ## What that means
 
-**Read the battle. Don't memorize it.** Weaknesses, gauges, dangerous moves, and damage cuts come from the game's own rows. Everything else comes from what happens in this fight. Tsunami isn't in our code. A warned hit is.
+**Same logic, every fight.** Any battle, any party, any Visions, any gear, any skills. Nothing in the code is for a boss, a character, or a loadout. If the party does not hold that skill, or the foe does not work that way, the same rule still has to make sense.
 
-**Find what hits hard, then exploit it.** If Thundara on a weakness is doing the damage, keep casting it. When the gauge empties, go all-in on the stagger. Measured damage beats listed power.
+**Read the battle. Don't memorize it.** Weaknesses, gauges, dangerous moves, and damage cuts come from the game's own rows. Everything else comes from what happens in this fight. The code never names the fight it is in. A warned hit is answered because the game warned it, whoever threw it.
 
-**Hit hard, hit often, stay alive.** Short fights and big damage, from what the player set up. A buff, a debuff, or an Ether earns its turn or it doesn't get one. A foe that can die this turn dies this turn, before anyone heals.
+**A special case is a failed rule.** A heal line, an MP band, a gauge ratio, or a score weight we picked is an edge case. So is a plan that only pays off for the party we happened to bring. The replacement is a number the game already stores, or a comparison this fight's own results already support. That same comparison has to be the right one in the next fight, with a different party.
 
-**The party answers the big hit with whatever it holds.** Guard, Cover, Shell, Protect, Curaga, a Mist Potion: we never ask which one this boss needs. We ask what's about to land, who it kills, and which action saves the most of them. A party of four Black Mages has to get an answer too, even if the answer is "keep casting".
+**The party answers with whatever it holds.** Ask what is about to happen, who it kills, and which action this party actually has that deals with it. A party with none of the usual answers still gets an answer, including "keep casting."
 
-**Any party, any loadout.** No party is the right one. No Vision is expected, and no character is special. If it only works with a White Mage in the party, it doesn't work.
-
-**Judge the logic, not the result.** Losing to Killer Tsunami with sound decisions beats winning with a lucky poison. One bad ending doesn't prove a rule wrong, and one win doesn't prove it right.
+**Judge the logic, not the result.** One loss does not prove a rule wrong, and one win does not prove it right. If the code only does the right thing where we have already fought, it does not work.
 
 ## Before adding a rule
 
-1. **Does it name a boss, a skill, a character, or a Vision?** Then rewrite it around what that thing does.
-2. **What if the party doesn't hold that skill, or the foe doesn't work that way?** The rule should still make sense.
-3. **How far does it reach?** Count it in the game data. If only a few enemies are affected, it doesn't go in.
-4. **What pattern shows it's needed?** Look across different fights and parties, not one lost fight.
+1. **Would this still be right in a fight that is not this one?** If it only fits here, it is a one-off.
+2. **Would this still be right with a party that is not this one?** If it needs a role, a skill, a Vision, or a character the player may not have brought, it is an edge case.
+3. **Does it name a boss, a skill, a character, or a Vision?** Rewrite it around what that thing does, so anything else that does the same thing is treated the same way.
+4. **Does the number come from the game, or from this fight's own results?** A number we chose does not go in.
 
-If a boss still beats us after all that, let it. Fix the thinking, not the fight.
+If a fight still beats us after that, let it. Fix the thinking, not the fight.
