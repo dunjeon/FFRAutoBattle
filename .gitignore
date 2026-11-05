@@ -11,3 +11,6 @@ research/tools/
 research/probe/probe_*.txt
 luac.out
 research/gamedata/
+
+# Local planning notes. Not part of the mod.
+rule-compliance-todo.txt

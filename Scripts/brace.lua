@@ -7,8 +7,6 @@ local M = {}
 local PHYS, MAGIC = 1, 2
 local SELF, SINGLE = 0, 1
 local EFFECT_CUT, EFFECT_COVER = 26, 41
--- Hits of one move vary a little, so a close call counts as not surviving.
-local MARGIN = 1.1
 
 -- Share of a hit that gets through a cut row, or nil when it doesn't touch this kind.
 -- param 1: 0 both kinds, 1 physical, 2 magic. param 2: the percent removed.
@@ -81,7 +79,7 @@ function M.through(statuses, kind, map)
 end
 
 local function dies(hp, hit)
-    return hp <= (hit * MARGIN)
+    return hp <= hit
 end
 
 -- team: { id, hp, maxHp, hit (full size against this ally), share (what gets

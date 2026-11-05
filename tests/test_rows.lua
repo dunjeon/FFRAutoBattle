@@ -12,9 +12,10 @@ local weaken = { id = 4, name = "Soften", attr = 4, effect = 0, varType = 0, dmg
 local limit = { id = 5, name = "Big One", attr = 5, effect = 1, varType = 1, dmgType = 1, target = 2, rel = 2, cost = 200, power = 33, breakPower = 35, effects = {} }
 local potion = { id = 6, name = "Sip", attr = 6, effect = 1, varType = 0, paramType = 1, dmgType = 0, target = 1, rel = 1, cost = 0, power = 200, breakPower = 0, effects = {} }
 local cure = { id = 7, name = "Clean", attr = 6, effect = 0, varType = 0, dmgType = 0, target = 1, rel = 1, cost = 0, power = 0, breakPower = 0, effects = { { type = 19, status = 0, params = { 0, 0, 0, 5 } } } }
+local jab = { id = 8, name = "Jab", attr = 4, effect = 1, varType = 1, dmgType = 1, target = 1, rel = 2, cost = 0, power = 10, breakPower = 0, effects = {} }
 local d = R.build({
-    skills = { hit, heal, shield, weaken, limit, potion, cure },
-    units = { [9] = { name = "Foe", maxBreak = 100, boss = true, elements = { [5] = 1, [6] = 2, [1] = 3, [2] = 4 }, status = { [3] = 100 }, traits = { "Immune to physical attacks.", "Becomes enraged if the battle drags on." }, highRisk = { 1 }, counters = {} } },
+    skills = { hit, heal, shield, weaken, limit, potion, cure, jab },
+    units = { [9] = { name = "Foe", maxBreak = 100, boss = true, elements = { [5] = 1, [6] = 2, [1] = 3, [2] = 4 }, status = { [3] = 100 }, traits = { "Immune to physical attacks.", "Becomes enraged if the battle drags on." }, highRisk = { 1 }, counters = { 8 } } },
     items = { [1] = { name = "Sip", skillId = 6, price = 100, sale = true, scene = 3 }, [2] = { name = "Clean", skillId = 7, price = 100, sale = true, scene = 1 } },
 })
 check(d.known["spark"].use == "break" and d.known["spark"].element == "thunder" and d.known["spark"].magic, "a damage row is a hit, with its element and kind")
@@ -25,7 +26,7 @@ check(d.limits["big one"].use == "lb-cash" and d.limits["big one"].gauges == 2 a
 check(d.items.items["sip"] == "hp" and d.items.items["clean"] == "cure" and d.items.clears["clean"][5], "items come from their skill row")
 local c = d.units[9]
 check(c.weak.thunder and c.half.water and c.no.fire and c.absorb.ice and c.ail.sleep, "resistances come from the enemy's row")
-check(c.no.physical and c.danger, "traits fill in what the row's numbers can't")
+check(c.danger and (not c.no.physical) and (c.counter == "physical"), "a counter comes from the skill row, and trait text does not set an immunity")
 check(c.danger[1] == "Spark" and c.hits == "magic", "dangerous moves and their kind come from the game's list")
 check(c.dangerIds and #c.dangerIds == #c.danger, "the card keeps the dangerous moves' ids for the warned-hit estimate")
 check(d.mobs["foe"] == c, "an enemy is also found by name")
@@ -47,4 +48,5 @@ local gale = { id = 21, name = "Gale", attr = 4, effect = 1, varType = 1, dmgTyp
 local esper = { id = 22, name = "Sprite", attr = 7, effect = 0, varType = 0, dmgType = 0, target = 0, rel = 1, cost = 50, power = 0, breakPower = 0, effects = { { type = 37, status = 0, params = { 2, 70 }, turns = -1 } } }
 local d2 = R.build({ skills = { [20] = bio, [21] = gale, [22] = esper }, units = { [70] = { name = "Sprite Unit", elements = {}, status = {}, traits = {}, moves = { 21, 20 } } }, items = {} })
 check(d2.espers["sprite"].element == "wind" and d2.espers["sprite"].role == "damage", "an Esper's element and role come from its moves")
+check(d2.espers["sprite"].turns == nil, "a summon row with no duration does not invent a stay")
 os.exit(fails == 0 and 0 or 1)

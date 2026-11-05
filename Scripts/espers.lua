@@ -1,9 +1,10 @@
 -- Espers, as skill rows. The planner calls this. This file does not name a
 -- fight, a character, or a Vision, and it does not touch the battle libraries.
 --
--- A summon stays about three of its own turns, then leaves. The party can
--- call it again. The element is the signature hit. A support row has no
--- element. Lightning is stored as thunder, the same word the enemy book uses.
+-- A summon stays for the turn count on its row. With no count, it stays until
+-- the game says it left. The party can call it again. The element is the
+-- signature hit. A support row has no element. Lightning is stored as thunder,
+-- the same word the enemy book uses.
 
 local BOOK = {}
 
@@ -45,8 +46,8 @@ end
 -- True while the stay that started at `at` is still inside `now`.
 -- One Esper turn is about one pass of the party. The count is ally commands.
 function M.stillOut(at, now, turns, party)
-    local stay = tonumber(turns) or 3
-    if stay < 1 then stay = 3 end
+    local stay = tonumber(turns)
+    if not stay or stay < 1 then return true end
     local size = tonumber(party) or 1
     if size < 1 then size = 1 end
     local span = stay * size

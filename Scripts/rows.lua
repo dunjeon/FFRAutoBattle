@@ -41,6 +41,12 @@ local function kitKey(name)
     return (n:gsub("[%s_%-]+", ""))
 end
 
+local function lasting(e)
+    local t = e and e.turns
+    if t and t > 0 then return t end
+    return nil
+end
+
 local function has(row, kind)
     for _, e in ipairs(row.effects or {}) do
         if e.type == kind then return e end
@@ -109,7 +115,6 @@ local function factOf(row)
     if k == "magic" then info.magic = true end
     if use == "guardbuff" then info.guards = guardsOf(row) end
     if (use == "heal") and wide(row) then info.party = true end
-    if (use == "heal") and (row.power < 50) then info.patch = true end
     if use == "debuff" then
         for _, e in ipairs(row.effects) do
             if DEBUFF[e.status] then info.effect = DEBUFF[e.status] break end
@@ -143,7 +148,9 @@ local function esperOf(row, units, skills)
     local fx = has(row, E.SUMMON)
     local uid = fx and fx.params and fx.params[2]
     local unit = uid and units[uid]
-    local info = { turns = 3, role = "guard" }
+    local stay = fx and fx.turns
+    local info = { role = "guard" }
+    if stay and stay > 0 then info.turns = stay end
     for i, id in ipairs((unit and unit.moves) or {}) do
         local move = skills[id]
         if move then
@@ -173,7 +180,7 @@ local function roleOf(row, books)
         return
     end
     if has(row, E.HATE) and (row.effect ~= 1) and row.rel == ENEMY then
-        books.draw[key] = { kind = "provoke", turns = has(row, E.HATE).turns or 3 }
+        books.draw[key] = { kind = "provoke", turns = lasting(has(row, E.HATE)) }
         return
     end
     if has(row, E.COVER) and row.rel == FRIEND then
@@ -187,33 +194,33 @@ local function roleOf(row, books)
     if row.effect == 1 then return end
     for _, e in ipairs(row.effects or {}) do
         if FORMATION[e.status] and (row.attr ~= A_LB) then
-            -- Bulwark's status is a defense, so it only waits for the first hit.
+            -- A defense status waits for the first hit.
             local defense = has(row, E.DEF) and true or false
-            books.book[key] = { kind = "formation", rank = FORMATION[e.status], turns = e.turns or 3, party = true,
+            books.book[key] = { kind = "formation", defense = defense or nil, turns = lasting(e), party = true,
                 timed = (not defense) or nil, afterHit = defense or nil }
             return
         end
     end
     if has(row, E.ACT) then
-        books.book[key] = { kind = "ready", rank = 1, turns = has(row, E.ACT).turns or 3, with = "formation", timed = true }
+        books.book[key] = { kind = "ready", turns = lasting(has(row, E.ACT)), with = "formation", timed = true }
     elseif has(row, E.EXTEND) then
-        books.book[key] = { kind = "ready", rank = 2, turns = 3, with = "formation", timed = true }
+        books.book[key] = { kind = "ready", turns = lasting(has(row, E.EXTEND)), with = "formation", timed = true }
     elseif has(row, E.OVERCLOCK) then
-        books.book[key] = { kind = "ready", rank = (row.cost > 20) and 3 or 4, turns = 3, with = "mechabo", group = "overclock" }
+        books.book[key] = { kind = "ready", turns = lasting(has(row, E.OVERCLOCK)), with = "mechabo", group = "overclock" }
     elseif has(row, E.MOGSCAN) then
         books.book[key] = { kind = "weak", rank = 1, once = true }
     elseif has(row, E.LUCK) then
         books.book[key] = { kind = "luck", rank = 1 }
     elseif has(row, E.BREAKDEF) and row.rel == ENEMY then
-        books.book[key] = { kind = "mark", rank = 1, turns = has(row, E.BREAKDEF).turns or 3, timed = true }
+        books.book[key] = { kind = "mark", turns = lasting(has(row, E.BREAKDEF)), timed = true }
     elseif (row.target == T_SELF) and has(row, E.BREAKUP) then
         local b = has(row, E.BREAKUP)
         if statusOn(row, 77) then
-            books.book[key] = { kind = "mark", rank = 2, turns = b.turns or 4, weakMagic = true, timed = true }
+            books.book[key] = { kind = "mark", turns = lasting(b), weakMagic = true, timed = true }
         elseif has(row, E.DMG) then
-            books.book[key] = { kind = "ready", rank = 6, turns = b.turns or 3, with = "area", offHeal = true }
+            books.book[key] = { kind = "ready", turns = lasting(b), with = "area", offHeal = true }
         elseif has(row, E.CONT) then
-            books.book[key] = { kind = "ready", rank = 5, turns = b.turns or 5 }
+            books.book[key] = { kind = "ready", turns = lasting(b) }
         end
     end
 end
@@ -226,7 +233,7 @@ local function itemOf(item, row, books)
         return
     end
     local price = item.price or 0
-    local rare = (price >= 2000) or (not item.sale)
+    local rare = item.rare == true
     local rank = math.floor(price / 1000) + 1
     if row.effect == 1 and row.varType ~= UP then
         books.attack[key] = { element = row.element, magic = (row.dmgType == MAGIC) or nil,
@@ -253,18 +260,22 @@ local function itemOf(item, row, books)
     end
 end
 
--- Facts from an enemy's own row and its Libra text.
+-- Facts from an enemy's own row. Resistances, danger moves, and counters are
+-- fields and skill ids. Trait sentences stay on the card for the log only.
 local function cardOf(u, skills)
     local card = { gauge = u.maxBreak, weak = {}, half = {}, absorb = {}, no = {}, ail = {}, boss = u.boss or nil, traits = u.traits }
+    local sawRes = false
     for el, res in pairs(u.elements or {}) do
         local name = ELEMENT[el]
         if name then
+            sawRes = true
             if res == 1 then card.weak[name] = true end
             if res == 2 then card.half[name] = true end
             if res == 3 then card.no[name] = true end
             if res == 4 then card.absorb[name] = true end
         end
     end
+    if sawRes then card.resists = true end
     for id, name in pairs(STATUS) do
         if ((u.status or {})[id] or 0) >= 100 then card.ail[name] = true end
     end
@@ -296,16 +307,17 @@ local function cardOf(u, skills)
         end
     end
     if (moves > 0) and (not hurts) then card.harmless = true end
-    for _, t in ipairs(u.traits or {}) do
-        local s = t:lower()
-        if s:find("immune to physical", 1, true) or s:find("nullifies physical", 1, true) then card.no.physical = true end
-        if s:find("immune to magic", 1, true) or s:find("nullifies magic", 1, true) then card.no.magic = true end
-        if s:find("counter", 1, true) and s:find("physical", 1, true) then card.counter = "physical" end
-        if s:find("counter", 1, true) and s:find("magic", 1, true) then card.counter = "magic" end
-        if s:find("counterattacks when attacked", 1, true) then card.counter = "hit" end
-        if s:find("weakness changes", 1, true) or s:find("weakness shift", 1, true) then card.shift = true end
-        if s:find("summon", 1, true) or s:find("calls", 1, true) then card.call = true end
+    local counterPhys, counterMagic = false, false
+    for _, id in ipairs(u.counters or {}) do
+        local row = skills[id]
+        if row then
+            if row.dmgType == PHYS then counterPhys = true end
+            if row.dmgType == MAGIC then counterMagic = true end
+        end
     end
+    if counterPhys and counterMagic then card.counter = "hit"
+    elseif counterPhys then card.counter = "physical"
+    elseif counterMagic then card.counter = "magic" end
     return card
 end
 

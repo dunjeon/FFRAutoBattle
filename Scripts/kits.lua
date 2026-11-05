@@ -97,10 +97,10 @@ end
 -- ctx: allies, selfId, on (the stance is up on the actor), hard, recoverAt,
 -- spellHeal (a living ally can pay a white-magic heal), round, endedRound,
 -- mp, keep, pay.
--- Up: a hard field, the actor at 75% or more, and two rounds since it came
--- off. Down: the actor under the recover line and a spell heal is there to
--- use once it is off. With no spell heal, items still reach the actor, so
--- the stance stays up.
+-- Up: a hard field, while the stance is not already on the actor. Down: a hit
+-- this fight has already shown would kill the actor, and a spell heal is
+-- there to use once it is off. With no spell heal, items still reach the
+-- actor, so the stance stays up. The status, not a round count, is the timer.
 function M.pickStance(skills, ctx)
     if (not skills) or (not ctx) then return nil end
     local selfBody = nil
@@ -115,19 +115,17 @@ function M.pickStance(skills, ctx)
         local offRow = STANCE_OFF[k] and STANCE[STANCE_OFF[k]]
         local on = ctx.on and ctx.on[STANCE_OFF[k] or k]
         if offRow and on then
-            if (hp < (ctx.recoverAt or 0.50)) and ctx.spellHeal and ((s.cost or 0) <= (ctx.mp or 0)) then
+            if ctx.drop and ctx.spellHeal and ((s.cost or 0) <= (ctx.mp or 0)) then
                 return {
                     skill = s, key = STANCE_OFF[k], off = true, mode = "self",
                     why = string.format("stance off %s at %d%%", s.name or "stance", math.floor(hp * 100 + 0.5)),
                 }
             end
-        elseif row and (not on) and ctx.hard and (hp >= 0.75) then
+        elseif row and (not on) and ctx.hard then
             local cost = s.cost or 0
             local mp = ctx.mp or 0
-            local ended = ctx.endedRound and ctx.endedRound[k]
-            local rested = (type(ended) ~= "number") or (((ctx.round or 0) - ended) >= 2)
             local fits = (cost <= mp) and ((mp - cost) >= (ctx.keep or 0)) and ((cost <= 0) or ctx.pay)
-            if rested and fits then
+            if fits then
                 return { skill = s, key = k, mode = "self", why = "stance " .. (s.name or "stance") }
             end
         end
@@ -143,12 +141,12 @@ end
 
 -- Haste for the actor to cast, or nil.
 -- A slowed ally gets it first, on any field: Haste is the answer to Slow.
--- On a hard field, while the bar is above half, the healer and then the
--- strongest damage dealer get it. A cast is held while its status is on
+-- On a hard field, any ally the buff is not already on gets it after the
+-- slowed allies. A cast is held while its status is on
 -- that ally. With no status id, each ally gets it once a fight. One per
 -- round. A paid one goes while MP is above the low band, and a carried
 -- heal is kept back. Hastega goes when two or more allies want it.
--- ctx: allies, selfId, healerId, dealerId, hard, rich, mp, keep, pay,
+-- ctx: allies, selfId, hard, mp, keep, pay,
 -- claim, sent.
 function M.pickHaste(skills, ctx)
     if (not skills) or (not ctx) then return nil end
@@ -184,9 +182,10 @@ function M.pickHaste(skills, ctx)
         if not a.dead then byId[a.id] = a end
         if (not a.dead) and a.statuses and a.statuses[SLOW_ID] then add(a, "slow") end
     end
-    if ctx.hard and ctx.rich then
-        add(byId[ctx.healerId], "healer")
-        add(byId[ctx.dealerId], "dealer")
+    if ctx.hard then
+        for _, a in ipairs(ctx.allies or {}) do
+            add(a, "field")
+        end
     end
     if #want == 0 then return nil end
     if party and ((#want >= 2) or (not single)) then
@@ -217,7 +216,7 @@ function M.pickDraw(skills, ctx)
     local claim = ctx.claim or {}
     local sent = ctx.sent or {}
     if claim.draw then return nil end
-    local line = ctx.recoverAt or 0.50
+    local line = ctx.recoverAt or 0
     local selfBody, healer, others, lowest = nil, nil, 0, nil
     local party = 0
     for _, a in ipairs(ctx.allies or {}) do
@@ -352,7 +351,8 @@ function M.pick(skills, ctx)
     local function timed(key, turns)
         local at = sent[key]
         if type(at) ~= "number" then return false end
-        local span = (turns or 3) * party
+        if turns == nil or turns < 1 then return true end
+        local span = turns * party
         local now = ctx.actions or 0
         return (now - at) < span
     end
@@ -448,9 +448,12 @@ function M.pick(skills, ctx)
         return false
     end
 
-    local function better(rank, best)
-        if not best then return true end
-        return rank < best
+    -- A lower listed rank wins. With no rank on the row, the first skill that
+    -- fits stays. A missing rank does not jump the line.
+    local function better(rank, bestRank, have)
+        if not have then return true end
+        if (rank == nil) or (bestRank == nil) then return false end
+        return rank < bestRank
     end
 
     -- A ready that sets up a formation is spent only when the formation it
@@ -481,7 +484,7 @@ function M.pick(skills, ctx)
             if row and (row.kind == "ready") and inTime(row) and allowed(row) and afford(s) and followFits(s, row)
                 and (not claim[key]) and (not groupUp(row.group))
                 and (not friendUp(s, key, row.turns, row.party))
-                and better(row.rank, bestRank) then
+                and better(row.rank, bestRank, best) then
                 best, bestRank = s, row.rank
             end
         end
@@ -495,16 +498,16 @@ function M.pick(skills, ctx)
     end
 
     local function takeFormation()
-        local best, bestRank = nil, nil
+        local defense, offense = nil, nil
         for _, s in ipairs(skills) do
             local row = rowOf(s)
             local key = fold(s.name)
             if row and (row.kind == "formation") and inTime(row) and afford(s) and (not claim[key])
-                and (not friendUp(s, key, row.turns, true))
-                and better(row.rank, bestRank) then
-                best, bestRank = s, row.rank
+                and (not friendUp(s, key, row.turns, true)) then
+                if row.defense or row.afterHit then defense = defense or s else offense = offense or s end
             end
         end
+        local best = (ctx.warned and defense) or offense or defense
         if not best then return nil end
         return {
             skill = best, key = fold(best.name), mode = "party",
@@ -526,7 +529,7 @@ function M.pick(skills, ctx)
         local best, bestRank, foe = nil, nil, nil
         for _, s in ipairs(skills) do
             local row = rowOf(s)
-            if row and (row.kind == "mark") and inTime(row) and afford(s) and better(row.rank, bestRank) then
+            if row and (row.kind == "mark") and inTime(row) and afford(s) and better(row.rank, bestRank, best) then
                 local hit = bestFoe(function(u)
                     if row.weakMagic and (not u.magicWeak) then return false end
                     local key = fold(s.name) .. ":" .. tostring(u.id)

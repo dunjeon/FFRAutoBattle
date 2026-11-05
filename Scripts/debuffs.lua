@@ -38,19 +38,27 @@ local FALLBACK = {
 local HELPS = { deprotect = "physical", deshell = "magic" }
 -- Which of a foe's damage each offense debuff cuts.
 local CUTS = { debrave = "physical", defaith = "magic" }
--- Under this share of the damage it would touch, a debuff isn't worth a turn.
-local WORTH = 0.2
 
--- A debuff's rank. A defense debuff follows what this party really deals: the
--- larger share goes first, still ahead of the others. share: { physical, magic }.
-local function rankOf(effect, share)
-    local base = effect and RANK[effect]
-    if not base then return 0 end
-    local helps = share and HELPS[effect]
-    if not helps then return base end
-    local part = share[helps] or 0
-    if part < WORTH then return 0 end
-    return 40 + (part * 20)
+-- How much of the matching damage this debuff touches. 0 means it does not fit.
+-- A measured share sorts above one we have not measured yet. With no
+-- measurement, it stays available and the first such skill wins.
+local function rankOf(effect, share, foe)
+    if not (effect and RANK[effect]) then return 0 end
+    local function measured(part)
+        if part <= 0 then return 0 end
+        return 1 + part
+    end
+    local helps = HELPS[effect]
+    if helps then
+        if not share then return 1 end
+        return measured(share[helps] or 0)
+    end
+    local cuts = CUTS[effect]
+    if cuts then
+        if not (foe and foe.deals) then return 1 end
+        return measured(foe.deals[cuts] or 0)
+    end
+    return 1
 end
 
 local M = {}
@@ -122,8 +130,6 @@ function M.up(effect, foe, on, seen, skill)
 end
 
 local function classOk(effect, foe, fallback)
-    local cuts = CUTS[effect]
-    if cuts and foe.deals and ((foe.deals[cuts] or 0) < WORTH) then return false end
     if RANK[effect] then
         if (effect == "silence") or (effect == "blind") then
             return foe.counter == "magic"
@@ -164,10 +170,11 @@ function M.choose(skills, foes, on, seen, fallback, share)
     local bestS, bestF, bestRank = nil, nil, 0
     for _, skill in ipairs(skills or {}) do
         local effect = M.effectOf(skill)
-        local rank = rankOf(effect, share)
-        if (rank == 0) and fallback and effect and FALLBACK[effect] then rank = 1 end
-        if rank > 0 then
-            for _, foe in ipairs(foes or {}) do
+        local listed = effect and RANK[effect]
+        for _, foe in ipairs(foes or {}) do
+            local rank = listed and rankOf(effect, share, foe) or 0
+            if (rank == 0) and fallback and effect and FALLBACK[effect] then rank = 1 end
+            if rank > 0 then
                 if openFoe(foe) and classOk(effect, foe, fallback) and (not immune(effect, foe))
                     and (not M.up(effect, foe, on, seen, skill)) then
                     if better(rank, foe, bestRank, bestF) then
@@ -192,7 +199,7 @@ function M.immuneEffect(skills, foes, fallback, share)
     local found = nil
     for _, skill in ipairs(skills or {}) do
         local effect = M.effectOf(skill)
-        local rank = rankOf(effect, share)
+        local rank = rankOf(effect, share, nil)
         local fb = (rank == 0) and fallback and effect and FALLBACK[effect]
         if (rank > 0) or fb then
             local anyFit, anyImmune = false, false

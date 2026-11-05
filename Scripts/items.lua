@@ -2,12 +2,12 @@
 -- reads the bag and sends the command. This file does not name a fight, a
 -- character, or a Vision, and it does not touch the battle libraries.
 --
--- Common shop items only, outside a boss fight. In a boss fight a rare item
--- is spent when no common item does the job, the cheapest rank first: a
--- raise at once, a heal or MP item only under dire need. Scrolls and knives
--- are thrown in a boss fight on a weakness the bar cannot pay, or when
--- nothing payable lands. Tents and Healing Spring stay put. A fight where no
--- foe can hurt the party spends nothing.
+-- Common items first. A rare item, from the item row's own flag, is spent
+-- when no common item does the job and the need is real: someone down,
+-- someone a hit already seen would kill, or MP short of a skill the field
+-- needs. Scrolls and knives are thrown when nothing the bar can pay will
+-- land. Tents and Healing Spring stay put. A fight where no foe can hurt
+-- the party spends nothing.
 
 local BOOK = { items = {}, leave = {}, attack = {} }
 -- Status ids, the same as health.lua.
@@ -105,14 +105,14 @@ function M.bagLine(out, answered)
     return "bag: " .. table.concat(bits, ", ")
 end
 
--- Common, rare, and thrown rows. Rare and thrown rows are the boss fight's.
-local function pools(owned, boss)
+-- Common, rare, and thrown rows. Rare is the item row's flag, in any fight.
+local function pools(owned)
     local items, rares, throws = {}, {}, {}
     for _, it in ipairs(owned or {}) do
         if it.attack then
-            if boss then throws[#throws + 1] = it end
+            throws[#throws + 1] = it
         elseif it.rare then
-            if boss then rares[#rares + 1] = it end
+            rares[#rares + 1] = it
         else
             items[#items + 1] = it
         end
@@ -190,17 +190,16 @@ function M.holdDoomCure(name, count, target, allies, healerOf)
     return false
 end
 
--- The item to spend, or nil. The second return is true when it is a rare
--- row spent in a boss fight.
--- want "revive": ctx.boss.
--- want "heal": ctx.boss, ctx.missing (HP the ally is short), ctx.dire,
+-- The item to spend, or nil. The second return is true when it is a rare row.
+-- want "revive".
+-- want "heal": ctx.missing (HP the ally is short), ctx.dire,
 -- ctx.spread (most of the living party is under half: a party item is a
 -- group heal and beats every single heal), ctx.partyOnly (a party item or
 -- nothing). Without the spread, a single item goes first.
--- want "mp": ctx.boss, ctx.dire.
+-- want "mp": ctx.dire.
 function M.recovery(owned, want, ctx)
     ctx = ctx or {}
-    local items, rares = pools(owned, ctx.boss)
+    local items, rares = pools(owned)
     local it, fromRare = nil, false
     if want == "revive" then
         local function raise(row) return row.kind == "revive" end
@@ -250,7 +249,7 @@ end
 -- ctx: soft (the self-care line), allies, healerOf.
 function M.cure(owned, who, ctx)
     ctx = ctx or {}
-    local items = pools(owned, false)
+    local items = pools(owned)
     local saw = false
     local it = firstOf(items, function(row)
         if row.kind ~= "cure" then return false end
@@ -261,12 +260,12 @@ function M.cure(owned, who, ctx)
     return it, saw
 end
 
--- A thrown item in a boss fight, the enemy, and the factor it lands at.
+-- A thrown item, the enemy, and the factor it lands at.
 -- list is the pool. factorOf(fake, enemy) is the planner's element factor.
 -- A weakness is the call; with landing, any item that lands will do.
 function M.throw(owned, ctx)
     ctx = ctx or {}
-    local _, _, throws = pools(owned, ctx.boss)
+    local _, _, throws = pools(owned)
     local best, bestF, bestU = nil, 0, nil
     for _, it in ipairs(throws) do
         local fake = { name = it.name, known = it.attack, attr = ctx.itemAttr }

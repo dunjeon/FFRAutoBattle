@@ -42,12 +42,14 @@ check(M.pickKill({}, 500) == nil, "nothing to hit with")
 local cheap, dear = { real = 700, cost = 0 }, { real = 2000, cost = 15 }
 check(M.pickKill({ dear, cheap }, 500) == cheap, "the cheapest hit with room to spare")
 local thin, wide = { real = 460, cost = 0 }, { real = 600, cost = 15 }
-check(M.pickKill({ thin, wide }, 432) == wide, "room to spare beats a close call")
-check(M.pickKill({ thin }, 432) == thin, "a close call is still taken when it's all there is")
+check(M.pickKill({ thin, wide }, 432) == thin, "the cheapest hit that meets the remaining HP")
+check(M.pickKill({ thin }, 432) == thin, "a hit that meets the remaining HP is taken")
 local crit = { [1] = { fullTo = { [7] = 540 } }, [3] = { fullTo = { [7] = 2000 } }, [5] = { fullTo = { [7] = 600 } } }
 rows[3].dmgType, rows[5] = 2, { power = 30, dmgType = 2 }
 check(math.abs(M.warnedCast(crit, { 2 }, rowOf, 7) - (20 * 99)) < 0.01, "one outsized hit doesn't set the estimate")
 check(M.damageFit(3) == 1.5 and M.damageFit(1) == 1 and M.damageFit(0.5) == 0.5, "weakness is smaller on damage than on stagger")
+check(M.hitFactor(1, nil, false) == 1.5 and M.hitFactor(2, nil, false) == 0.5 and M.hitFactor(3, nil, false) == 0, "with no multiplier, resistance is the factor")
+check(M.hitFactor(1, 2.25, true) == 1.5, "a hit's own multiplier gives the break factor back")
 
 -- Misses, in numbers from a real fight: lands for 544, 50% accuracy, 6 of 15 missed.
 local m = M.new()
@@ -56,8 +58,8 @@ check(M.landRate(m, 1, 5, 100) == 1 and M.landRate(m, 1, 5, 500) == 1 and M.land
 M.add(m, 1, 5, 9, 544, nil, false)
 for i = 1, 15 do M.noteCast(m, 1, 5, i > 6) end
 local rate = M.landRate(m, 1, 5, 50)
-check(math.abs(rate - (10 / 17)) < 0.001, "real casts outweigh the row's number")
-check(math.abs(M.expect(m, 1, 5, 9, nil, 50) - (544 * 10 / 17)) < 0.01, "expected damage counts the misses")
+check(math.abs(rate - (9 / 15)) < 0.001, "after a cast, this fight's lands are the rate")
+check(math.abs(M.expect(m, 1, 5, 9, nil, 50) - (544 * 9 / 15)) < 0.01, "expected damage counts the misses")
 M.add(m, 1, 6, 9, 460, nil, false)
 M.noteCast(m, 1, 6, true)
 check(M.expect(m, 1, 6, 9, nil, 100) > M.expect(m, 1, 5, 9, nil, 50), "a sure 460 beats a coin-flip 544")

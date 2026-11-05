@@ -89,15 +89,22 @@ do
     end
 end
 local function knownOf(skill)
-    local map = Known.skills
-    if not map or not skill or not skill.name then return nil end
-    local key = skill.name:lower()
-    key = key:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
-    -- Rows can share a name and differ. This skill's own row comes first. The name
-    -- check keeps an item's id from reading a skill row with the same number.
+    if not skill then return nil end
+    local key = nil
+    if skill.name then
+        key = skill.name:lower()
+        key = key:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
+    end
+    -- The skill id is the row. A name is only the join when the live command
+    -- has no id. An id that belongs to a different name is a collision, not a
+    -- match, so it does not fall through to another skill with the same words.
     local own = Known.skillsById and skill.id and Known.skillsById[skill.id]
-    if own and (own.name == key) then return own.fact end
-    return map[key]
+    if own then
+        if (not key) or (own.name == key) then return own.fact end
+        return nil
+    end
+    if not key or not Known.skills then return nil end
+    return Known.skills[key]
 end
 local Mobs = {}
 local Health = {}
@@ -548,15 +555,9 @@ local function buildSkillIndex()
     local n = 0
     for _ in pairs(skills) do n = n + 1 end
     if n > 0 then
-        -- A spell's multicast is its own row, which lists the single-target numbers
-        -- and a flag that a reduction applies. The row carries what it really does.
-        local share = Known.measure and Known.measure.MULTI_SHARE or 0.4
-        for _, row in pairs(skills) do
-            if row.appliesAll then
-                row.power = (row.power or 0) * share
-                row.breakPower = (row.breakPower or 0) * share
-            end
-        end
+        -- Multicast is the game's All cast: isApplyAllMag on its own row, linked
+        -- by skillIdAfterModeChange. The row's magnification is what that cast
+        -- does. Do not scale it by a share measured in one fight.
         for id, row in pairs(skills) do
             local twin = row.modeTwin and skills[row.modeTwin]
             if twin and twin.appliesAll and (not row.appliesAll) then
@@ -1174,27 +1175,14 @@ local function elementFactor(skill, enemy)
     return factor
 end
 
-local function counterScale(skill, enemy)
-    local ok, scale = pcall(function()
-        local card = mobOf(enemy)
-        if not card or not card.counter then return 1 end
-        local info = skill and (skill.known or knownOf(skill))
-        local phys = skill.attr == ATTR.FIGHT or (info and info.phys)
-        local magic = skill.attr == ATTR.MAGIC or (info and info.magic)
-        local countered = false
-        if card.counter == "physical" then countered = phys and not magic end
-        if card.counter == "magic" then countered = magic and not phys end
-        if card.counter == "hit" then countered = phys or magic end
-        if not countered then return 1 end
-        if elementFactor(skill, enemy) >= 3 then return 0.85 end
-        return 0.2
-    end)
-    if not ok or type(scale) ~= "number" then return 1 end
-    return scale
+-- A counter is the enemy's own skill. This fight has not measured a reduction
+-- to apply to our stagger, so the row's break stands.
+local function counterScale()
+    return 1
 end
 
--- A friend, a nameless slot, or a body with no HP is not a foe.
--- The enemy-target list has included the actor.
+-- A friend id, an ally id, or a body with no HP is not a foe.
+-- The enemy-target list has included the actor. A shared name does not.
 local function keepFoe(id)
     if not id or not Fight then return false end
     local function drop()
@@ -1207,28 +1195,12 @@ local function keepFoe(id)
     if Fight.seenAlly and Fight.seenAlly[id] then return drop() end
     local p = paramOf(id)
     if not p then return drop() end
-    local ok, n = pcall(function() return p:GetDuplicationUnitName() end)
-    local s = ok and textOf(n) or nil
-    if not s or s == "" then return drop() end
-    if Fight.seenAlly then
-        local folded = foldName(s)
-        for _, name in pairs(Fight.seenAlly) do
-            if foldName(name) == folded then return drop() end
-        end
-    end
     local r = hpRatio(id)
     if r == nil or r <= 0 then return drop() end
     return true
 end
-local function monoScale(skill, enemy)
-    if not Fight or not Fight.elemRun or not enemy then return 1 end
-    local card = mobOf(enemy)
-    if not card or not card.mono then return 1 end
-    local info = skill and (skill.known or knownOf(skill))
-    local el = info and info.element
-    if not el then return 1 end
-    local run = Fight.elemRun[enemy.id]
-    if run and run.el == el and run.n >= 2 then return 0.05 end
+-- No row field says a repeated element shrinks. The break on the skill stands.
+local function monoScale()
     return 1
 end
 
@@ -1473,10 +1445,9 @@ unitKit = function(uid)
                 kit.spells[#kit.spells + 1] = copy
                 local info = copy.known
                 local score = 0
-                if info and info.patch then score = 1
-                elseif copy.kind == "heal" or (info and info.use == "heal") then score = 50 + (copy.power or 0) end
+                if copy.kind == "heal" or (info and info.use == "heal") then score = 1 + (copy.power or 0) end
                 if score > kit.healScore then kit.healScore = score end
-                if copy.kind == "heal" and score >= 50 and (copy.cost or 0) > 0 then
+                if copy.kind == "heal" and score > 0 and (copy.cost or 0) > 0 then
                     if cureCost == 0 or copy.cost < cureCost then cureCost = copy.cost end
                 end
                 if copy.kind == "revive" and (copy.cost or 0) > 0 then
@@ -1628,17 +1599,41 @@ end
 local itemsLogged = false
 local potLogged = false
 
--- A boss, or a foe with moves the game itself lists as dangerous. Spending for
--- need and setup go by this, so a hard fight is treated as hard whatever it's called.
-local function hardFight(w)
-    if w.hard == nil then
-        w.hard = w.boss and true or false
-        for _, u in ipairs(w.enemies or {}) do
-            local card = mobOf(u)
-            if card and card.danger and card.danger[1] then w.hard = true end
+-- True when a hit already recorded this fight would drop this ally.
+local function allyExposed(a)
+    if not a or a.dead or not Fight then return false end
+    local hp = stat(a.id, PARAM.HP, false)
+    if not hp or hp <= 0 then return false end
+    local worst = 0
+    for _, foe in pairs(Fight.hitSeen or {}) do
+        for _, sk in pairs(foe) do
+            local n = sk.fullTo and sk.fullTo[a.id]
+            if n and n > worst then worst = n end
         end
     end
-    return w.hard
+    return worst > 0 and hp <= worst
+end
+
+local function markExposed(w)
+    for _, a in ipairs((w and w.allies) or {}) do
+        a.exposed = allyExposed(a) or nil
+    end
+end
+
+-- A foe with a move the game lists as dangerous, or a hit this fight has
+-- shown would kill an ally. IsBoss is a field the game stores. It is not
+-- this.
+local function hardFight(w)
+    local hard = false
+    for _, u in ipairs(w.enemies or {}) do
+        local card = mobOf(u)
+        if card and card.danger and card.danger[1] then hard = true end
+    end
+    for _, a in ipairs(w.allies or {}) do
+        if a.exposed then hard = true end
+    end
+    w.hard = hard
+    return hard
 end
 
 -- Every foe here has only moves that can't hurt anyone, so nothing is worth an item.
@@ -1774,10 +1769,11 @@ local function pickRecoveryItem(uid, w, want, focus)
     if potFight(w) then return nil end
     if not Items.recovery then return nil end
     local owned = ownedRecovery()
+    markExposed(w)
     hardFight(w)
     local dire = (Health.direNeed and Health.direNeed(w)) and true or false
     local function tagged(choice, rare)
-        if choice and rare then choice.reason = choice.reason .. " (rare, boss)" end
+        if choice and rare then choice.reason = choice.reason .. " (rare)" end
         return choice
     end
     if want == "revive" then
@@ -1803,7 +1799,7 @@ local function pickRecoveryItem(uid, w, want, focus)
         for _, a in ipairs(w.allies) do
             if not a.dead then
                 living[#living + 1] = a.id
-                if (a.hp or 1) < 0.50 then hurtN = hurtN + 1 end
+                if a.exposed then hurtN = hurtN + 1 end
             end
         end
         local need = Health.partyNeed and Health.partyNeed(#living) or 3
@@ -2338,12 +2334,14 @@ local function pickFinish(uid, finishes, w)
         if s.attr == ATTR.FINISH then list[#list + 1] = s end
     end
     if #list == 0 then return nil end
-    local hurt, wounded = nil, 0
+    local hurt, care = nil, false
     for _, u in ipairs(w.allies or {}) do
-        if not u.dead then
-            if not hurt or (u.hp or 1) < (hurt.hp or 1) then hurt = u end
-            if (u.hp or 1) < 0.40 then wounded = wounded + 1 end
+        if u.dead then
+            care = true
+        elseif not hurt or (u.hp or 1) < (hurt.hp or 1) then
+            hurt = u
         end
+        if allyExposed(u) then care = true end
     end
     local function emit(skill, reason, targets, isAll, score)
         local choice = finishChoice(uid, skill, reason, targets, isAll)
@@ -2368,12 +2366,13 @@ local function pickFinish(uid, finishes, w)
         local okR, r = pcall(rowScore, s)
         s.wheelScore = okR and r or nil
     end
-    if hurt and ((hurt.hp or 1) < 0.40 or wounded >= 2) then
+    if care then
         for _, s in ipairs(list) do
             local heal = s.kind == "heal" or s.kind == "revive" or (s.known and s.known.use == "heal")
             if heal then
-                local targets = partyOf(s) and idsOf(w.allies) or { hurt.id }
-                local choice = emit(s, "resonance heal " .. hurt.name, targets, partyOf(s), 100000)
+                local who = hurt or (w.allies and w.allies[1])
+                local targets = partyOf(s) and idsOf(w.allies) or { who and who.id or uid }
+                local choice = emit(s, "resonance heal " .. ((who and who.name) or "ally"), targets, partyOf(s), 1)
                 if choice then return choice end
             end
         end
@@ -2919,10 +2918,12 @@ local function turn(uid, skills, w, phase)
     end
 
     local function allyCritical()
-        local who = nil
+        markExposed(w)
+        local who, whoHp = nil, nil
         for _, a in ipairs(w.allies) do
-            if not a.dead and (a.hp or 1) < 0.30 and not Fight.claim.heal[a.id] then
-                if not who or (a.hp or 1) < (who.hp or 1) then who = a end
+            if a.exposed and not Fight.claim.heal[a.id] then
+                local hp = stat(a.id, PARAM.HP, false) or 0
+                if (not who) or (hp < whoHp) then who, whoHp = a, hp end
             end
         end
         return who
@@ -2968,25 +2969,13 @@ local function turn(uid, skills, w, phase)
 
     local hardField = false
     local function styleOf()
-        local healers = 0
+        markExposed(w)
         hardField = hardFight(w)
-        for _, a in ipairs(w.allies) do
-            if not a.dead and a.acts ~= false and not heldOut(a) then
-                local kit = unitKit(a.id)
-                if kit and (kit.healScore or 0) >= 50 then
-                    local mp = stat(a.id, PARAM.MP, false) or 0
-                    local cost = kit.healCost or 0
-                    if cost <= 0 or mp >= cost then healers = healers + 1 end
-                end
-            end
-        end
-        if hardField and healers == 0 then return "defensive" end
-        -- Past a boss, setup has to wait for a fight that's lasting. Most are
-        -- over before it pays back.
-        if hardField and (not w.boss) and ((Fight.rounds or 0) < 3) and (healers > 0) then return "aggressive" end
+        -- Setup when the field has a danger move or a hit that would kill.
+        -- Otherwise hit. Healer count, the boss flag, and the round do not
+        -- choose this.
         if hardField then return "balanced" end
-        if healers > 0 then return "aggressive" end
-        return "balanced"
+        return "aggressive"
     end
     local style = styleOf()
     Fight.threat = hardField
@@ -3011,17 +3000,6 @@ local function turn(uid, skills, w, phase)
         return "sync", list, large[1] or list[1]
     end
     local mode, pool, bossU = modeOf(open)
-    if style == "defensive" and allyCritical() and bossU then
-        local card = mobOf(bossU)
-        if card and card.danger and card.danger[1] then
-            local _, remain, _, _ = gaugeOfEnemy(bossU)
-            local gauge = gaugeOfEnemy(bossU)
-            if remain < gauge * 0.40 then
-                pool = { bossU }
-                mode = "sync"
-            end
-        end
-    end
     -- A gauge the party can empty within this round: setup waits and everyone
     -- hits. Asked once a turn, only by the setup that can wait.
     local breakCloseAnswer = nil
@@ -3073,7 +3051,7 @@ local function turn(uid, skills, w, phase)
     Fight.stance = Fight.stance or {}
     for _, a in ipairs(w.allies) do
         -- A party item's claim does not cover an ally it left under 30%.
-        if (not a.dead) and ((a.hp or 1) < 0.30) and Fight.claim.itemHeal and Fight.claim.itemHeal[a.id] then
+        if (not a.dead) and a.exposed and Fight.claim.itemHeal and Fight.claim.itemHeal[a.id] then
             Fight.claim.heal[a.id] = nil
             Fight.claim.itemHeal[a.id] = nil
             appendLog(string.format("  %s still critical after a party item, claim released", tostring(a.name)))
@@ -3099,12 +3077,8 @@ local function turn(uid, skills, w, phase)
             Fight.claim.revive[dead.id] = nil
         end
     end
-    -- The living come first. A raise waits while a living ally is critical
-    -- and not yet healed this round, unless the fallen ally is the party's
-    -- best healer. An ally who fell again within two rounds of a raise is
-    -- not raised again for three rounds, or sooner once no living ally is
-    -- under half. That guard holds for the best healer too. The Timeline is not
-    -- readable, so these are the signs that the next hit would drop them.
+    -- A fallen ally is raised once nobody living would die to a hit this
+    -- fight has already shown. A raise is not held for a round count.
     Fight.refell = Fight.refell or {}
     Fight.raisedRound = Fight.raisedRound or {}
     for _, a in ipairs(w.allies) do
@@ -3114,89 +3088,7 @@ local function turn(uid, skills, w, phase)
             Fight.raisedRound[a.id] = nil
         end
     end
-    local raiseHold = nil
-    -- A party raise Limit brings every fallen ally back with their HP, so
-    -- neither hold applies: it goes out at once when two or more are down.
-    local partyRaise = false
-    if dead and (#(Fight.downNow or {}) >= 2) then
-        for _, s in ipairs(skills) do
-            if (s.kind == "revive") and s.known and (s.known.use == "lb-revive") and s.known.party and pay(s) then
-                partyRaise = true
-            end
-        end
-    end
-    if dead and not Fight.claim.revive[dead.id] and not partyRaise then
-        -- How well a kit does the healing job: the heal score, then a raise
-        -- spell, then the number of real heals.
-        local function healWorth(kit)
-            if (not kit) or ((kit.healScore or 0) < 50) then return 0 end
-            local raise, heals = 0, 0
-            for _, s in ipairs(kit.spells or {}) do
-                if s.kind == "revive" then raise = 1 end
-                if (s.kind == "heal") and not (s.known and s.known.patch) then heals = heals + 1 end
-            end
-            return (kit.healScore or 0) * 100 + raise * 10 + heals
-        end
-        local critical, underHalf, bestLiving = false, false, 0
-        for _, a in ipairs(w.allies) do
-            if not a.dead then
-                -- A critical ally this turn can still help: not yet healed this round.
-                -- Healed since the last hit: the mark holds while HP has not
-                -- dropped below the highest HP seen since the heal. Any drop
-                -- is a hit, the same as the sim, which clears it on damage.
-                local mark = Fight.healMark and Fight.healMark[a.id]
-                local handled = false
-                if mark then
-                    local hpAbs = stat(a.id, PARAM.HP, false)
-                    if hpAbs and hpAbs < mark then
-                        Fight.healMark[a.id] = nil
-                    elseif hpAbs then
-                        Fight.healMark[a.id] = hpAbs
-                        handled = true
-                    end
-                end
-                if ((a.hp or 1) < 0.30) and (not handled) then critical = true end
-                if (a.hp or 1) < 0.50 then underHalf = true end
-                if (a.acts ~= false) and (not heldOut(a)) then
-                    local worth = healWorth(unitKit(a.id))
-                    if worth > bestLiving then bestLiving = worth end
-                end
-            end
-        end
-        -- The party's best healer is raised at once: they keep the rest up.
-        -- The party's best healer skips the wait on a critical ally. The
-        -- cycle guard holds for everyone: a raise that fell straight back
-        -- is not repeated into the same hits.
-        local bestHealer = healWorth(unitKit(dead.id)) > bestLiving
-        -- The guard lasts three rounds from the fall, so no ally is left down for the whole fight.
-        local fellAt = Fight.refell[dead.id]
-        local cycling = (type(fellAt) == "number") and (((Fight.rounds or 0) - fellAt) < 3)
-        if cycling and underHalf then
-            raiseHold = dead.name .. " fell again after a raise"
-        elseif critical and (not bestHealer) then
-            raiseHold = "a living ally is critical"
-        end
-        if raiseHold then
-            Fight.healLeft = Fight.healLeft or {}
-            local key = "hold" .. tostring(dead.id)
-            if not Fight.healLeft[key] then
-                Fight.healLeft[key] = true
-                local line = string.format("raise %s waits, %s", dead.name, raiseHold)
-                log("%s", line)
-                appendLog("  " .. line)
-            end
-        end
-    end
-    if dead and not Fight.claim.revive[dead.id] and not raiseHold then
-        local oneLeft, calm = #w.enemies == 1, true
-        for _, u in ipairs(w.enemies) do
-            local card = mobOf(u)
-            if card and card.danger and card.danger[1] then calm = false end
-            local _, remain, empty, _ = gaugeOfEnemy(u)
-            local gauge = gaugeOfEnemy(u)
-            if not empty and remain > gauge * 0.25 then calm = false end
-        end
-        if ((Fight.rounds or 0) == 0) or not (oneLeft and calm) then
+    if dead and not Fight.claim.revive[dead.id] and not allyCritical() then
             local function raiseFallen(allowOne)
                 local downN = #Fight.downNow
                 if (downN < 1) and dead then downN = 1 end
@@ -3257,7 +3149,6 @@ local function turn(uid, skills, w, phase)
                 choice = raiseFallen(true)
                 if choice then return choice end
             end
-        end
     end
 
     -- Largest HP one living foe's cast has taken off one ally. A guard
@@ -3483,8 +3374,7 @@ local function turn(uid, skills, w, phase)
             local item = pickRecoveryItem(uid, w, "heal", { partyOnly = true })
             if item then return stamp(item) end
         end
-        local itemLine = itemAt or 0.45
-        if (not skill) and ((hurt.hp or 1) < itemLine) then
+        if not skill then
             local item = pickRecoveryItem(uid, w, "heal", { who = hurt })
             if item then return stamp(item) end
         end
@@ -3554,7 +3444,7 @@ local function turn(uid, skills, w, phase)
                 local kit = unitKit(a.id)
                 local mp = mpOf(a.id)
                 if kit and pays(kit.spells or {}, mp) then otherPays = true end
-                if kit and ((kit.healScore or 0) >= 50) then
+                if kit and ((kit.healScore or 0) > 0) then
                     if Health.available then
                         if Health.available(a, a.statuses, unitKit, mpOf) then otherHeals = true end
                     elseif ((kit.healCost or 0) <= 0) or (mp >= (kit.healCost or 0)) then
@@ -3817,41 +3707,12 @@ local function turn(uid, skills, w, phase)
     local warnedChoice = warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
     if warnedChoice then return warnedChoice end
 
-    local recoverAt, smallDanger = 0.50, false
-    if Health.recoverAt then
-        local rows = {}
-        for _, u in ipairs(w.enemies) do
-            local card = mobOf(u)
-            local _, _, empty = gaugeOfEnemy(u)
-            rows[#rows + 1] = {
-                danger = (card and card.danger and card.danger[1]) and true or false,
-                empty = empty and true or false,
-                broken = u.broken and true or false,
-                gauge = card and tonumber(card.gauge) or 0,
-            }
-        end
-        recoverAt, smallDanger = Health.recoverAt(w.boss and true or false, rows)
-    else
-        for _, u in ipairs(w.enemies) do
-            local card = mobOf(u)
-            if card and card.danger and card.danger[1] then
-                local _, _, empty = gaugeOfEnemy(u)
-                if not empty and not u.broken then recoverAt = 0.65 end
-            end
-        end
-    end
-    if (not Fight.recoverTold) and ((recoverAt > 0.50) or smallDanger) then
-        Fight.recoverTold = true
-        if recoverAt > 0.50 then
-            log("recover line 65%")
-        else
-            log("recover line 50%, danger gauge is small")
-        end
-    end
+    markExposed(w)
+    local recoverAt = 0
     local function underMark()
         local n, who = 0, nil
         for _, a in ipairs(w.allies) do
-            if not a.dead and (a.hp or 1) < recoverAt then
+            if a.exposed then
                 Fight.underLine = true
                 if (a.acts ~= false) and (not Fight.claim.heal[a.id]) then
                     n = n + 1
@@ -3878,7 +3739,7 @@ local function turn(uid, skills, w, phase)
     local function esperStill()
         local mark = Fight.esperOut
         if not mark or not Espers.stillOut then return false end
-        local up = Espers.stillOut(mark.at or 0, #(Fight.actions or {}), mark.turns or 3, esperParty())
+        local up = Espers.stillOut(mark.at or 0, #(Fight.actions or {}), mark.turns, esperParty())
         if (not up) and (not mark.told) then
             mark.told = true
             local line = "esper " .. (mark.name or "summon") .. " finished"
@@ -3922,7 +3783,7 @@ local function turn(uid, skills, w, phase)
         -- An Esper is the caster's best damage for its MP. It waits only if the
         -- MP wouldn't cover two more heals afterward, not for a share of the bar.
         local healKit = unitKit(uid)
-        local healCost = (healKit and ((healKit.healScore or 0) >= 50) and healKit.healCost) or 0
+        local healCost = (healKit and ((healKit.healScore or 0) > 0) and healKit.healCost) or 0
         local function canSpare(s)
             return ((w.mp or 0) - (s.cost or 0)) >= (healCost * 2)
         end
@@ -3940,7 +3801,7 @@ local function turn(uid, skills, w, phase)
         for _, s in ipairs(skills) do
             if (s.attr == ATTR.SUMMON) and pay(s) and (useOf(s) ~= "skip") then
                 local fact = (Espers.lookup and Espers.lookup(s.name)) or nil
-                if not fact then fact = { turns = 3, role = "damage", use = "summon" } end
+                if not fact then fact = { role = "damage", use = "summon" } end
                 local scored, blocked = {}, false
                 for _, h in ipairs(hits) do
                     local factor = elementFactor({ known = fact, name = s.name }, h.foe)
@@ -3962,7 +3823,7 @@ local function turn(uid, skills, w, phase)
                 if care then
                     local kit = unitKit(uid)
                     local need = 0
-                    if kit and (kit.healScore >= 50) then need = kit.healCost or 0 end
+                    if kit and ((kit.healScore or 0) > 0) then need = kit.healCost or 0 end
                     if (need > 0) and (((w.mp or 0) - (s.cost or 0)) < need) then care = false end
                 end
                 if care and (mode == "setup") then
@@ -4007,7 +3868,7 @@ local function turn(uid, skills, w, phase)
         end
         local choice = finishChoice(uid, s, why, spread and idsOf(list) or { foe.id }, spread)
         if choice then
-            choice.esperTurns = fact.turns or 3
+            choice.esperTurns = fact.turns
             Fight.claim.esper = true
         end
         return choice
@@ -4026,9 +3887,8 @@ local function turn(uid, skills, w, phase)
     end
     Fight.underLine = false
     local halfN, halfWho = underMark()
-    local opening = (Fight.rounds or 0) == 0
-    local recoverGate = opening or (recoverAt > 0.50) or ((band() == "high")
-        and (Fight.afterBonus or ((style == "defensive") and (halfN >= 2))))
+    local opening = false
+    local recoverGate = halfWho and true or false
     -- An Esper on a weakness can out-damage the whole party, so it goes ahead of a
     -- heal nobody will die without. Raises and critical heals have already had
     -- this slot, and the Esper's own check keeps MP for two heals after it.
@@ -4037,8 +3897,7 @@ local function turn(uid, skills, w, phase)
         if choice then return choice end
     end
     if halfWho and phase ~= PHASE_BONUS and not deferHeal() and recoverGate then
-        local choice = healNow(halfWho, opening and "opening" or "recover",
-            recoverAt > 0.50 and recoverAt or 0.50)
+        local choice = healNow(halfWho, "recover", 1)
         if choice then return choice end
     end
     local softer = curePass(false)
@@ -4062,10 +3921,10 @@ local function turn(uid, skills, w, phase)
         local picked = Kits.pickStance(skills, {
             allies = w.allies, selfId = uid, on = (Fight.stance or {})[uid],
             hard = hardField and (not allyCritical()) and (not dead),
-            recoverAt = recoverAt, spellHeal = spellHeal,
+            drop = allyExposed({ id = uid, dead = false }), spellHeal = spellHeal,
             round = Fight.rounds or 0, endedRound = Fight.stanceEnded[uid],
             mp = w.mp or 0, pay = (band() ~= "low"),
-            keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
+            keep = (own and ((own.healScore or 0) > 0)) and (own.healCost or 0) or 0,
         })
         if picked then
             local choice = finishChoice(uid, picked.skill, picked.why, { uid }, false)
@@ -4092,17 +3951,17 @@ local function turn(uid, skills, w, phase)
             if (a.id ~= uid) and (not a.dead) and (a.acts ~= false) and (not heldOut(a)) then
                 local kit = unitKit(a.id)
                 local score = (kit and kit.healScore) or 0
-                if (score >= 50) and (score > bestScore) then healer, bestScore = a, score end
+                if (score > 0) and (score > bestScore) then healer, bestScore = a, score end
             end
         end
         local healerId = healer and healer.id or nil
-        if (ownScore >= 50) and (ownScore > bestScore) then healerId = uid end
+        if (ownScore > 0) and (ownScore > bestScore) then healerId = uid end
         Fight.drawSeen = Fight.drawSeen or {}
         local picked = Kits.pickDraw(skills, {
             allies = w.allies, selfId = uid, healerId = healerId, seen = Fight.drawSeen,
             recoverAt = recoverAt, danger = danger,
             mp = w.mp or 0, pay = (band() ~= "low"),
-            keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
+            keep = (own and ((own.healScore or 0) > 0)) and (own.healCost or 0) or 0,
             claim = Fight.claim.kit, sent = Fight.kitOn, actions = #(Fight.actions or {}),
             round = Fight.rounds or 0, drawRound = Fight.drawRound,
         })
@@ -4148,9 +4007,9 @@ local function turn(uid, skills, w, phase)
         local picked = Kits.pickHaste(skills, {
             allies = w.allies, selfId = uid,
             healerId = healer and healer.id or nil, dealerId = dealer and dealer.id or nil,
-            hard = hardField and Fight.chipped and (w.boss or ((Fight.rounds or 0) >= 3)), rich = (band() == "high"),
+            hard = hardField and true or false, rich = true,
             mp = w.mp or 0, pay = (band() ~= "low"),
-            keep = (own and ((own.healScore or 0) >= 50)) and (own.healCost or 0) or 0,
+            keep = (own and ((own.healScore or 0) > 0)) and (own.healCost or 0) or 0,
             claim = Fight.claim.kit, sent = Fight.kitOn,
         })
         if picked then
@@ -4410,18 +4269,16 @@ local function turn(uid, skills, w, phase)
         end
         return false
     end
-    -- In a boss fight, an ally who carries a two-gauge damage Limit that
-    -- lands on the field saves the gauges for it. A one-gauge row from that
-    -- ally waits, unless every living enemy is under a quarter of its HP.
+    -- A smaller Limit waits when a larger damage Limit can still land and a
+    -- gauge is still up. Not a boss flag, and not an HP line.
     local lbSaveMemo = {}
     local function lbSaved(aid, s)
-        if not w.boss then return false end
         if (tonumber(s and s.lbCost) or tonumber(s and s.known and s.known.gauges) or 1) >= 2 then return false end
-        local late = #w.enemies > 0
+        local anyUp = false
         for _, u in ipairs(w.enemies) do
-            if (u.hp or 1) >= 0.25 then late = false end
+            if not u.broken then anyUp = true end
         end
-        if late then return false end
+        if not anyUp then return false end
         if lbSaveMemo[aid] ~= nil then return lbSaveMemo[aid] end
         local saved = false
         for _, id in ipairs(equippedIds(aid)) do
@@ -4492,25 +4349,11 @@ local function turn(uid, skills, w, phase)
     end
     local function castDamage(pool, cashing, why)
         if not pool or #pool == 0 then return nil end
-        local bestS, bestU, bestScore, bestSpread = nil, nil, -1e9, false
-        -- The MP band keeps a free hit in reserve for the weakness. When no
-        -- free hit can land on a body, a paid hit that lands is allowed.
-        local freeLands = {}
-        local function freeOn(u)
-            if freeLands[u.id] == nil then
-                freeLands[u.id] = false
-                for _, x in ipairs(skills) do
-                    if isHit(x, false) and ((x.cost or 0) <= 0) and (elementFactor(x, u) > 0) then
-                        freeLands[u.id] = true
-                    end
-                end
-            end
-            return freeLands[u.id]
-        end
+        local bestS, bestU, bestSpread = nil, nil, false
+        local bestKills, bestDamage, bestStagger = -1, -1, -1
         local function considerSkill(s, targets, spread)
             if not pay(s) then return end
             local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
-            if spendLb and (not hardField) then return end
             if spendLb and lbSaved(uid, s) and (not Fight.limitUrgent) then return end
             -- An area Limit hits every living enemy. A nulled element stays off.
             if spendLb and aoeOf(s) and s.known and s.known.element and (#w.enemies > 0) then
@@ -4530,87 +4373,38 @@ local function turn(uid, skills, w, phase)
                     return
                 end
             end
-            local b = band()
-            local useful, pts, weak, finishes, early = 0, 0, false, false, false
+            local useful, kills, damage, stagger = 0, 0, 0, 0
             for _, u in ipairs(targets) do
-                local gauge, remain, empty = gaugeOfEnemy(u)
+                local _, remain, empty = gaugeOfEnemy(u)
                 local gained, f = staggerOf(s, u)
                 local held = (why == "fill")
                 if f > 0 and (cashing or (((not empty) or held) and (gained > 0))) then
-                    local heavy = false
-                    local pow, br = offenseOf(s)
-                    if br >= 25 then heavy = true end
-                    local allowed = cashing or b == "high" or (s.cost or 0) <= 0 or f >= 3 or heavy
-                    if not cashing and b == "low" then allowed = ((s.cost or 0) <= 0) or (f >= 3) end
-                    if (not allowed) and ((s.cost or 0) > 0) and (not freeOn(u)) then allowed = true end
-                    if allowed then
-                        useful = useful + 1
-                        -- What it really does here, once it's been seen. A hit not
-                        -- yet tried is scaled by what this caster's others did.
-                        local real = nil
-                        if Known.measure and Fight.dealtBook then
-                            real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f), s.accuracy)
-                        end
-                        if cashing then pts = pts + (real or ((pow or 0) * ((Known.measure and Known.measure.damageFit(f)) or f)))
-                        else pts = pts + gained + ((real or 0) / 10) end
-                        if f >= 3 then weak = true end
-                        if not empty and gained >= remain then finishes = true end
+                    useful = useful + 1
+                    local pow = offenseOf(s)
+                    local fit = Known.measure and Known.measure.damageFit(f) or f
+                    local real = nil
+                    if Known.measure and Fight.dealtBook then
+                        real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * fit, s.accuracy)
                     end
+                    if real and real > 0 then
+                        damage = damage + real
+                        local hp = stat(u.id, PARAM.HP, false)
+                        if hp and hp > 0 and real >= hp then kills = kills + 1 end
+                    end
+                    if not empty then stagger = stagger + (gained or 0) end
+                    if (not empty) and gained >= remain then stagger = stagger + remain end
                 end
             end
             if useful == 0 then return end
-            if finishes and not cashing and why ~= "burst" then
-                for _, other in ipairs(pool) do
-                    local gauge, remain, empty = gaugeOfEnemy(other)
-                    local hit = false
-                    for _, t in ipairs(targets) do
-                        if t.id == other.id then hit = true end
-                    end
-                    if not hit and not empty and remain > gauge * 0.40 then early = true end
-                end
+            local function ahead()
+                if not bestS then return true end
+                if kills ~= bestKills then return kills > bestKills end
+                if damage ~= bestDamage then return damage > bestDamage end
+                return stagger > bestStagger
             end
-            if early and weak then
-                local canChip = false
-                for _, other in ipairs(skills) do
-                    if pay(other) and isHit(other, false) then
-                        for _, u in ipairs(pool) do
-                            local _, remain, empty = gaugeOfEnemy(u)
-                            if not empty then
-                                local gained, f = staggerOf(other, u)
-                                if f >= 3 and gained > 0 and gained < remain then canChip = true end
-                            end
-                        end
-                    end
-                end
-                if not canChip then early = false end
-            end
-            local score = pts
-            if weak then score = score + 5000 end
-            -- A multicast already counts its reduced effect on each target, so its
-            -- total is the real comparison with a single cast.
-            if spread and (useful > 1) and (not s.multicastOf) then score = score + pts end
-            if finishes and cashing then score = score + 4000 end
-            if finishes and not cashing and not early then score = score + 8000 - (s.cost or 0) * 20 end
-            if finishes and not cashing and early then score = score - 8000 end
-            if handOf(s, targets[1]) < 0.5 then score = score - 2000 end
-            local threat = 0
-            for _, u in ipairs(targets) do
-                local card = mobOf(u)
-                if card and card.danger and card.danger[1] then threat = 200 end
-                if card and card.call and threat < 100 then threat = 100 end
-            end
-            score = score + threat
-            -- A Limit row often has no magnification. On a hard break it is the cash,
-            -- so a missing power must not lose to a normal spell. Trash keeps the gauge.
-            -- The matching element wins when two bursts are ready. A row with no
-            -- element still gets the cash bonus. The heavier gauge wins a tie.
-            if cashing and hardField and spendLb then
-                score = score + 100000
-                if weak then score = score + 20000 end
-                score = score + ((s.lbCost or 1) * 100)
-            end
-            if score > bestScore then
-                bestS, bestU, bestScore, bestSpread = s, targets[1], score, spread and true or false
+            if ahead() then
+                bestS, bestU, bestSpread = s, targets[1], spread and true or false
+                bestKills, bestDamage, bestStagger = kills, damage, stagger
             end
         end
         for _, s in ipairs(skills) do
@@ -4671,7 +4465,7 @@ local function turn(uid, skills, w, phase)
             end
             if cause then
                 Fight.limitUrgent = true
-                -- A full bar goes on the boss, not on whichever add looks weakest.
+                -- A full bar goes on the largest gauge, or on a broken gauge of that size.
                 local aimed = (#brokenPool > 0) and brokenPool or ((bossU and (not bossU.broken)) and { bossU }) or w.enemies
                 local okHit, hit = pcall(castDamage, aimed, true, "limit, " .. cause .. ",")
                 Fight.limitUrgent = false
@@ -4792,9 +4586,9 @@ local function turn(uid, skills, w, phase)
     -- A stalemate is five rounds of the party's hits on enemies in which
     -- no enemy loses HP and no bonus phase comes. Turns spent on setup, heals, or items
     -- do not count. Then the party escapes, when the game allows it. A Pot
-    -- fight is the player's. A boss fight cannot be fled. An escape that went
-    -- out, by the planner or the player, with the fight still going, was
-    -- refused. After two refused escapes this fight is not fled again.
+    -- fight is the player's. The boss flag does not forbid an escape. An
+    -- escape that went out, by the planner or the player, with the fight still
+    -- going, was refused. After two refused escapes this fight is not fled again.
     if phase == 0 then
         local tries = Fight.escapeSent or 0
         if tries > (Fight.escapeTold or 0) then
@@ -4831,7 +4625,7 @@ local function turn(uid, skills, w, phase)
         local party = 0
         for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
         if party < 1 then party = 1 end
-        local fleeable = (not w.boss) and (not Fight.noEscape)
+        local fleeable = not Fight.noEscape
         if ((Fight.hitsSince or 0) >= (party * 5)) and (#w.enemies > 0) and (not fleeable)
             and (not Fight.stalemateTold) and (not potFight(w)) then
             Fight.stalemateTold = true
@@ -4866,7 +4660,7 @@ local function turn(uid, skills, w, phase)
         for _, u in ipairs(#pool > 0 and pool or w.enemies) do
             if not Fight.scanned[u.id] and not Fight.claim.scan[u.id] then
                 local card = mobOf(u)
-                if not card or card.shift then scanTarget = u break end
+                if not card or not card.resists then scanTarget = u break end
             end
         end
         if scanTarget then
@@ -4881,8 +4675,8 @@ local function turn(uid, skills, w, phase)
             end
         end
     end
-    if not Fight.chipped and phase == 0 and not alreadyFell and not allyCritical() and not dead then
-        if (not Fight.claim.hone[uid]) and (w.boss or ((Fight.rounds or 0) >= 3)) then
+    if not Fight.chipped and phase == 0 and not alreadyFell and not allyCritical() and not dead and not breakClose() then
+        if not Fight.claim.hone[uid] then
             local s = firstSkill(function(x) return useOf(x) == "opener" end)
             if s and weaknessFits(s.cost or 0) then
                 local choice = finishChoice(uid, s, "setup opener", { uid }, false)
@@ -5091,7 +4885,7 @@ local function turn(uid, skills, w, phase)
         if phase ~= 0 then return nil end
         local keep, healer = 0, false
         local uk = unitKit(uid)
-        if uk and ((uk.healScore or 0) >= 50) then
+        if uk and ((uk.healScore or 0) > 0) then
             healer = true
             keep = uk.healCost or 0
         end
@@ -5168,6 +4962,11 @@ local function turn(uid, skills, w, phase)
             end
             timedOk = bigFoe and (ownBest <= (topBest * 0.6)) and (bigRemain <= (pour * 3)) or false
         end
+        markExposed(w)
+        local warnedKill = false
+        for _, a in ipairs(w.allies or {}) do
+            if a.exposed then warnedKill = true end
+        end
         local picked = Kits.pick(skills, {
             allies = w.allies, foes = foes, selfId = uid,
             actions = #(Fight.actions or {}), mp = w.mp or 0, maxMp = w.maxMp or 0,
@@ -5175,6 +4974,7 @@ local function turn(uid, skills, w, phase)
             claim = Fight.claim.kit, sent = Fight.kitOn,
             tossOk = locked and (not hitting) and (not Fight.chipped) and (tosses < 2),
             timedOk = timedOk, chipped = Fight.chipped and true or false,
+            warned = warnedKill,
         })
         if not picked then return nil end
         local ids, isAll
@@ -5198,15 +4998,14 @@ local function turn(uid, skills, w, phase)
     end
     -- A kit waits while someone is critical or a fallen ally is still down.
     -- A fall earlier in the fight does not end it.
-    if phase == 0 and not allyCritical() and not dead and not supportRested()
-        and (w.boss or ((Fight.rounds or 0) >= 3)) and (not breakClose()) then
+    if phase == 0 and not allyCritical() and not dead and not supportRested() and (not breakClose()) then
         local choice = castKit()
         if choice then return choice end
     end
 
     -- The kit is setup and comes before the chip, so a thrown item waits for it.
-    -- Hard fight: an item from the bag carries the hit the bar cannot pay.
-    if hardFight(w) and (phase == 0) and not allyCritical() then
+    -- An item from the bag carries a hit the bar cannot pay, in any fight.
+    if (phase == 0) and not allyCritical() then
         local list = #pool > 0 and pool or open
         local paidLands, paidWeak = false, false
         for _, x in ipairs(skills) do
@@ -5381,18 +5180,27 @@ local function kitFallback(uid)
             end
         end
     end
-    local best, bestR = nil, -1
-    for _, s in ipairs(usable) do
-        local okOff, pow, br = pcall(offenseOf, s)
-        local score = 0
-        if okOff then score = (br or 0) * 1000 + (pow or 0) end
+    local function labeledHit(s)
         local name = s.name and s.name:lower() or ""
         local use = s.known and s.known.use
         local plain = (name == "attack") or ((s.attr == ATTR.FIGHT) and ((s.cost or 0) <= 0))
         local tagged = (use == "break") or (use == "cash")
-        -- Plain Attack and a published damage row beat an unlabeled skill.
-        if plain or tagged then score = score + 1000000 end
-        if score > bestR then best, bestR = s, score end
+        return (plain or tagged) and true or false
+    end
+    local best = nil
+    for _, s in ipairs(usable) do
+        local function ahead()
+            if not best then return true end
+            local ls, lb = labeledHit(s), labeledHit(best)
+            if ls ~= lb then return ls end
+            local okS, powS, brS = pcall(offenseOf, s)
+            local okB, powB, brB = pcall(offenseOf, best)
+            brS, brB = (okS and brS) or 0, (okB and brB) or 0
+            if brS ~= brB then return brS > brB end
+            powS, powB = (okS and powS) or 0, (okB and powB) or 0
+            return powS > powB
+        end
+        if ahead() then best = s end
     end
     if not best and SkillIdx then
         for id, s in pairs(SkillIdx) do
@@ -5595,7 +5403,7 @@ local function consider(uid)
         return nil
     end
     local hurt = lowestAlly(w, function(u) return u.acts ~= false end)
-    if (not foe) and hurt and (hurt.hp or 1) < 0.30 then
+    if (not foe) and hurt and (hurt.dead or allyExposed(hurt)) then
         for _, s in ipairs(usable) do
             if s.kind == "defend" then
                 return finishChoice(uid, s, "defend", { uid }, false)
@@ -5693,8 +5501,8 @@ Known.repCards = function(snap)
                 string.format("  enemy %s, uid %s, row %s", tostring(u.name), tostring(id), tostring(okU and unitId)),
                 string.format("    weak %s; half %s; absorb %s; null %s; immune %s", set(card and card.weak), set(card and card.half),
                     set(card and card.absorb), set(card and card.no), set(card and card.ail)),
-                string.format("    danger %s; hits %s; counter %s; shift %s; hp %s/%s, gauge %s/%s", (card and card.danger and table.concat(card.danger, ",")) or "-",
-                    tostring(card and card.hits), tostring(card and card.counter), tostring(card and card.shift), tostring(u.hp), tostring(u.maxHp), tostring(u.gauge), tostring(u.maxGauge)),
+                string.format("    danger %s; hits %s; counter %s; resists %s; hp %s/%s, gauge %s/%s", (card and card.danger and table.concat(card.danger, ",")) or "-",
+                    tostring(card and card.hits), tostring(card and card.counter), tostring(card and card.resists), tostring(u.hp), tostring(u.maxHp), tostring(u.gauge), tostring(u.maxGauge)),
                 "    traits: " .. ((card and card.traits and table.concat(card.traits, " / ")) or "-"),
             })
         end
@@ -6085,9 +5893,7 @@ local function releaseGauge(id)
         local poured = Fight.poured[id] or 0
         local card = mobOf({ id = id, name = unitName(id) })
         local book = (card and tonumber(card.gauge)) or 100
-        local grown = math.floor((poured / 0.72) + 0.5)
-        if grown < (book + 1) then grown = book + 1 end
-        if Gauges.rise then grown = Gauges.rise(book, poured) end
+        local grown = (Gauges.rise and Gauges.rise(book, poured)) or (book + 1)
         local prev = Fight.gaugeScale[id] or book
         if grown > prev then
             Fight.gaugeWas = Fight.gaugeWas or {}
@@ -6306,7 +6112,7 @@ end
 local function markSummon(skill, turns)
     if not (skill and skill.attr == ATTR.SUMMON) then return end
     local fact = (Espers.lookup and Espers.lookup(skill.name)) or nil
-    local stay = turns or (fact and fact.turns) or 3
+    local stay = turns or (fact and fact.turns)
     Fight.esperOut = {
         at = #(Fight.actions or {}),
         turns = stay,
@@ -6619,7 +6425,7 @@ local function act(serial)
     if (choice.kind == "damage") and (not choice.isItem) and (phase ~= PHASE_FINISH) then
         pcall(function()
             local kit = unitKit(uid)
-            if not (kit and ((kit.healScore or 0) >= 50) and ((kit.healCost or 0) > 0) and ((mpNow or 0) >= kit.healCost)) then
+            if not (kit and ((kit.healScore or 0) > 0) and ((kit.healCost or 0) > 0) and ((mpNow or 0) >= kit.healCost)) then
                 return
             end
             local bits, hurt = {}, false
@@ -7173,9 +6979,16 @@ function readRisk(hitsOnly)
                     end
                     local key = tostring(byFrom) .. ":" .. tostring(bySid) .. ":" .. tostring(to)
                     local rec = dealt[key]
+                    local mult = num(row.damageMultiplier)
                     if not rec then
-                        rec = { from = byFrom, sid = bySid, to = to, raw = 0, res = num(row.resistance), onBreak = unwrap(row.isOnBreak) == true }
+                        rec = {
+                            from = byFrom, sid = bySid, to = to, raw = 0,
+                            res = num(row.resistance), mult = mult,
+                            onBreak = unwrap(row.isOnBreak) == true,
+                        }
                         dealt[key] = rec
+                    elseif (rec.mult == nil) and (mult ~= nil) then
+                        rec.mult = mult
                     end
                     rec.raw = rec.raw + value
                 end)
@@ -7238,7 +7051,7 @@ function readRisk(hitsOnly)
         elseif Fight.dealtOpen then
             for _, rec in pairs(Fight.dealtOpen) do
                 local row = skillOf(rec.sid)
-                local factor = (rec.res == 1) and Known.measure.WEAK_DAMAGE or ((rec.res == 2) and 0.5 or 1)
+                local factor = Known.measure.hitFactor(rec.res, rec.mult, rec.onBreak)
                 local est = row and ((row.power or 0) * math.max(row.hits or 1, 1) * factor) or nil
                 Known.measure.noteCast(Fight.dealtBook, rec.from, rec.sid, rec.raw > 0)
                 Known.measure.add(Fight.dealtBook, rec.from, rec.sid, rec.to, rec.raw, est, rec.onBreak)
@@ -7802,7 +7615,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.24. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.27. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

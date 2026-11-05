@@ -1,17 +1,14 @@
 -- Party health. The planner calls these. This file does not name a fight,
 -- a character, or a Vision, and it does not touch the battle libraries.
 --
--- A heavy danger gauge is one the book lists at 500 or more. Smaller danger
--- moves stay on the 50% recover line unless the fight itself is a boss.
--- Doom is cleared first. A status that takes the main healer's turn is
+-- Doom is cleared first. A status that takes a turn is
 -- cleared next, item before spell. Sleep, paralysis, stop, petrify,
 -- confuse, charm, and berserk are cleared before the recover line.
 -- Silence on someone whose spells matter waits until nobody is critical.
 -- Poison and blind are that ally's own item, and only when nothing more
--- urgent is waiting. Slow is a spare cure from the healer after it lasts
--- two rounds. The spell's row has to list Slow. A broken stat is still ignored.
+-- urgent is waiting. Slow is cleared while the status is on the ally. The
+-- spell's row has to list Slow. A broken stat is still ignored.
 
-local HEAVY = 500
 local FIXED = 3
 local POISON, BLIND = 1, 2
 local SLEEP, SILENCE = 3, 4
@@ -43,22 +40,13 @@ local KNOWN = {
 for id = 1, 12 do KNOWN[id] = true end
 
 local M = {}
-M.HEAVY = HEAVY
 M.FIXED = FIXED
 M.OUT = OUT
 
-function M.recoverAt(boss, rows)
-    local at, small = 0.50, false
-    for _, row in ipairs(rows or {}) do
-        if row.danger and (not row.empty) and (not row.broken) then
-            if boss or ((row.gauge or 0) >= HEAVY) then
-                at = 0.65
-            else
-                small = true
-            end
-        end
-    end
-    return at, small
+-- Kept so older callers still load. Healing no longer uses a fixed line.
+-- A hit this fight has already shown, or a warned hit, decides who is hurt.
+function M.recoverAt()
+    return 0, false
 end
 
 -- A flat restore is the row's power when the calc type is Fixed. A magic
@@ -160,7 +148,7 @@ function M.fallen(allies, kitOf, offenseOf, opts)
             end
             local kit = kitOf and kitOf(u.id) or nil
             local hs = (kit and kit.healScore) or 0
-            if (hs >= 50) and (hs > healBest) then
+            if (hs > 0) and (hs > healBest) then
                 healer, healBest = u, hs
             end
             if opts.threat and opts.guards and (u.acts ~= false) and opts.guards(kit) then
@@ -266,7 +254,7 @@ local function ranked(allies, kitOf)
         if a and (not a.dead) and (a.acts ~= false) then
             local kit = kitOf and kitOf(a.id) or nil
             local score = (kit and kit.healScore) or 0
-            if score >= 50 then
+            if score > 0 then
                 local n = realHeals(kit)
                 if (score > bestScore) or ((score == bestScore) and (n > bestN)) then
                     bestScore, bestN, best = score, n, { a }
@@ -340,13 +328,8 @@ function M.healerWaiting(actorId, why, ratio, danger, allies, kitOf, mpOf, went)
         end
         return true
     end
-    local dire = 0.15
-    if danger then dire = 0.20 end
-    if late then
-        dire = 0.25
-        if danger then dire = 0.30 end
-    end
-    if (ratio or 1) < dire then return false end
+    -- A hit this fight has shown would kill them. Leave it to a healer who
+    -- still has a turn. The ratio of their bar is not the test.
     return true
 end
 
@@ -603,20 +586,15 @@ function M.slowGap(allies, kitOf, told)
     return "slow cure skipped, no skill lists slow"
 end
 
--- The healer clears Slow on their own turn, after it has lasted two
--- rounds. Order is self, then the weakness payer or the stagger
+-- The ally who can cure Slow does it while the status is on. Order is self,
+-- then the weakness payer or the stagger
 -- finisher, then anyone else. A non-healer casts only when no healer can
 -- act, and only for those three value cases.
 function M.slowFocus(allies, kitOf, mpOf, ctx)
     ctx = ctx or {}
     if ctx.critical or ctx.dead or ctx.under or ctx.setup then return nil end
-    local since = ctx.since or {}
-    local round = ctx.round or 0
     local function waited(a)
-        if (not a) or a.dead or (not hasId(a.statuses, SLOW)) then return false end
-        local at = since[a.id]
-        if at == nil then return false end
-        return round >= (at + 2)
+        return a and (not a.dead) and hasId(a.statuses, SLOW) and true or false
     end
     local function byId(id)
         if not id then return nil end
@@ -707,19 +685,13 @@ function M.locked(allies)
     return acting or body
 end
 
--- Dire need in a boss fight: an ally is down, an ally is under 30%, or most
--- of the living party is under half. Lifts the one-Ether-per-round limit.
+-- Dire need: an ally is down, or a hit this fight has shown would kill them.
+-- The caller sets exposed. It is not a boss flag and not an HP line.
 function M.direNeed(w)
-    if not (w and (w.boss or w.hard)) then return false end
-    local living, low = 0, 0
-    for _, u in ipairs(w.allies or {}) do
-        if u.dead then return true end
-        living = living + 1
-        local r = u.hp or 1
-        if r < 0.30 then return true end
-        if r < 0.50 then low = low + 1 end
+    for _, u in ipairs((w and w.allies) or {}) do
+        if u.dead or u.exposed then return true end
     end
-    return living > 0 and (low * 2) > living
+    return false
 end
 
 return M

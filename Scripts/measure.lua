@@ -3,8 +3,8 @@
 
 local M = {}
 
--- A staggered enemy takes more. These hits are scaled back so a number means
--- the same thing whether or not the target was staggered.
+-- The game's break factor. A staggered target takes 1.5x damage (probe: isOnBreak).
+-- Hits are scaled back so a number means the same thing on or off a break.
 local BREAK_SCALE = 1.5
 
 function M.new()
@@ -24,15 +24,28 @@ local function blend(rec, value)
     if value > rec.best then rec.best = value end
 end
 
--- A multicast does this share of a single cast to each target, at the same MP
--- (measured by hand: heals and stagger about 0.4x, damage 0.42x to 0.5x).
-M.MULTI_SHARE = 0.4
-
--- Weakness is 3x on the stagger gauge (measured 3.08x) but about 1.5x on damage.
--- elementFactor gives the stagger number, so a damage estimate converts it here.
+-- The game's resistance factors. resistance 1 is weakness: 1.5x damage, and the
+-- stagger factor elementFactor returns for a weakness is 3. resistance 2 is half,
+-- 3 is a null, 4 absorbs. A hit record's damageMultiplier already includes
+-- weakness, a break, and a critical. The book stores damage off a break, so
+-- that multiplier gives the break factor back. With no multiplier, the
+-- resistance field is the factor.
 M.WEAK_DAMAGE = 1.5
+M.HALF_DAMAGE = 0.5
+local RESIST_DAMAGE = { [0] = 1, [1] = 1.5, [2] = 0.5, [3] = 0, [4] = -1 }
 function M.damageFit(f)
     if f >= 3 then return M.WEAK_DAMAGE end
+    return f
+end
+
+function M.hitFactor(res, mult, onBreak)
+    local m = tonumber(mult)
+    if m then
+        if onBreak and (BREAK_SCALE ~= 0) then m = m / BREAK_SCALE end
+        return m
+    end
+    local f = RESIST_DAMAGE[tonumber(res) or -1]
+    if f == nil then return 1 end
     return f
 end
 
@@ -64,16 +77,15 @@ function M.noteCast(book, from, skill, landed)
     book.land[key] = rec
 end
 
--- How often this hit lands, 0 to 1. The row's accuracy counts as two casts, so it
--- answers before the first cast and real casts soon outweigh it. Rows list 0 for
+-- How often this hit lands, 0 to 1. Until this fight has seen a cast, the row's
+-- accuracy is the answer. After that, the casts are the answer. Rows list 0 for
 -- no roll and over 100 for a sure hit.
-local LAND_PRIOR = 2
 function M.landRate(book, from, skill, accuracy)
     local listed = 1
     if accuracy and (accuracy > 0) and (accuracy < 100) then listed = accuracy / 100 end
     local rec = book and book.land[tostring(from) .. ":" .. tostring(skill)]
-    if not rec then return listed end
-    return (rec.landed + (listed * LAND_PRIOR)) / (rec.casts + LAND_PRIOR)
+    if not rec or rec.casts < 1 then return listed end
+    return rec.landed / rec.casts
 end
 
 -- The damage to expect, or nil when there's nothing to go on. What this hit did
@@ -125,17 +137,16 @@ function M.warnedCast(foeBook, risk, rowOf, ally)
 end
 
 -- The hit to kill a foe with this much HP, or nil. shots: { skill, real, cost }.
--- The cheapest one with room to spare, or the hardest one that should just do it.
+-- A measured hit that meets the remaining HP. The cheapest such hit, and on a
+-- tie the harder one.
 function M.pickKill(shots, hp)
-    local sure, close = nil, nil
+    local sure = nil
     for _, shot in ipairs(shots or {}) do
-        if (shot.real * 0.9) >= hp then
+        if shot.real >= hp then
             if (not sure) or (shot.cost < sure.cost) or ((shot.cost == sure.cost) and (shot.real > sure.real)) then sure = shot end
-        elseif shot.real >= hp then
-            if (not close) or (shot.real > close.real) then close = shot end
         end
     end
-    return sure or close
+    return sure
 end
 
 -- The hardest hits, for the report.
