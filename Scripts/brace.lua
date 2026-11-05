@@ -155,13 +155,15 @@ function M.rank(team, options, selfId, singleTarget)
     return out
 end
 
--- The turn order moved, with this unit at the front. A warning raised on a foe's
--- own turn is for its next turn, so that turn has to pass first. Any other time
--- at the front is the warned slot arriving.
+-- A queued turn-order entry, with this unit at the front. The warning list is
+-- read live but the queue is history, so a warning first read while draining the
+-- queue was raised after every entry in it. None of them can be its arrival. That
+-- front is only remembered, for the count of warnings that landed.
 function M.noteFront(rec, id, first)
-    if first ~= id then
-        rec.openedOnTurn = nil
-    elseif not rec.openedOnTurn then
+    if first ~= id then return end
+    if rec.fresh then
+        rec.sawFront = true
+    else
         rec.reached = true
     end
 end

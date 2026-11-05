@@ -85,16 +85,14 @@ r = B.rank(team(), { { heal = 900, scope = "one", cost = 40 }, { heal = 900, sco
 check(r[1].option.cost == 6, "the cheaper of two equal answers")
 
 -- A warning's slot, from the turn order.
-local rec = { openedOnTurn = true }
-B.noteFront(rec, 9, 9)
-check(not rec.reached, "a warning raised on the foe's own turn hasn't arrived")
+local rec = { fresh = true }
 B.noteFront(rec, 9, 1)
-check(not rec.reached and not rec.openedOnTurn, "another unit's turn clears that")
+check(not rec.reached, "someone else at the front is no arrival")
 B.noteFront(rec, 9, 9)
-check(rec.reached, "the foe's next turn is the warned slot")
-local plain = {}
-B.noteFront(plain, 9, 1)
-check(not plain.reached, "someone else at the front is no arrival")
-B.noteFront(plain, 9, 9)
-check(plain.reached, "a warning seen earlier arrives when the foe comes up")
+check(not rec.reached and rec.sawFront, "a queued turn older than the warning isn't its arrival, wherever it sits in the queue")
+rec.fresh = nil
+B.noteFront(rec, 9, 1)
+check(not rec.reached, "later turns of other units don't count")
+B.noteFront(rec, 9, 9)
+check(rec.reached, "the foe's next turn after that is the warned slot")
 os.exit(fails == 0 and 0 or 1)

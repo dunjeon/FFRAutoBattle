@@ -6990,7 +6990,7 @@ function settleWarn(id)
     local rec = Fight.warn[id]
     if (not rec) or rec.settled then return end
     rec.settled = true
-    if rec.reached or rec.openedOnTurn then
+    if rec.reached or rec.sawFront then
         Fight.warnLand = (Fight.warnLand or 0) + 1
     elseif rec.broke then
         Fight.warnCancel = (Fight.warnCancel or 0) + 1
@@ -7201,7 +7201,7 @@ function readRisk(hitsOnly)
             local rec = Fight.warn[id]
             -- A settled record is the previous warning. This appearance is the next one.
             if (not rec) or rec.settled then
-                rec = { broke = false, reached = false, settled = false, openedOnTurn = (Fight.warnFront == id) or nil }
+                rec = { broke = false, reached = false, settled = false, fresh = Fight.warnDraining or nil }
                 Fight.warn[id] = rec
             end
             if broken(id) then rec.broke = true end
@@ -7227,14 +7227,15 @@ applyPendingOrder = function()
     Fight.orderPending = nil
     Fight.orderFresh = false
     if type(pending) == "table" and (#pending > 0) then
+        Fight.warnDraining = true
         for i = 1, #pending do
             local snap = pending[i]
             noteWarnTimeline(snap.current, "broke")
-            Fight.warnFront = snap.current and snap.current[1]
             readRisk()
-            Fight.warnFront = nil
             noteWarnTimeline(snap.current, "reached")
         end
+        Fight.warnDraining = nil
+        for _, rec in pairs(Fight.warn or {}) do rec.fresh = nil end
     else
         readRisk()
     end
@@ -7645,7 +7646,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.16. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.17. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
