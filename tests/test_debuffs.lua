@@ -82,6 +82,35 @@ check(mpPick({ mpElixir, mist }, 40) == mist, "a sized party item comes before a
 check(mpPick({ mpMega, mpElixir }, 40) == mpElixir, "with only percentage rows, one target before the party")
 check(mpPick({ turbo, ether }, nil) == ether, "an unread gap takes the smallest")
 check(mpPick({ { name = "Phoenix", mp = true, kind = "revive", amount = 50 } }, 40) == nil, "a raise is not an MP item")
+-- The consumable table's own buy prices. The widest step is the rare one.
+local shopPrices = {
+    100, 200, 300, 500, 800, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000,
+    10000, 30000, 99999, 500000,
+}
+local high = I.rarePrices(shopPrices)
+check(high[500000] == true, "the price past the widest step is rare")
+check(high[99999] == nil, "the price below that step stays common")
+check(high[30000] == nil and high[100] == nil, "the shop ladder stays common")
+check(next(I.rarePrices({ 100, 200, 400, 800 })) == nil, "equal steps are not a rare price")
+check(I.rarePrices({ 0, 0 })[0] == nil, "a zero buy price is not rare")
+check(I.abovePrice(6000, 5000) and not I.abovePrice(5000, 5000) and not I.abovePrice(3000, 5000), "a buy price above the cap stays in the bag")
+check(not I.abovePrice(nil, 5000) and not I.abovePrice(6000, nil), "a missing price or cap holds nothing back")
+check(I.entry(3, "Token", 1, { rowHp = true, amount = 200, held = true }) == nil, "an item above the cap is not spent")
+local top = I.rarePrices({ 100, 200, 400, 800, 500000, 600000 })
+check(top[500000] and top[600000] and not top[800], "every price above the widest step")
+local rareElixir = { name = "Elixir", mp = true, hp = true, kind = "heal", rare = true }
+local rareMega = { name = "Megalixir", mp = true, hp = true, kind = "heal", party = true, rare = true }
+check(mpPick({ rareElixir, ether }, 40) == ether, "a rare item waits while a cheaper one covers the gap")
+check(mpPick({ rareElixir }, 40) == nil, "a rare item stays in the bag on an ordinary gap")
+check(I.recovery({ rareElixir }, "mp", { missing = 40, dire = true }) == rareElixir, "a rare item is spent when nothing else covers a dire gap")
+check(I.recovery({ ether, rareElixir }, "mp", { missing = 500, dire = true }) == rareElixir, "a rare item replaces one that cannot cover a dire gap")
+check(I.recovery({ ether, rareElixir }, "mp", { missing = 40, dire = true }) == ether, "a cheaper item that covers the gap still wins")
+check(I.recovery({ rareMega, rareElixir }, "mp", { missing = 40, dire = true }) == rareElixir, "one rare target comes before a rare party item")
+local potionRow = { name = "Potion", hp = true, kind = "heal", amount = 200 }
+local rareHeal = { name = "Elixir", hp = true, kind = "heal", rare = true }
+check(I.recovery({ rareHeal, potionRow }, "heal", { missing = 100 }) == potionRow, "an ordinary heal spends the cheaper item")
+check(I.recovery({ rareHeal }, "heal", { missing = 100 }) == nil, "the expensive heal stays put when nobody is about to die")
+check(I.recovery({ rareHeal }, "heal", { missing = 100, dire = true }) == rareHeal, "the expensive heal is spent when the hit would kill")
 -- The sighting comes from the row's own status, the same path the planner uses.
 local softened = { id = 7, prefer = true, statuses = {} }
 local softOn, softIds, softSeen = { [7] = { deprotect = true } }, { [7] = { deprotect = { [16] = true } } }, {}

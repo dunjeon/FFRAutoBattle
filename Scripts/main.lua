@@ -228,7 +228,7 @@ local DECIDE_MS = 420
 
 local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
-    TakeOverKey = "F10", MenuKey = "F9",
+    TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -565,6 +565,7 @@ local function buildSkillIndex()
     end
     local items = {}
     for _, dt in ipairs(itemTables) do
+        local batch = {}
         pcall(function()
             dt:ForEachRow(function(_, row)
                 local id = num(field(row, "ID"))
@@ -576,7 +577,7 @@ local function buildSkillIndex()
                     if skillId and skillId > 0 then break end
                     skillId = nil
                 end
-                items[id] = {
+                local rec = {
                     id = id,
                     name = (name and name ~= "") and name or ("item " .. id),
                     skillId = skillId,
@@ -585,8 +586,31 @@ local function buildSkillIndex()
                     sale = field(row, "isAvailableSale") == true,
                     scene = num(field(row, "usableScene")) or 0,
                 }
+                if Items.abovePrice and Items.abovePrice(rec.price, cfg.ItemPrice) then
+                    rec.held = true
+                end
+                items[id] = rec
+                batch[#batch + 1] = rec
             end)
         end)
+        -- The row has no rare field. The buy prices on this table do. The
+        -- high side of the one step wider than the rest is held back.
+        if Items.rarePrices then
+            local prices = {}
+            for _, rec in ipairs(batch) do prices[#prices + 1] = rec.price end
+            local high = Items.rarePrices(prices)
+            local marked = {}
+            for _, rec in ipairs(batch) do
+                if high[rec.price] then
+                    rec.rare = true
+                    marked[rec.price] = true
+                end
+            end
+            local bits = {}
+            for price in pairs(marked) do bits[#bits + 1] = tostring(price) end
+            table.sort(bits)
+            if #bits > 0 then log("rare buy prices: %s", table.concat(bits, ", ")) end
+        end
     end
     -- Enemy rows, then every fact the planner reads, from what was just walked.
     local units = {}
@@ -678,7 +702,7 @@ local function buildSkillIndex()
     for _ in pairs(items) do ni = ni + 1 end
     if ni > 0 then
         ItemIdx = items
-        log("item table: %d rows", ni)
+        log("item table: %d rows, price cap %s", ni, tostring(cfg.ItemPrice))
     end
 end
 
@@ -1139,9 +1163,28 @@ local function applyRowElement(copy)
     copy.known = merged
 end
 
+-- The foe's status ids, in order. A learned resist applies only while this
+-- list is the one it was filed under. A spell that wears off changes the list.
+local function statusStamp(id)
+    if not (Fight and id) then return "" end
+    Fight.stampCache = Fight.stampCache or {}
+    local hit = Fight.stampCache[id]
+    if hit ~= nil then return hit end
+    local ids = {}
+    local ok, set = pcall(statuses, id)
+    if ok and set then
+        for n in pairs(set) do ids[#ids + 1] = n end
+    end
+    table.sort(ids)
+    local stamp = table.concat(ids, ",")
+    Fight.stampCache[id] = stamp
+    return stamp
+end
+
 -- A kind the card nulls, or one this fight has seen do no damage twice, is
--- a miss, the same as a nulled element.
-local function elementFactor(skill, enemy)
+-- a miss, the same as a nulled element. ignoreLearned skips a resist this
+-- fight learned, and still honors the foe's own row.
+local function elementFactor(skill, enemy, ignoreLearned)
     applyRowElement(skill)
     local ok, factor = pcall(function()
         local info = skill and (skill.known or knownOf(skill))
@@ -1152,7 +1195,14 @@ local function elementFactor(skill, enemy)
         if kind then
             if card and card.no and card.no[kind] then return 0 end
             local learned = Fight and Fight.kindNull and Fight.kindNull[enemy.id]
-            if learned and learned[kind] then return 0 end
+            if (not ignoreLearned) and learned and learned[kind] then return 0 end
+        end
+        -- What a hit this fight already showed, whoever swung it. The same
+        -- factors as the card: a weakness is 3, a half is 0.5, a null is 0.
+        -- A reflect is 0 as well. The foe's status list has to still match.
+        if (not ignoreLearned) and Fight and Fight.learned and Known.measure and Known.measure.foeFactor then
+            local got = Known.measure.foeFactor(Fight.learned, enemy.id, el, kind, statusStamp(enemy.id))
+            if got ~= nil then return got end
         end
         if not el then return 1 end
         if not card then return 1 end
@@ -1721,7 +1771,7 @@ local function ownedRecovery()
             end
             if not name or name == "" then name = row and row.name or ("item " .. id) end
             -- What the game's own rows say. The book in items.lua does the rest.
-            local f = { rare = row and row.rare or nil }
+            local f = { rare = row and row.rare or nil, held = row and row.held or nil }
             local s = row and row.skillId and skillOf(row.skillId) or nil
             if s then
                 if Health.FIXED and (s.calc == Health.FIXED) and ((s.power or 0) > 0) then f.amount = s.power end
@@ -4632,6 +4682,35 @@ local function turn(uid, skills, w, phase)
                 end
             end
         end
+        -- Nothing left can land. A resist this fight learned gets one more try
+        -- while the foe's statuses hold. The foe's own row still blocks. The
+        -- mark stops the same try next turn.
+        if not bestS then
+            local retryS, retryU, retryMark, retryPow = nil, nil, nil, -1
+            Fight.retry = Fight.retry or {}
+            for _, s in ipairs(skills) do
+                local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
+                if isHit(s, cashing) and pay(s) and not (spendLb and lbSaved(uid, s) and (not Fight.limitUrgent)) then
+                    local info = s.known or knownOf(s)
+                    local key = (info and info.element) or kindOf(s)
+                    if key then
+                        for _, u in ipairs(pool) do
+                            local mark = tostring(uid) .. ":" .. tostring(u.id) .. ":" .. key .. ":" .. statusStamp(u.id)
+                            if (not Fight.retry[mark]) and (elementFactor(s, u, true) > 0) and (elementFactor(s, u) <= 0) then
+                                local pow = offenseOf(s) or 0
+                                if pow > retryPow then
+                                    retryS, retryU, retryMark, retryPow = s, u, mark, pow
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            if retryS then
+                Fight.retry[retryMark] = true
+                return finishChoice(uid, retryS, why .. " " .. retryU.name .. ", try again", { retryU.id }, false)
+            end
+        end
         if not bestS then return nil end
         local targets = bestSpread and idsOf(pool) or { bestU.id }
         local el = (bestS.known and bestS.known.element) or ""
@@ -5427,6 +5506,7 @@ local function kitFallback(uid)
 end
 
 local function consider(uid)
+    if Fight then Fight.stampCache = {} end
     if outOfControl(uid) then
         log("%s is %s; leaving this turn", unitName(uid), outOfControl(uid))
         return nil
@@ -6010,6 +6090,9 @@ local function ensureBattle()
     Fight.drawSeen, Fight.cureTry, Fight.cureMiss, Fight.drawRound = {}, {}, {}, {}
     Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
     Fight.kindMiss, Fight.kindNull, Fight.kindHit, Fight.hitProbe = {}, {}, {}, nil
+    Fight.learned = {}
+    Fight.retry = {}
+    Fight.stampCache = {}
     Fight.healRate, Fight.healProbe = {}, nil
     Fight.debuffWatch = nil
     Fight.guardOn = {}
@@ -6704,10 +6787,14 @@ local function act(serial)
     elseif choice.kind == "damage" then
         Fight.supportRun[uid] = 0
     end
-    -- Watch this hit's targets, to learn a kind the enemy nulls.
+    -- A hit with no element, watched by its kind. An element is learned from
+    -- the hit row itself, so one dead Fire does not retire every magic spell.
     if probeHp and next(probeHp) then
         local kind = kindOf(choice)
-        if kind then Fight.hitProbe = { kind = kind, hp = probeHp, summon = Fight.summoned and true or false } end
+        local el = choice.known and choice.known.element
+        if kind and (not el) then
+            Fight.hitProbe = { kind = kind, hp = probeHp, summon = Fight.summoned and true or false }
+        end
     end
     if ((choice.kind == "revive") or (choice.itemUse == "revive")) and choice.targets then
         Fight.raisedRound = Fight.raisedRound or {}
@@ -7145,6 +7232,7 @@ end
 
 -- Game thread, while a party menu is open. The risk object is not kept.
 function readRisk(hitsOnly)
+    if Fight then Fight.stampCache = {} end
     if not Fight then return end
     -- The last skill's hit list. Numbers only; the skill object is not kept.
     -- Reads before the fight is open sit in hitHold until ensureBattle.
@@ -7231,10 +7319,42 @@ function readRisk(hitsOnly)
                     local value = num(row.VariationValue)
                     -- A miss reads as no HP change at all. It still counts as a cast.
                     local missed = unwrap(row.isMiss) == true
+                    local res = num(row.resistance)
+                    local sidEarly = num(row.SkillId)
                     if missed then
                         value = 0
                     else
                         if (num(row.variationParameter) ~= PARAM.HP) or (num(row.VariationType) ~= 1) then return end
+                        -- The row's resistance, for every character. A guarded
+                        -- hit with no resistance is the guard, not the element.
+                        -- A veil ate the hit, so it is not the foe's element.
+                        -- Zero is a real result, so it is not combined with and/or.
+                        local guarded = unwrap(row.isDefence) == true
+                        local veil = unwrap(row.isVeilDefence) == true
+                        local raw = nil
+                        if (not veil) and ((not guarded) or (res ~= nil and res ~= 0)) then raw = value or 0 end
+                        local lesson = (not veil) and Known.measure.lesson and Known.measure.lesson(res, false, raw)
+                        if lesson then
+                            local sk = sidEarly and skillOf(sidEarly)
+                            local key = sk and sk.element
+                            if (not key) and sk then
+                                if sk.dmgType == 1 then key = "physical" end
+                                if sk.dmgType == 2 then key = "magic" end
+                            end
+                            if key and Known.measure.noteFoe then
+                                Fight.learned = Fight.learned or {}
+                                if Known.measure.noteFoe(Fight.learned, to, key, lesson, statusStamp(to)) then
+                                    local word = (lesson == "weak" and "is weak to")
+                                        or (lesson == "half" and "halves")
+                                        or (lesson == "absorb" and "absorbs")
+                                        or (lesson == "reflect" and "reflects")
+                                        or "nulls"
+                                    local line = string.format("%s %s %s", unitName(to), word, key)
+                                    log("%s", line)
+                                    appendLog("  " .. line)
+                                end
+                            end
+                        end
                         if (not value) or (value <= 0) then return end
                     end
                     local sid = num(row.SkillId)

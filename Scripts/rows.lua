@@ -234,7 +234,7 @@ end
 -- A bag row's facts. fold(name) -> use, from the item's skill row.
 local function itemOf(item, row, books)
     local key = fold(item.name)
-    if (not row) or (item.scene == 2) then
+    if (not row) or (item.scene == 2) or item.held then
         books.leave[key] = { use = "out" }
         return
     end

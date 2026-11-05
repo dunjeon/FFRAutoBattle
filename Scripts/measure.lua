@@ -88,6 +88,67 @@ function M.landRate(book, from, skill, accuracy)
     return rec.landed / rec.casts
 end
 
+-- What one hit record says about that foe. res is the row's resistance:
+-- 1 weak, 2 half, 3 null, 4 absorb, 5 reflect. A miss says nothing. A hit
+-- that took no HP, and was not a miss, is a null. A plain hit with no
+-- resistance field says nothing, so a critical is not filed as a weakness.
+function M.lesson(res, missed, raw)
+    if missed then return nil end
+    res = tonumber(res)
+    if res == 1 then return "weak" end
+    if res == 2 then return "half" end
+    if res == 3 then return "no" end
+    if res == 4 then return "absorb" end
+    if res == 5 then return "reflect" end
+    if (raw ~= nil) and (raw <= 0) then return "no" end
+    return nil
+end
+
+local LESSONS = { "weak", "half", "no", "absorb", "reflect" }
+
+-- The first time this foe shows this result for this element or kind.
+-- stamp is the foe's status list. The same result under a new list replaces
+-- the old stamp. A different result clears the old one.
+function M.noteFoe(book, foe, key, lesson, stamp)
+    if (not book) or (foe == nil) or (not key) or (not lesson) then return false end
+    local rec = book[foe]
+    if not rec then
+        rec = { weak = {}, half = {}, no = {}, absorb = {}, reflect = {} }
+        book[foe] = rec
+    end
+    if not rec[lesson] then rec[lesson] = {} end
+    for _, name in ipairs(LESSONS) do
+        if name ~= lesson and rec[name] then rec[name][key] = nil end
+    end
+    local slot = rec[lesson]
+    local prev = slot[key]
+    slot[key] = stamp or true
+    return prev == nil
+end
+
+-- The factor elementFactor already uses, or nil when this fight has not
+-- seen the element. A null, an absorb, and a reflect are no damage. A
+-- weakness is 3. stamp is the foe's status list now. A lesson filed under
+-- another list no longer applies.
+function M.foeFactor(book, foe, element, kind, stamp)
+    local rec = book and book[foe]
+    if not rec then return nil end
+    local function listed(slot, key)
+        if not (key and slot and slot[key] ~= nil) then return false end
+        if stamp == nil then return true end
+        local held = slot[key]
+        if held == true then return true end
+        return held == stamp
+    end
+    if listed(rec.no, kind) or listed(rec.absorb, kind) or listed(rec.reflect, kind)
+        or listed(rec.no, element) or listed(rec.absorb, element) or listed(rec.reflect, element) then
+        return 0
+    end
+    if listed(rec.weak, element) then return 3 end
+    if listed(rec.half, element) then return 0.5 end
+    return nil
+end
+
 -- The damage to expect, or nil when there's nothing to go on. What this hit did
 -- to this enemy comes first. Otherwise the row's number, scaled by what this
 -- caster's other hits really did. The same skill on another enemy is only a

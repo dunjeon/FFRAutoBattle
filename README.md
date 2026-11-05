@@ -121,7 +121,7 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 - **Multicast is a normal choice.** An All cast is its own row. The planner uses that row's magnification.
 - **An Esper on a weakness comes early.** It goes ahead of a heal nobody will die without. Raises and critical heals still come first.
 - **Support earns its turn.** Buffs and debuffs go out when they fit the fight. A debuff follows the damage the party and the foe really deal.
-- **Spending goes by need.** The item table has no rare flag, so a rare item is not saved apart from a common one. A fight where nothing can hurt the party spends no items.
+- **Spending goes by need.** An item whose buy price is above `ItemPrice` in `config.ini` stays in the bag. The default is 5000. A buy price that jumps past every other step on the item table is held back, and spent when no cheaper item covers someone down or about to die. A fight where nothing can hurt the party spends no items.
 
 An ally who is confused, charmed, or berserk is left to the game. If a fight stalls for five rounds with no enemy losing HP, the party escapes when the game allows it. Take it Easy never escapes.
 

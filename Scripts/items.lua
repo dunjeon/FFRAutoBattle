@@ -2,13 +2,14 @@
 -- reads the bag and sends the command. This file does not name a fight, a
 -- character, or a Vision, and it does not touch the battle libraries.
 --
--- Common items first. A rare item, from the item row's own flag, is spent
--- when no common item does the job and the need is real: someone down,
--- someone a hit already seen would kill, or MP short of a skill the field
--- needs. Scrolls and knives are thrown when the bar has no weakness that
--- will land. A neutral spell does not hold a weakness item back. Tents and
--- Healing Spring stay put. A fight where no foe can hurt
--- the party spends nothing.
+-- Common items first. A buy price above the cap in config.ini is not spent.
+-- A rare item is the row's own flag, or a buy price on the high side of the
+-- widest step in that table. It is spent when no common item does the job
+-- and the need is real: someone down, someone a hit already
+-- seen would kill, or MP short of a skill the field needs. Scrolls and knives
+-- are thrown when the bar has no weakness that will land. A neutral spell
+-- does not hold a weakness item back. Tents and Healing Spring stay put. A
+-- fight where no foe can hurt the party spends nothing.
 
 local BOOK = { items = {}, leave = {}, attack = {} }
 -- Status ids, the same as health.lua.
@@ -40,6 +41,44 @@ end
 local M = {}
 M.book = BOOK
 
+-- Buy prices from one item table. The high side of the one step that is
+-- wider than every other step is rare. Equal steps are a shop ladder. A
+-- price of 0 is not a buy price. The gil amounts are the table's own.
+function M.rarePrices(prices)
+    local seen, list = {}, {}
+    for _, p in ipairs(prices or {}) do
+        local n = tonumber(p)
+        if n and (n > 0) and (not seen[n]) then
+            seen[n] = true
+            list[#list + 1] = n
+        end
+    end
+    table.sort(list)
+    if #list < 2 then return {} end
+    local bestHi, bestLo, at, ties = 0, 1, nil, 0
+    for i = 2, #list do
+        local hi, lo = list[i], list[i - 1]
+        local cmp = (hi * bestLo) - (bestHi * lo)
+        if cmp > 0 then
+            bestHi, bestLo, at, ties = hi, lo, i, 1
+        elseif cmp == 0 then
+            ties = ties + 1
+        end
+    end
+    if (not at) or (ties ~= 1) then return {} end
+    local rare = {}
+    for i = at, #list do rare[list[i]] = true end
+    return rare
+end
+
+-- The player's cap from config.ini. A buy price above it stays in the bag.
+-- A price equal to the cap is still spent. A missing price is not above it.
+function M.abovePrice(price, cap)
+    price, cap = tonumber(price), tonumber(cap)
+    if (not price) or (not cap) then return false end
+    return price > cap
+end
+
 -- Filled from the game's rows (rows.lua).
 function M.load(t)
     BOOK, CURE_ITEM = t, t.clears
@@ -52,12 +91,13 @@ function M.listed(name)
 end
 
 -- One bag row, or nil when the item is not spent in battle.
--- f is what the game's own rows say: rare (the row's flag), amount (a fixed
--- restore), revive, cure, rowHp and rowMp (the item's skill row restores
--- it), saysHp and saysMp (the library answers yes), party (the item's skill
--- row targets every ally).
+-- f is what the game's own rows say: rare (the row's flag), held (the buy
+-- price is above the cap), amount (a fixed restore), revive, cure, rowHp
+-- and rowMp (the item's skill row restores it), saysHp and saysMp (the
+-- library answers yes), party (the item's skill row targets every ally).
 function M.entry(id, name, count, f)
     f = f or {}
+    if f.held then return nil end
     local lowered = fold(name)
     local listed = BOOK.items[lowered]
     local rareRow = BOOK.leave[lowered]
@@ -260,10 +300,17 @@ function M.recovery(owned, want, ctx)
         end
     elseif want == "mp" then
         it = M.chooseMp(items, ctx.missing)
-        if (not it) and ctx.dire then
-            it = firstOf(rares, function(row) return row.mp and row.kind ~= "revive" and not row.hp end)
-                or firstOf(rares, function(row) return row.mp and row.kind ~= "revive" end)
-            fromRare = true
+        local short = (not it) or (ctx.missing and it.amount and (it.amount < ctx.missing))
+        if short and ctx.dire then
+            -- A rare row replaces the common pick only when it restores more.
+            local function bigger(row)
+                return row.mp and (row.kind ~= "revive")
+                    and ((not it) or (not it.amount) or (not row.amount) or (row.amount > it.amount))
+            end
+            local big = firstOf(rares, function(row) return bigger(row) and (not row.hp) and (not row.party) end)
+                or firstOf(rares, function(row) return bigger(row) and (not row.party) end)
+                or firstOf(rares, bigger)
+            if big then it, fromRare = big, true end
         end
     end
     if not it then return nil end

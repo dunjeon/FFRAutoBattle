@@ -24,6 +24,10 @@ check(d.known["ward"].use == "guardbuff" and d.known["ward"].guards == "magic", 
 check(d.known["soften"].use == "debuff" and d.known["soften"].effect == "deprotect", "a debuff row is named by its status")
 check(d.limits["big one"].use == "lb-cash" and d.limits["big one"].gauges == 2 and d.limits["big one"].area, "a Limit's gauges come from its cost")
 check(d.items.items["sip"] == "hp" and d.items.items["clean"] == "cure" and d.items.clears["clean"][5], "items come from their skill row")
+local dear = R.build({ skills = { [6] = potion }, items = {
+    [3] = { name = "Token", skillId = 6, price = 6000, scene = 3, held = true },
+} })
+check(dear.items.leave["token"].use == "out" and dear.items.items["token"] == nil, "a price above the cap is not a heal")
 local c = d.units[9]
 check(c.weak.thunder and c.half.water and c.no.fire and c.absorb.ice and c.ail.sleep, "resistances come from the enemy's row")
 check(c.danger and (not c.no.physical) and (c.counter == "physical"), "a counter comes from the skill row, and trait text does not set an immunity")

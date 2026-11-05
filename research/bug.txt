@@ -195,7 +195,7 @@ SMALLER ISSUES
 
 FIXED AFTER THAT REVIEW
 
-These edits are in the working tree only. They are not committed, and they are not in the game folder. The fights below were played on commit 62a4501, before these edits.
+These edits were in the working tree only when this note was written. They are committed now. See CURRENT LIST at the end of this file. The fights below were played on commit 62a4501, before these edits.
 
 The live BreakPoint is what gaugeOfEnemy scores from when the read exists. The book ledger remains the fallback when the read is missing. The Twinscythe fight did treat foes as empty while the live bar still had points. See CHECK OF THAT RESPONSE below.
 A miss with no land keeps the row's accuracy. Once a cast has landed, the fight's lands are the rate.
@@ -408,7 +408,7 @@ Left as they are:
 
 5. All-casts stay on the row's own magnification. The Leviathan Fire and Fira pair is two single rows. The 0.4 share stays out.
 16. SLOW_YES stays unset. settleSlow says Slow ending is not proof the cure did it, so there is nothing honest to store.
-19. The Esper hold stays. This log never printed "esper Ramuh finished".
+19. The Esper hold stays. This log never printed "esper Ramuh finished". Later logs did. See CURRENT LIST.
 20. The effect-id compares that cannot match stay. rows.lua already classifies those rows.
 24. pollTriggers was not measured.
 25. A partial table load was not seen.
@@ -484,7 +484,7 @@ script compiles.
    spent. Saving it would need its own rule, and none was added.
    Tests: 8 new checks in tests/test_debuffs.lua.
 
-19. The Esper hold now logs what it sees. The release is NOT fixed yet.
+19. The Esper hold now logs what it sees. The release was not fixed yet when this note was written. The later play closed it. See CURRENT LIST.
    The one-Esper result looks like a bug, so the plan is to fix the release. The log
    doesn't show why it failed, so this step only adds logging. The hold's behavior is
    unchanged, and these lines don't affect any choice.
@@ -505,7 +505,9 @@ script compiles.
    Keep the rule: no second Esper while the first is still out.
 
 
-SMALLER LEFTOVERS, NOT FIXED
+SMALLER LEFTOVERS, NOT FIXED WHEN THIS NOTE WAS WRITTEN
+
+These four are still the open leftovers. The current wording is in CURRENT LIST at the end of this file.
 
 - Self-heal users still count as healers. A Chakra user's score of 101 beats First
   Aid's 16, so the First Aid user can wait for someone who can't heal them. [read]
@@ -544,8 +546,8 @@ without a score weight. The smaller damage Limit still waits while a larger
 one on that ally can land and a foe is unbroken. It is not a boss flag.
 A full bar, or a break of the largest gauge, spends the larger row.
 
-Not played since this change. The tests check the gauge math and the
-comparison. They do not fight the game.
+This note was written before the next play. That play is in CURRENT LIST.
+The tests check the gauge math and the comparison. They do not fight the game.
 
 
 ESPER, ONE CALL FOR THE WHOLE BOSS
@@ -560,4 +562,94 @@ still out.
 The hold is now: still up, or not yet acted. After it has acted, a unit that
 is not up can be called again when the caster can pay and the call is the
 one that fits. An unsummon effect (43) ends the call. A common fight still
-does not spend one. Not played since this change.
+does not spend one. This note was written before the next play. That play
+is in CURRENT LIST.
+
+
+CURRENT LIST, AFTER THE LATER 2026-11-05 PLAY
+
+Read this for what is open. The notes above are the record of how each item
+was found. A line up there that says "not fixed", "not played", or "not
+committed" is about the log in that section. It is out of date when this
+list says otherwise.
+
+Seen in the later Leviathan logs, on the build that was copied and then
+committed as 01214bc. Same party both fights. A win here is not proof for
+another party.
+
+- Esper. Ramuh was on the field while he was hitting. The log printed
+  "esper Ramuh finished" when he left, and Fina called him again. Fight 2
+  did that three times. No second call went out while one was still up.
+  The third call stopped when her MP was under 50. Bug 19's "no way out"
+  is closed for that case. A common fight was not in this log.
+- Limits. The point bar, the library read, and the unit parameter agreed.
+  Nichol at 100/100 used Formation: Steeled Advance, his one-gauge row.
+  Lasswell at 115/200 did not spend a gauge. At 200/200 he used Transient
+  Rite, the two-gauge row. Fina at 112/200 used Holy Ray, the one-gauge
+  row, on an open stagger. Radiant Restoration needs two gauges, and the
+  bar was not there. Rain's bar did not fill a gauge. The "no Limit was
+  commanded" note above is the earlier log only.
+
+Fixed in the code on testing, and played before 01214bc where a log exists.
+Not re-checked in the later two fights unless the line above says so.
+
+- 1. The live BreakPoint is what the gauge is scored from.
+- 2. The land rate stays on the row until a cast lands. The miss-key
+  leftover is still open, below.
+- 3. A self-target heal is not sent at someone else.
+- 4. A bag row filed as "both" restores HP and MP. MP items are chosen by
+  the game's amounts. There is still no rare column.
+- 6. Magnification and break damage are the whole skill. The Fire and Fira
+  pair is what that follows. The code no longer multiplies by hit count.
+- 7 and 8. Stance and escape clear at the start of a fight and on a wipe
+  retry.
+- 9. A care heal wins the resonance wheel over a damage finisher. The wheel
+  this was written for was played before the change and sent Ascension.
+  The later two fights also sent Ascension. This list does not call 9 seen.
+- 10. A foe keepFoe rejects is not a threat, including one already down.
+- 11. A debuff that was claimed and never seen stays claimed. Seen, then
+  gone, is a refresh.
+- 12. A party brace item is found even when the party is not mostly under half.
+- 13. A second fallen ally can be raised while the first raise is claimed.
+- 14. An ally who is out of control does not get a fallback command.
+- 15. A free hit does not close the opening setup. It does count as the
+  fight being underway.
+- 17. A party heal spell claims every ally it covers.
+- 18. A cure claims a cure, not the heal slot.
+- 21. The basic-attack lookup keeps going until that ally can use the row.
+- 22. The multicast flag reads appliesAll.
+- 23. The report summary rounds a fractional stagger before printing it.
+- 26. The bestiary count is logged when the rows are read, not at startup.
+- 27. The README matches 0.2.27, the All-cast row, and the missing rare flag.
+
+Still open:
+
+- 5. All-casts. Same caster, single row and All row, same foe. The 0.4
+  share stays out.
+- 2, leftover. After a land, the miss key still includes the command count.
+  No logged fight has had a miss.
+- Self-heal users still count as healers. A Chakra score of 101 beats
+  First Aid's 16.
+- Party MP items may be sent at one target with IsAll false. Whether the
+  game accepts that is not known.
+- 24. pollTriggers calls FindFirstOf every 16 ms. Not measured.
+- 25. A partial table load is not tried again. Not seen.
+- keepFoe runs for every foe, for every ally, many times a turn. Not measured.
+
+In the code, not played yet:
+
+- 4. The item table has no rare column. ItemPrice in config.ini is the cap,
+  default 5000, and a buy price above it is not spent. The widest step on
+  the consumable table is still 99,999 to 500,000 for a higher cap. Not
+  played since this change.
+
+Left on purpose:
+
+- 16. Slow. Nothing honest is stored when Slow ends, so a Slow cure stays
+  one use a fight.
+- 20. Some skill.effect checks can never match. rows.lua already classifies
+  those rows.
+- 28. A scroll goes out when the bar has no weakness that will land. The
+  Twinscythe Flame Scroll against Banishra is why that stayed.
+
+Fina / Medica is not a bug on this list. No Medica row was on her bar.
