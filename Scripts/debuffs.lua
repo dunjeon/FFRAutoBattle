@@ -33,6 +33,23 @@ local FALLBACK = {
     slow = true,
 }
 
+-- Which of this party's damage each defense debuff helps.
+local HELPS = { protect = "physical", shell = "magic" }
+-- Under this share of the party's damage, the debuff isn't worth a turn.
+local WORTH = 0.2
+
+-- A debuff's rank. A defense debuff follows what this party really deals: the
+-- larger share goes first, still ahead of the others. share: { physical, magic }.
+local function rankOf(effect, share)
+    local base = effect and RANK[effect]
+    if not base then return 0 end
+    local helps = share and HELPS[effect]
+    if not helps then return base end
+    local part = share[helps] or 0
+    if part < WORTH then return 0 end
+    return 40 + (part * 20)
+end
+
 local M = {}
 M.STATUS = STATUS
 
@@ -121,12 +138,12 @@ local function preferAbout(foes)
     return false
 end
 
-function M.choose(skills, foes, on, seen, fallback)
+function M.choose(skills, foes, on, seen, fallback, share)
     if preferAbout(foes) then return nil end
     local bestS, bestF, bestRank = nil, nil, 0
     for _, skill in ipairs(skills or {}) do
         local effect = M.effectOf(skill)
-        local rank = (effect and RANK[effect]) or 0
+        local rank = rankOf(effect, share)
         if (rank == 0) and fallback and effect and FALLBACK[effect] then rank = 1 end
         if rank > 0 then
             for _, foe in ipairs(foes or {}) do
@@ -149,12 +166,12 @@ function M.choose(skills, foes, on, seen, fallback)
 end
 
 -- The effect that would have been spent, except every open body it fits is immune.
-function M.immuneEffect(skills, foes, fallback)
+function M.immuneEffect(skills, foes, fallback, share)
     if preferAbout(foes) then return nil end
     local found = nil
     for _, skill in ipairs(skills or {}) do
         local effect = M.effectOf(skill)
-        local rank = (effect and RANK[effect]) or 0
+        local rank = rankOf(effect, share)
         local fb = (rank == 0) and fallback and effect and FALLBACK[effect]
         if (rank > 0) or fb then
             local anyFit, anyImmune = false, false

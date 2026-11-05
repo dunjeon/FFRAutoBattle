@@ -29,6 +29,19 @@ check(c.no.physical and c.danger, "traits fill in what the row's numbers can't")
 check(c.danger[1] == "Spark" and c.hits == "magic", "dangerous moves and their kind come from the game's list")
 check(c.dangerIds and #c.dangerIds == #c.danger, "the card keeps the dangerous moves' ids for the warned-hit estimate")
 check(d.mobs["foe"] == c, "an enemy is also found by name")
+local same1 = { id = 80, name = "Twin", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 5, power = 20, breakPower = 10, element = "fire", effects = {} }
+local same2 = { id = 81, name = "Twin", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 5, power = 90, breakPower = 10, element = "ice", effects = {} }
+local beg = { id = 82, name = "Beg", attr = 3, effect = 1, varType = 0, dmgType = 0, target = 1, rel = 1, cost = 0, power = 99999, breakPower = 0, effects = {} }
+local d3 = R.build({ skills = { [80] = same1, [81] = same2, [82] = beg }, units = {
+    [90] = { name = "Jar", elements = {}, status = {}, traits = {}, moves = { 82 } },
+    [91] = { name = "Biter", elements = {}, status = {}, traits = {}, moves = { 82, 80 } },
+    [92] = { name = "Blank", elements = {}, status = {}, traits = {}, moves = {} },
+}, items = {} })
+check(d3.knownById[80].fact.element == "fire" and d3.knownById[81].fact.element == "ice", "rows that share a name keep their own facts")
+check(d3.knownById[80].name == "twin", "a row's fact remembers its name")
+check(d3.units[90].harmless, "a foe with only harmless moves can't hurt anyone")
+check(not d3.units[91].harmless, "one damaging move and it can")
+check(not d3.units[92].harmless, "no moves listed isn't proof it's harmless")
 local bio = { id = 20, name = "Toxin", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 10, power = 20, breakPower = 20, effects = { { type = 2, status = 1, params = {}, turns = 5 } } }
 local gale = { id = 21, name = "Gale", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 0, power = 20, breakPower = 0, element = "wind", effects = {} }
 local esper = { id = 22, name = "Sprite", attr = 7, effect = 0, varType = 0, dmgType = 0, target = 0, rel = 1, cost = 50, power = 0, breakPower = 0, effects = { { type = 37, status = 0, params = { 2, 70 }, turns = -1 } } }

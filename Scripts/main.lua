@@ -89,6 +89,10 @@ local function knownOf(skill)
     if not map or not skill or not skill.name then return nil end
     local key = skill.name:lower()
     key = key:gsub("’", "'"):gsub("‘", "'"):gsub("`", "'")
+    -- Rows can share a name and differ. This skill's own row comes first. The name
+    -- check keeps an item's id from reading a skill row with the same number.
+    local own = Known.skillsById and skill.id and Known.skillsById[skill.id]
+    if own and (own.name == key) then return own.fact end
     return map[key]
 end
 local Mobs = {}
@@ -629,6 +633,7 @@ local function buildSkillIndex()
         local okB, built = pcall(Known.rows.build, { skills = skills, units = units, items = items })
         if okB and built then
             Known.skills = built.known
+            Known.skillsById = built.knownById
             Known.unitCards = built.units
             for k, v in pairs(built.mobs) do Mobs[k] = v end
             if Limits.load then Limits.load(built.limits) end
@@ -1160,7 +1165,7 @@ local function counterScale(skill, enemy)
 end
 
 -- A friend, a nameless slot, or a body with no HP is not a foe.
--- The enemy-target list has included the actor. The book also has a Lasswell card at gauge 9999.
+-- The enemy-target list has included the actor.
 local function keepFoe(id)
     if not id or not Fight then return false end
     local function drop()
@@ -1207,9 +1212,13 @@ end
 local function isGuard(skill)
     local info = skill.known or knownOf(skill)
     if info and info.use == "guard" then return true end
-    local name = skill.name and skill.name:lower() or ""
-    if name == "defend" or name == "guard" then return true end
     if skill.effect == EFF.DEFEND or skill.effect == EFF.COVER then return true end
+    -- A cut on the user alone that ends at their next action is a guard stance.
+    if skill.target == TGT.SELF then
+        for _, e in ipairs(skill.effects or {}) do
+            if (e.type == EFF.DEFEND) and (e.turns == 1) and ((skill.power or 0) <= 0) then return true end
+        end
+    end
     if (skill.power or 0) > 0 or (skill.breakPower or 0) > 0 then return false end
     if skill.friendStatus then
         for id in pairs(skill.friendStatus) do
@@ -1588,11 +1597,31 @@ end
 local itemsLogged = false
 local potLogged = false
 
+-- A boss, or a foe with moves the game itself lists as dangerous. Spending for
+-- need and setup go by this, so a hard fight is treated as hard whatever it's called.
+local function hardFight(w)
+    if w.hard == nil then
+        w.hard = w.boss and true or false
+        for _, u in ipairs(w.enemies or {}) do
+            local card = mobOf(u)
+            if card and card.danger and card.danger[1] then w.hard = true end
+        end
+    end
+    return w.hard
+end
+
+-- Every foe here has only moves that can't hurt anyone, so nothing is worth an item.
 local function potFight(w)
-    if not (Items.potFight and Items.potFight(w.enemies)) then return false end
+    local any = false
+    for _, u in ipairs(w.enemies or {}) do
+        local card = mobOf(u)
+        if not (card and card.harmless) then return false end
+        any = true
+    end
+    if not any then return false end
     if not potLogged then
         potLogged = true
-        log("pot fight: leaving items for you")
+        log("no foe here can hurt the party: leaving items for you")
     end
     return true
 end
@@ -1714,6 +1743,7 @@ local function pickRecoveryItem(uid, w, want, focus)
     if potFight(w) then return nil end
     if not Items.recovery then return nil end
     local owned = ownedRecovery()
+    hardFight(w)
     local dire = (Health.direNeed and Health.direNeed(w)) and true or false
     local function tagged(choice, rare)
         if choice and rare then choice.reason = choice.reason .. " (rare, boss)" end
@@ -1723,7 +1753,7 @@ local function pickRecoveryItem(uid, w, want, focus)
         local dead = (Health.fallen and Health.fallen(w.allies, unitKit, offenseOf, raiseOrder()))
             or firstDead(w, function(u) return u.acts ~= false end) or firstDead(w)
         if not dead then return nil end
-        local it, rare = Items.recovery(owned, "revive", { boss = w.boss })
+        local it, rare = Items.recovery(owned, "revive", { boss = hardFight(w) })
         if it then return tagged(itemChoice(uid, it, "item raise " .. dead.name, dead.id, "revive"), rare) end
         return nil
     end
@@ -1747,7 +1777,7 @@ local function pickRecoveryItem(uid, w, want, focus)
         end
         local need = Health.partyNeed and Health.partyNeed(#living) or 3
         local it, rare = Items.recovery(owned, "heal", {
-            boss = w.boss, missing = missing, dire = dire,
+            boss = hardFight(w), missing = missing, dire = dire,
             spread = hurtN >= need, partyOnly = focus and focus.partyOnly,
         })
         if not it then return nil end
@@ -1795,7 +1825,7 @@ local function pickRecoveryItem(uid, w, want, focus)
     -- the bar cannot pay; with focus.landing, any item that lands will do.
     if want == "attack" then
         local best, bestU, bestF = Items.throw(owned, {
-            boss = w.boss, list = focus and focus.list, landing = focus and focus.landing,
+            boss = hardFight(w), list = focus and focus.list, landing = focus and focus.landing,
             factorOf = elementFactor, itemAttr = ATTR.ITEM,
         })
         if not best then return nil end
@@ -1808,7 +1838,7 @@ local function pickRecoveryItem(uid, w, want, focus)
         return choice
     end
     if want == "mp" then
-        local it, rare = Items.recovery(owned, "mp", { boss = w.boss, dire = dire })
+        local it, rare = Items.recovery(owned, "mp", { boss = hardFight(w), dire = dire })
         if it then return tagged(itemChoice(uid, it, "ether " .. unitName(uid), uid, "mp"), rare) end
     end
     return nil
@@ -2808,7 +2838,7 @@ local function turn(uid, skills, w, phase)
                         local f = elementFactor(s, u)
                         if f > 0 then
                             local pow = offenseOf(s)
-                            local real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * f)
+                            local real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f))
                             if real then shots[#shots + 1] = { skill = s, real = real, cost = s.cost or 0 } end
                         end
                     end
@@ -2874,7 +2904,7 @@ local function turn(uid, skills, w, phase)
     local hardField = false
     local function styleOf()
         local healers = 0
-        hardField = w.boss and true or false
+        hardField = hardFight(w)
         for _, a in ipairs(w.allies) do
             if not a.dead and a.acts ~= false and not heldOut(a) then
                 local kit = unitKit(a.id)
@@ -2884,10 +2914,6 @@ local function turn(uid, skills, w, phase)
                     if cost <= 0 or mp >= cost then healers = healers + 1 end
                 end
             end
-        end
-        for _, u in ipairs(w.enemies) do
-            local card = mobOf(u)
-            if card and card.danger and card.danger[1] then hardField = true end
         end
         if hardField and healers == 0 then return "defensive" end
         -- Past a boss, setup has to wait for a fight that's lasting. Most are
@@ -3990,6 +4016,34 @@ local function turn(uid, skills, w, phase)
             end
         end
     end
+    -- How much of this party's damage is physical and how much magic: what it has
+    -- really dealt, or before any hit lands, what it holds.
+    local shareMemo = nil
+    local function damageShare()
+        if shareMemo then return shareMemo end
+        local phys, magic = 0, 0
+        for _, rec in pairs((Fight.dealtBook and Fight.dealtBook.bySkill) or {}) do
+            local row = skillOf(rec.skill)
+            local amount = (rec.avg or 0) * (rec.uses or 1)
+            if row and (row.dmgType == 1) then phys = phys + amount end
+            if row and (row.dmgType == 2) then magic = magic + amount end
+        end
+        if (phys + magic) <= 0 then
+            for _, a in ipairs(w.allies) do
+                local kit = (not a.dead) and unitKit(a.id) or nil
+                for _, x in ipairs((kit and kit.spells) or {}) do
+                    if (x.power or 0) > 0 then
+                        if x.dmgType == 1 then phys = phys + 1 end
+                        if x.dmgType == 2 then magic = magic + 1 end
+                    end
+                end
+            end
+        end
+        local total = phys + magic
+        if total <= 0 then return nil end
+        shareMemo = { physical = phys / total, magic = magic / total }
+        return shareMemo
+    end
     local function payableDebuffs(actorId, mp)
         local spells = skills
         if actorId ~= uid then
@@ -4042,7 +4096,7 @@ local function turn(uid, skills, w, phase)
             if (not a.dead) and (a.acts ~= false) and not heldOut(a) then
                 local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
                 local picks = payableDebuffs(a.id, mp)
-                if Debuffs.choose(picks, foes, Fight.debuffOn, Fight.debuffSeen, fallback) then
+                if Debuffs.choose(picks, foes, Fight.debuffOn, Fight.debuffSeen, fallback, damageShare()) then
                     debuffOwedFlag = true
                     return true
                 end
@@ -4262,9 +4316,9 @@ local function turn(uid, skills, w, phase)
                         -- yet tried is scaled by what this caster's others did.
                         local real = nil
                         if Known.measure and Fight.dealtBook then
-                            real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * f)
+                            real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f))
                         end
-                        if cashing then pts = pts + (real or ((pow or 0) * f))
+                        if cashing then pts = pts + (real or ((pow or 0) * ((Known.measure and Known.measure.damageFit(f)) or f)))
                         else pts = pts + gained + ((real or 0) / 10) end
                         if f >= 3 then weak = true end
                         if not empty and gained >= remain then finishes = true end
@@ -4623,7 +4677,7 @@ local function turn(uid, skills, w, phase)
         noteDebuffSeen(foes)
         local fallback = not partyMatter()
         local picks = payableDebuffs(uid, w.mp or 0)
-        local s, foe, why = Debuffs.choose(picks, foes, Fight.debuffOn, Fight.debuffSeen, fallback)
+        local s, foe, why = Debuffs.choose(picks, foes, Fight.debuffOn, Fight.debuffSeen, fallback, damageShare())
         if s and foe and ((not refreshOnly) or (why == "refresh")) then
             local effect = Debuffs.effectOf(s) or "debuff"
             local spread = aoeOf(s)
@@ -4641,7 +4695,7 @@ local function turn(uid, skills, w, phase)
                 return choice
             end
         elseif (not refreshOnly) and (not s) and Debuffs.immuneEffect then
-            local skipped = Debuffs.immuneEffect(picks, foes, fallback)
+            local skipped = Debuffs.immuneEffect(picks, foes, fallback, damageShare())
             if skipped and (not Fight.debuffTold[skipped]) then
                 Fight.debuffTold[skipped] = true
                 local line = "debuff " .. skipped .. " skipped, immune"
@@ -5068,8 +5122,8 @@ local function turn(uid, skills, w, phase)
     end
 
     -- The kit is setup and comes before the chip, so a thrown item waits for it.
-    -- Boss fight: an item from the bag carries the hit the bar cannot pay.
-    if w.boss and (phase == 0) and not allyCritical() then
+    -- Hard fight: an item from the bag carries the hit the bar cannot pay.
+    if hardFight(w) and (phase == 0) and not allyCritical() then
         local list = #pool > 0 and pool or open
         local paidLands, paidWeak = false, false
         for _, x in ipairs(skills) do
@@ -7081,7 +7135,7 @@ function readRisk(hitsOnly)
         elseif Fight.dealtOpen then
             for _, rec in pairs(Fight.dealtOpen) do
                 local row = skillOf(rec.sid)
-                local factor = (rec.res == 1) and 3 or ((rec.res == 2) and 0.5 or 1)
+                local factor = (rec.res == 1) and Known.measure.WEAK_DAMAGE or ((rec.res == 2) and 0.5 or 1)
                 local est = row and ((row.power or 0) * math.max(row.hits or 1, 1) * factor) or nil
                 Known.measure.add(Fight.dealtBook, rec.from, rec.sid, rec.to, rec.raw, est, rec.onBreak)
             end
@@ -7586,7 +7640,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.14. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.15. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

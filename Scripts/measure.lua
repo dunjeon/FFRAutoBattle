@@ -24,6 +24,14 @@ local function blend(rec, value)
     if value > rec.best then rec.best = value end
 end
 
+-- Weakness is 3x on the stagger gauge (measured 3.08x) but about 1.5x on damage.
+-- elementFactor gives the stagger number, so a damage estimate converts it here.
+M.WEAK_DAMAGE = 1.5
+function M.damageFit(f)
+    if f >= 3 then return M.WEAK_DAMAGE end
+    return f
+end
+
 -- One cast by one caster on one enemy. raw: total damage. est: power times hits
 -- times the element factor, the number the row alone would give.
 function M.add(book, from, skill, to, raw, est, onBreak)

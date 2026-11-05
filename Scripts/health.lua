@@ -686,7 +686,7 @@ end
 -- Dire need in a boss fight: an ally is down, an ally is under 30%, or most
 -- of the living party is under half. Lifts the one-Ether-per-round limit.
 function M.direNeed(w)
-    if not (w and w.boss) then return false end
+    if not (w and (w.boss or w.hard)) then return false end
     local living, low = 0, 0
     for _, u in ipairs(w.allies or {}) do
         if u.dead then return true end

@@ -6,8 +6,8 @@
 -- is spent when no common item does the job, the cheapest rank first: a
 -- raise at once, a heal or MP item only under dire need. Scrolls and knives
 -- are thrown in a boss fight on a weakness the bar cannot pay, or when
--- nothing payable lands. Tents and Healing Spring stay put. A Pot fight
--- spends nothing.
+-- nothing payable lands. Tents and Healing Spring stay put. A fight where no
+-- foe can hurt the party spends nothing.
 
 local BOOK = { items = {}, leave = {}, attack = {} }
 -- Status ids, the same as health.lua.
@@ -105,15 +105,6 @@ function M.bagLine(out, answered)
     return "bag: " .. table.concat(bits, ", ")
 end
 
--- A Pot fight spends nothing.
-function M.potFight(enemies)
-    for _, u in ipairs(enemies or {}) do
-        local n = (u.name or ""):lower()
-        if n == "pot" or n:find(" pot", 1, true) then return true end
-    end
-    return false
-end
-
 -- Common, rare, and thrown rows. Rare and thrown rows are the boss fight's.
 local function pools(owned, boss)
     local items, rares, throws = {}, {}, {}
@@ -181,10 +172,11 @@ function M.itemClears(name, statuses, soft)
     return false
 end
 
--- The last Remedy stays for doom, or for a lock on the main healer.
--- healerOf(allies) is the party's main healer.
-function M.holdRemedy(name, count, target, allies, healerOf)
-    if fold(name) ~= "remedy" then return false end
+-- The last of an item that cures doom stays for doom, or for a lock on the main
+-- healer. healerOf(allies) is the party's main healer.
+function M.holdDoomCure(name, count, target, allies, healerOf)
+    local clears = CURE_ITEM and CURE_ITEM[fold(name)]
+    if not ((clears == true) or (type(clears) == "table" and clears[DOOM])) then return false end
     if (not count) or (count > 1) then return false end
     if target and target.statuses and target.statuses[DOOM] then return false end
     local healer = healerOf and healerOf(allies) or nil
@@ -263,7 +255,7 @@ function M.cure(owned, who, ctx)
     local it = firstOf(items, function(row)
         if row.kind ~= "cure" then return false end
         saw = true
-        if M.holdRemedy(row.name, row.count, who, ctx.allies, ctx.healerOf) then return false end
+        if M.holdDoomCure(row.name, row.count, who, ctx.allies, ctx.healerOf) then return false end
         return M.itemClears(row.name, who and who.statuses, ctx.soft)
     end)
     return it, saw

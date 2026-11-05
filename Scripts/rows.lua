@@ -285,6 +285,17 @@ local function cardOf(u, skills)
     end
     if kinds.magic and (not kinds.physical) then card.hits = "magic" end
     if kinds.physical and (not kinds.magic) then card.hits = "physical" end
+    -- No move it has can damage the other side, so it can't hurt anyone. A move
+    -- aimed at its own side doesn't count, however large its number.
+    local moves, hurts = 0, false
+    for _, id in ipairs(u.moves or {}) do
+        local row = skills[id]
+        if row then
+            moves = moves + 1
+            if (row.rel == ENEMY) and (((row.power or 0) > 0) or (row.effect == 1)) then hurts = true end
+        end
+    end
+    if (moves > 0) and (not hurts) then card.harmless = true end
     for _, t in ipairs(u.traits or {}) do
         local s = t:lower()
         if s:find("immune to physical", 1, true) or s:find("nullifies physical", 1, true) then card.no.physical = true end
@@ -300,7 +311,7 @@ end
 
 -- raw: skills, units, items, each by id, from the game's tables.
 function M.build(raw)
-    local out = { known = {}, limits = {}, espers = {}, mobs = {}, units = {},
+    local out = { known = {}, knownById = {}, limits = {}, espers = {}, mobs = {}, units = {},
         kits = { book = {}, draw = {}, stance = {}, stanceOff = {}, haste = {}, mechabo = {} },
         items = { items = {}, leave = {}, attack = {}, clears = {} } }
     local ids = {}
@@ -310,7 +321,9 @@ function M.build(raw)
         local row = raw.skills[id]
         if row.name and row.name ~= "" then
             local key = fold(row.name)
-            if out.known[key] == nil or row.fromUnit then out.known[key] = factOf(row) end
+            local fact = factOf(row)
+            if out.known[key] == nil or row.fromUnit then out.known[key] = fact end
+            out.knownById[id] = { name = key, fact = fact }
             if row.attr == A_LB then out.limits[key] = limitOf(row) end
             if row.attr == A_SUMMON and has(row, E.SUMMON) then out.espers[key] = esperOf(row, raw.units or {}, raw.skills) end
             if row.effects then roleOf(row, out.kits) end
