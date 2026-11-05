@@ -8,7 +8,7 @@ local M = {}
 local BREAK_SCALE = 1.5
 
 function M.new()
-    return { byFoe = {}, bySkill = {}, sums = {}, seen = {} }
+    return { byFoe = {}, bySkill = {}, sums = {}, seen = {}, land = {} }
 end
 
 -- False when this exact hit was already read. The list is read more than once.
@@ -54,16 +54,39 @@ function M.add(book, from, skill, to, raw, est, onBreak)
     end
 end
 
+-- One cast by one caster on one target, landed or missed. A hit that misses does
+-- nothing, so what a skill is worth has to include how often it misses.
+function M.noteCast(book, from, skill, landed)
+    local key = tostring(from) .. ":" .. tostring(skill)
+    local rec = book.land[key] or { casts = 0, landed = 0 }
+    rec.casts = rec.casts + 1
+    if landed then rec.landed = rec.landed + 1 end
+    book.land[key] = rec
+end
+
+-- How often this hit lands, 0 to 1. The row's accuracy counts as two casts, so it
+-- answers before the first cast and real casts soon outweigh it. Rows list 0 for
+-- no roll and over 100 for a sure hit.
+local LAND_PRIOR = 2
+function M.landRate(book, from, skill, accuracy)
+    local listed = 1
+    if accuracy and (accuracy > 0) and (accuracy < 100) then listed = accuracy / 100 end
+    local rec = book and book.land[tostring(from) .. ":" .. tostring(skill)]
+    if not rec then return listed end
+    return (rec.landed + (listed * LAND_PRIOR)) / (rec.casts + LAND_PRIOR)
+end
+
 -- The damage to expect, or nil when there's nothing to go on. What this hit did
 -- to this enemy comes first. Otherwise the row's number, scaled by what this
 -- caster's other hits really did. The same skill on another enemy is only a
 -- guide, since that enemy's weakness can differ.
-function M.expect(book, from, skill, to, est)
+function M.expect(book, from, skill, to, est, accuracy)
+    local land = M.landRate(book, from, skill, accuracy)
     local rec = book.byFoe[tostring(from) .. ":" .. tostring(skill) .. ":" .. tostring(to)]
-    if rec then return rec.avg, true end
+    if rec then return rec.avg * land, true end
     local sum = book.sums[from]
     if sum and (sum.est > 0) and est and (est > 0) then
-        return est * (sum.raw / sum.est), false
+        return est * (sum.raw / sum.est) * land, false
     end
     return nil, false
 end

@@ -19,9 +19,10 @@ local STATUS = {
 }
 
 local RANK = {
-    protect = 50,
-    shell = 40,
-    attack = 30,
+    deprotect = 50,
+    deshell = 40,
+    debrave = 30,
+    defaith = 30,
     silence = 20,
     blind = 10,
 }
@@ -34,8 +35,10 @@ local FALLBACK = {
 }
 
 -- Which of this party's damage each defense debuff helps.
-local HELPS = { protect = "physical", shell = "magic" }
--- Under this share of the party's damage, the debuff isn't worth a turn.
+local HELPS = { deprotect = "physical", deshell = "magic" }
+-- Which of a foe's damage each offense debuff cuts.
+local CUTS = { debrave = "physical", defaith = "magic" }
+-- Under this share of the damage it would touch, a debuff isn't worth a turn.
 local WORTH = 0.2
 
 -- A debuff's rank. A defense debuff follows what this party really deals: the
@@ -52,6 +55,22 @@ end
 
 local M = {}
 M.STATUS = STATUS
+
+-- How much of this foe's damage is physical and how much magic: what it has really
+-- dealt, or before any hit, the kind of its dangerous moves. Nil with neither.
+-- foeBook: its hit book, skill id to { total, dtype }. hits: "physical" or "magic".
+function M.dealsOf(foeBook, hits)
+    local phys, magic = 0, 0
+    for _, sk in pairs(foeBook or {}) do
+        if sk.dtype == 1 then phys = phys + (sk.total or 0) end
+        if sk.dtype == 2 then magic = magic + (sk.total or 0) end
+    end
+    local total = phys + magic
+    if total > 0 then return { physical = phys / total, magic = magic / total } end
+    if hits == "physical" then return { physical = 1, magic = 0 } end
+    if hits == "magic" then return { physical = 0, magic = 1 } end
+    return nil
+end
 
 function M.effectOf(skill)
     local info = skill and skill.known
@@ -103,6 +122,8 @@ function M.up(effect, foe, on, seen, skill)
 end
 
 local function classOk(effect, foe, fallback)
+    local cuts = CUTS[effect]
+    if cuts and foe.deals and ((foe.deals[cuts] or 0) < WORTH) then return false end
     if RANK[effect] then
         if (effect == "silence") or (effect == "blind") then
             return foe.counter == "magic"

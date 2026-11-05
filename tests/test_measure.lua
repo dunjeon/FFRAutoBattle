@@ -45,4 +45,19 @@ local thin, wide = { real = 460, cost = 0 }, { real = 600, cost = 15 }
 check(M.pickKill({ thin, wide }, 432) == wide, "room to spare beats a close call")
 check(M.pickKill({ thin }, 432) == thin, "a close call is still taken when it's all there is")
 check(M.damageFit(3) == 1.5 and M.damageFit(1) == 1 and M.damageFit(0.5) == 0.5, "weakness is smaller on damage than on stagger")
+
+-- Misses, in numbers from a real fight: lands for 544, 50% accuracy, 6 of 15 missed.
+local m = M.new()
+check(M.landRate(m, 1, 5, 50) == 0.5, "before the first cast, the row's accuracy is the guess")
+check(M.landRate(m, 1, 5, 100) == 1 and M.landRate(m, 1, 5, 500) == 1 and M.landRate(m, 1, 5, 0) == 1 and M.landRate(m, 1, 5, nil) == 1, "100, over 100, 0 and missing all mean it doesn't miss")
+M.add(m, 1, 5, 9, 544, nil, false)
+for i = 1, 15 do M.noteCast(m, 1, 5, i > 6) end
+local rate = M.landRate(m, 1, 5, 50)
+check(math.abs(rate - (10 / 17)) < 0.001, "real casts outweigh the row's number")
+check(math.abs(M.expect(m, 1, 5, 9, nil, 50) - (544 * 10 / 17)) < 0.01, "expected damage counts the misses")
+M.add(m, 1, 6, 9, 460, nil, false)
+M.noteCast(m, 1, 6, true)
+check(M.expect(m, 1, 6, 9, nil, 100) > M.expect(m, 1, 5, 9, nil, 50), "a sure 460 beats a coin-flip 544")
+check(M.landRate(m, 2, 5, 50) == 0.5, "another caster's misses don't carry over")
+check(M.landRate(nil, 1, 5, 50) == 0.5, "before any hit lands in the fight, the row's number still answers")
 os.exit(fails == 0 and 0 or 1)

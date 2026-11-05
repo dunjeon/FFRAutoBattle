@@ -21,12 +21,12 @@ local E = {
 
 -- eUnitStatusCondition, by what the planner's debuffs are called.
 local DEBUFF = { [1] = "poison", [2] = "blind", [4] = "silence", [6] = "confuse", [8] = "charm", [12] = "slow",
-    [15] = "attack", [16] = "protect", [18] = "shell" }
+    [15] = "debrave", [16] = "deprotect", [17] = "defaith", [18] = "deshell" }
 local ST_HASTE, ST_DEFEND = 33, 36
 -- The names the planner's ailment checks use.
 local STATUS = { [1] = "poison", [2] = "blind", [3] = "sleep", [4] = "silence", [5] = "paralysis", [6] = "confuse",
     [7] = "petrify", [8] = "charm", [9] = "stop", [10] = "berserk", [11] = "doom", [12] = "slow", [13] = "instant death",
-    [14] = "gravity", [15] = "attack", [16] = "protect", [18] = "shell" }
+    [14] = "gravity", [15] = "debrave", [16] = "deprotect", [17] = "defaith", [18] = "deshell" }
 local FORMATION = { [80] = 1, [81] = 2, [82] = 3, [83] = 4, [79] = 5 }
 
 -- The same folding the planner's lookups use.

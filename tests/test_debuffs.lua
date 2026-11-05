@@ -7,7 +7,8 @@ local function check(ok, msg)
     if not ok then fails = fails + 1 end
 end
 local function skill(effect) return { name = effect, known = { effect = effect } } end
-local protect, shell, brave = skill("protect"), skill("shell"), skill("attack")
+local protect, shell, brave = skill("deprotect"), skill("deshell"), skill("debrave")
+local faith = skill("defaith")
 local foes = { { id = 1, prefer = true } }
 local function pick(share, list)
     return (D.choose(list or { protect, shell, brave }, foes, {}, {}, false, share))
@@ -20,6 +21,23 @@ check(pick({ physical = 0.7, magic = 0.3 }) == protect, "either way round")
 check(pick({ physical = 0, magic = 1 }, { protect, brave }) == brave, "a defense debuff that wouldn't help gives way to another")
 check(pick({ physical = 0, magic = 1 }, { protect }) == nil, "and if it's all there is, the turn isn't spent on it")
 check(pick(nil) == protect, "with nothing to go on, the old order stands")
+
+-- Debuffs that cut a foe's damage follow the damage it really deals.
+local function aimed(deals, list)
+    return (D.choose(list, { { id = 1, prefer = true, deals = deals } }, {}, {}, false, nil))
+end
+local magicFoe = D.dealsOf({ [1] = { total = 33265, dtype = 2 }, [2] = { total = 7558, dtype = 1 } })
+check(math.abs(magicFoe.physical - 0.185) < 0.001, "a foe's split comes from what it has dealt")
+check(aimed(magicFoe, { brave, faith }) == faith, "a mostly magic foe gets Defaith")
+check(aimed(magicFoe, { brave }) == nil, "and Debrave alone isn't worth the turn")
+local physFoe = D.dealsOf({ [1] = { total = 900, dtype = 1 }, [2] = { total = 100, dtype = 2 } })
+check(aimed(physFoe, { brave, faith }) == brave, "a mostly physical foe gets Debrave")
+check(aimed(physFoe, { faith }) == nil, "and Defaith alone isn't worth the turn")
+check(aimed({ physical = 0.5, magic = 0.5 }, { brave }) == brave, "a mixed foe can take either")
+check(aimed(nil, { brave }) == brave, "with nothing to go on, it stays available")
+check(D.dealsOf({}, "magic").magic == 1 and D.dealsOf(nil, "physical").physical == 1, "before any hit, its dangerous moves are the guide")
+check(D.dealsOf({}, nil) == nil, "no hits and no guide, no answer")
+check(aimed(magicFoe, { protect }) == protect, "a debuff for the party's own damage isn't affected")
 
 I.load({ clears = { ["cure all"] = true, ["doom drop"] = { [11] = true }, ["eye drop"] = { [2] = true } } })
 local doomed = { id = 2, statuses = { [11] = true } }

@@ -73,6 +73,30 @@ function M.partyNeed(living)
     return math.max(2, math.ceil(n * 0.75))
 end
 
+-- A claim says "a heal is coming". Once that ally's HP falls below the highest it
+-- has read since the claim, the heal has come and gone, so the claim ends and the
+-- ally can be healed again. marks: id to that HP. Returns the ids released.
+function M.reviewClaims(claims, marks, ids, hpOf)
+    local freed = {}
+    for _, id in ipairs(ids) do
+        if not claims[id] then
+            marks[id] = nil
+        else
+            local hp = hpOf(id)
+            if hp then
+                local mark = marks[id]
+                if mark and (hp < mark) then
+                    claims[id], marks[id] = nil, nil
+                    freed[#freed + 1] = id
+                elseif (not mark) or (hp > mark) then
+                    marks[id] = hp
+                end
+            end
+        end
+    end
+    return freed
+end
+
 function M.spellRank(skill, missing, hurtN, party, need, rate)
     need = need or 3
     -- With most of the party hurt, a party heal wins over every single heal,

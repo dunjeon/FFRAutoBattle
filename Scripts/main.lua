@@ -530,6 +530,7 @@ local function buildSkillIndex()
                     fromUnit = (num(field(row, "hasUnit")) or 10) < 8,
                     modeTwin = num(field(row, "skillIdAfterModeChange")),
                     appliesAll = unwrap(field(row, "isApplyAllMag")) == true,
+                    accuracy = num(field(row, "accuracy")),
                 }
             end)
         end)
@@ -2778,6 +2779,16 @@ local function turn(uid, skills, w, phase)
     -- One slot of the round. Care first, then the phase the whole field is in.
     -- Damage is scored against every living gauge, using what earlier slots already claimed.
     if Fight.braced then Fight.braced[uid] = nil end
+    if Fight.claim and Fight.claim.heal and Health.reviewClaims then
+        Fight.claimMarks = Fight.claimMarks or {}
+        local ids = {}
+        for _, a in ipairs(w.allies) do
+            if not a.dead then ids[#ids + 1] = a.id end
+        end
+        for _, id in ipairs(Health.reviewClaims(Fight.claim.heal, Fight.claimMarks, ids, function(id) return stat(id, PARAM.HP, false) end)) do
+            appendLog(string.format("  %s took more since the heal, claim released", tostring(Fight.nameOf and Fight.nameOf(id) or id)))
+        end
+    end
     Fight.statusNow = {}
     for _, a in ipairs(w.allies) do Fight.statusNow[a.id] = a.statuses end
     w.usedSupport = w.usedSupport or {}
@@ -2855,7 +2866,9 @@ local function turn(uid, skills, w, phase)
         local f = elementFactor(s, enemy)
         if f <= 0 then return 0, f end
         local _, br = offenseOf(s)
-        return (br or 0) * f * handOf(s, enemy), f
+        -- A miss adds no stagger, so what a hit pours is worth how often it lands.
+        local land = Known.measure and Known.measure.landRate(Fight.dealtBook, uid, s.id, s.accuracy) or 1
+        return (br or 0) * f * handOf(s, enemy) * land, f
     end
     -- A foe this unit can kill right now dies now, ahead of heals and everything
     -- else: a dead foe stops hitting, and a dead boss ends the fight. With more
@@ -2872,7 +2885,7 @@ local function turn(uid, skills, w, phase)
                         local f = elementFactor(s, u)
                         if f > 0 then
                             local pow = offenseOf(s)
-                            local real, measured = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f))
+                            local real, measured = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f), s.accuracy)
                             -- Only what this hit has really done to this foe. An estimate
                             -- for an untried hit has been off by four times.
                             if real and measured then shots[#shots + 1] = { skill = s, real = real, cost = s.cost or 0 } end
@@ -4024,6 +4037,7 @@ local function turn(uid, skills, w, phase)
                 broken = u.broken and true or false,
                 about = about,
                 prefer = false,
+                deals = Debuffs.dealsOf and Debuffs.dealsOf(Fight.hitSeen and Fight.hitSeen[u.id], card and card.hits) or nil,
             }
             local row = rows[#rows]
             if (not row.empty) and (not row.broken) then
@@ -4352,7 +4366,7 @@ local function turn(uid, skills, w, phase)
                         -- yet tried is scaled by what this caster's others did.
                         local real = nil
                         if Known.measure and Fight.dealtBook then
-                            real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f))
+                            real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f), s.accuracy)
                         end
                         if cashing then pts = pts + (real or ((pow or 0) * ((Known.measure and Known.measure.damageFit(f)) or f)))
                         else pts = pts + gained + ((real or 0) / 10) end
@@ -7105,12 +7119,20 @@ function readRisk(hitsOnly)
             if Known.measure and friends[from] and (not friends[to]) then
                 pcall(function()
                     local value = num(row.VariationValue)
-                    if (num(row.variationParameter) ~= PARAM.HP) or (num(row.VariationType) ~= 1) then return end
-                    if (not value) or (value <= 0) or (unwrap(row.isMiss) == true) then return end
+                    -- A miss reads as no HP change at all. It still counts as a cast.
+                    local missed = unwrap(row.isMiss) == true
+                    if missed then
+                        value = 0
+                    else
+                        if (num(row.variationParameter) ~= PARAM.HP) or (num(row.VariationType) ~= 1) then return end
+                        if (not value) or (value <= 0) then return end
+                    end
                     local sid = num(row.SkillId)
                     Fight.dealtBook = Fight.dealtBook or Known.measure.new()
+                    -- Two misses look alike, so the command count tells them apart.
                     local sig = table.concat({ tostring(from), tostring(to), tostring(sid), tostring(value),
-                        tostring(num(row.beforeVariationValue)), tostring(num(row.afterVariationValue)) }, ":")
+                        tostring(num(row.beforeVariationValue)), tostring(num(row.afterVariationValue)),
+                        missed and tostring(#(Fight.actions or {})) or "" }, ":")
                     if not Known.measure.fresh(Fight.dealtBook, sig) then return end
                     dealt = dealt or {}
                     local key = tostring(from) .. ":" .. tostring(sid) .. ":" .. tostring(to)
@@ -7182,6 +7204,7 @@ function readRisk(hitsOnly)
                 local row = skillOf(rec.sid)
                 local factor = (rec.res == 1) and Known.measure.WEAK_DAMAGE or ((rec.res == 2) and 0.5 or 1)
                 local est = row and ((row.power or 0) * math.max(row.hits or 1, 1) * factor) or nil
+                Known.measure.noteCast(Fight.dealtBook, rec.from, rec.sid, rec.raw > 0)
                 Known.measure.add(Fight.dealtBook, rec.from, rec.sid, rec.to, rec.raw, est, rec.onBreak)
             end
             Fight.dealtOpen = nil
@@ -7206,6 +7229,7 @@ function readRisk(hitsOnly)
                 foe[rec.sid] = sk
             end
             if rec.dmg > (sk.cast or 0) then sk.cast = rec.dmg end
+            sk.total = (sk.total or 0) + rec.dmg
             sk.castTo = sk.castTo or {}
             if rec.dmg > (sk.castTo[rec.to] or 0) then sk.castTo[rec.to] = rec.dmg end
             -- The same hit at full size. A hit taken through a guard would make
@@ -7741,7 +7765,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.19. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.21. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

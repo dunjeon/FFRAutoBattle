@@ -20,7 +20,7 @@ local d = R.build({
 check(d.known["spark"].use == "break" and d.known["spark"].element == "thunder" and d.known["spark"].magic, "a damage row is a hit, with its element and kind")
 check(d.known["mend"].use == "heal" and d.known["mend"].party, "a recovery row is a heal, and a group row is a party heal")
 check(d.known["ward"].use == "guardbuff" and d.known["ward"].guards == "magic", "a defense row is a guard of its kind")
-check(d.known["soften"].use == "debuff" and d.known["soften"].effect == "protect", "a debuff row is named by its status")
+check(d.known["soften"].use == "debuff" and d.known["soften"].effect == "deprotect", "a debuff row is named by its status")
 check(d.limits["big one"].use == "lb-cash" and d.limits["big one"].gauges == 2 and d.limits["big one"].area, "a Limit's gauges come from its cost")
 check(d.items.items["sip"] == "hp" and d.items.items["clean"] == "cure" and d.items.clears["clean"][5], "items come from their skill row")
 local c = d.units[9]
