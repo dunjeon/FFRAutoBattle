@@ -2838,8 +2838,10 @@ local function turn(uid, skills, w, phase)
                         local f = elementFactor(s, u)
                         if f > 0 then
                             local pow = offenseOf(s)
-                            local real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f))
-                            if real then shots[#shots + 1] = { skill = s, real = real, cost = s.cost or 0 } end
+                            local real, measured = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f))
+                            -- Only what this hit has really done to this foe. An estimate
+                            -- for an untried hit has been off by four times.
+                            if real and measured then shots[#shots + 1] = { skill = s, real = real, cost = s.cost or 0 } end
                         end
                     end
                 end
@@ -6988,7 +6990,7 @@ function settleWarn(id)
     local rec = Fight.warn[id]
     if (not rec) or rec.settled then return end
     rec.settled = true
-    if rec.reached then
+    if rec.reached or rec.openedOnTurn then
         Fight.warnLand = (Fight.warnLand or 0) + 1
     elseif rec.broke then
         Fight.warnCancel = (Fight.warnCancel or 0) + 1
@@ -7009,9 +7011,10 @@ local function noteWarnTimeline(current, phase)
     if phase == "broke" then return end
     local first = current and current[1]
     if not first then return end
-    local rec = Fight.warn[first]
-    if rec and (not rec.settled) and (not rec.broke) and (not broken(first)) then
-        rec.reached = true
+    for id, rec in pairs(Fight.warn) do
+        if (not rec.settled) and (not rec.broke) and ((id ~= first) or (not broken(first))) and Known.brace then
+            Known.brace.noteFront(rec, id, first)
+        end
     end
 end
 
@@ -7198,7 +7201,7 @@ function readRisk(hitsOnly)
             local rec = Fight.warn[id]
             -- A settled record is the previous warning. This appearance is the next one.
             if (not rec) or rec.settled then
-                rec = { broke = false, reached = false, settled = false }
+                rec = { broke = false, reached = false, settled = false, openedOnTurn = (Fight.warnFront == id) or nil }
                 Fight.warn[id] = rec
             end
             if broken(id) then rec.broke = true end
@@ -7227,7 +7230,9 @@ applyPendingOrder = function()
         for i = 1, #pending do
             local snap = pending[i]
             noteWarnTimeline(snap.current, "broke")
+            Fight.warnFront = snap.current and snap.current[1]
             readRisk()
+            Fight.warnFront = nil
             noteWarnTimeline(snap.current, "reached")
         end
     else
@@ -7640,7 +7645,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.15. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.16. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

@@ -155,6 +155,17 @@ function M.rank(team, options, selfId, singleTarget)
     return out
 end
 
+-- The turn order moved, with this unit at the front. A warning raised on a foe's
+-- own turn is for its next turn, so that turn has to pass first. Any other time
+-- at the front is the warned slot arriving.
+function M.noteFront(rec, id, first)
+    if first ~= id then
+        rec.openedOnTurn = nil
+    elseif not rec.openedOnTurn then
+        rec.reached = true
+    end
+end
+
 -- How many of the team this hit would kill as things stand.
 function M.lethal(team)
     local n = 0
