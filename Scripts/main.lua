@@ -2759,7 +2759,13 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
                     Fight.claim.heal[id] = true
                 else
                     -- Until the next read, the hit book has to know this is on them.
-                    Fight.braced[id] = opt.through
+                    -- A cut with a status counts through that status, never both ways.
+                    local now = Fight.statusNow and Fight.statusNow[id]
+                    if opt.status and now then
+                        now[opt.status] = true
+                    elseif not opt.status then
+                        Fight.braced[id] = opt.through
+                    end
                 end
             end
             local info = opt.skill and (opt.skill.known or knownOf(opt.skill))
@@ -7765,7 +7771,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.21. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.22. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
