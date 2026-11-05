@@ -7282,6 +7282,51 @@ local function hookTimeline()
     end)
 end
 
+-- Log only: exactly what the game sends for a command the player picks by hand,
+-- to learn how a two-action turn works. Decides nothing.
+function Menu.traceHand(v)
+    local function line(text)
+        log("%s", text)
+        if Fight then appendLog("  " .. text) end
+    end
+    Menu.handSerial = (Menu.handSerial or 0) + 1
+    Menu.traceLeft = 4
+    line(string.format("hand %d: type %s, command %s, notConsume %s, calcOrder %s, sub %s",
+        Menu.handSerial, tostring(num(v.CmdType)), tostring(num(v.CommandId)),
+        tostring(v.isNotConsume), tostring(v.doCalcOrder), tostring(Menu.sub)))
+    local count = 0
+    if v.cmdDecideDataList and v.cmdDecideDataList.ForEach then
+        v.cmdDecideDataList:ForEach(function(_, e)
+            local d = unwrap(e)
+            if not d then return end
+            count = count + 1
+            local id = num(d.actionId)
+            local row = (id and (not d.isUseItem)) and skillOf(id) or nil
+            local function ids(list)
+                local out = {}
+                if list and list.ForEach then
+                    list:ForEach(function(_, x) out[#out + 1] = tostring(num(unwrap(x))) end)
+                end
+                return table.concat(out, ",")
+            end
+            line(string.format("  action %d: %s id %s, unit %s, item %s, all %s, parent %s/%s, targets [%s], params [%s], attr %s, effect %s, cost %s, target %s",
+                count, (row and row.name) or "?", tostring(id), tostring(num(d.actionUnitUniqueId)),
+                tostring(d.isUseItem), tostring(d.IsAll),
+                tostring(d.ParentActionKey and num(d.ParentActionKey.Category)), tostring(d.ParentActionKey and num(d.ParentActionKey.ID)),
+                ids(d.targetUnitUniqueIdList), ids(d.ParameterList),
+                tostring(row and row.attr), tostring(row and row.effect), tostring(row and row.cost), tostring(row and row.target)))
+        end)
+    end
+    local keys = {}
+    if v.actionKeys and v.actionKeys.ForEach then
+        v.actionKeys:ForEach(function(_, e)
+            local k = unwrap(e)
+            if k then keys[#keys + 1] = tostring(num(k.Category)) .. "/" .. tostring(num(k.ID)) end
+        end)
+    end
+    line(string.format("  actions %d, keys [%s]", count, table.concat(keys, " ")))
+end
+
 local function hookDecide()
     RegisterHook("/Script/mucha.CPP_BtlDelEventCmd:OnExecuteDecideCommand", function(_, value)
         -- No game reads inside a hook beyond its own value: the risk list and
@@ -7293,6 +7338,10 @@ local function hookDecide()
             Menu.byMod = false
             Menu.fromMenu = Menu.open and (not Menu.decided) and true or false
             learn(v)
+            if not fromMod then
+                local okTrace, errTrace = pcall(Menu.traceHand, v)
+                if not okTrace then log("hand trace failed: %s", tostring(errTrace)) end
+            end
             Menu.decided = true
             Menu.sub = false
             if not fromMod then
@@ -7311,6 +7360,10 @@ local function hookMenu()
             if applyPendingOrder and Fight and Fight.orderFresh then gameDelay(0, applyPendingOrder) end
             local actor = currentActor()
             Menu.sub = (actor == Menu.actor) and (not Menu.decided)
+            if (Menu.traceLeft or 0) > 0 then
+                Menu.traceLeft = Menu.traceLeft - 1
+                pcall(log, "  menu opens: actor %s, same actor %s, undecided %s", tostring(actor), tostring(actor == Menu.actor), tostring(not Menu.decided))
+            end
             Menu.actor = actor
             Menu.decided = false
             Menu.open = true
@@ -7646,7 +7699,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.17. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.18. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
