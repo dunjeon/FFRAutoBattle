@@ -1,4 +1,6 @@
 battle_log.txt
+battle_report.txt
+changes-after-v0.2.17.txt
 state.txt
 *.log
 todo.txt
