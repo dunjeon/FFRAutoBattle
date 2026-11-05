@@ -279,7 +279,10 @@ local function cardOf(u, skills)
             if row.dmgType == MAGIC then kinds.magic = true end
         end
     end
-    if #danger > 0 then card.danger = danger end
+    if #danger > 0 then
+        card.danger = danger
+        card.dangerIds = u.highRisk
+    end
     if kinds.magic and (not kinds.physical) then card.hits = "magic" end
     if kinds.physical and (not kinds.magic) then card.hits = "physical" end
     for _, t in ipairs(u.traits or {}) do

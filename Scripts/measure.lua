@@ -56,6 +56,48 @@ function M.expect(book, from, skill, to, est)
     return nil, false
 end
 
+-- What a warned move should do to this ally at full size, and that move's row.
+-- The list doesn't say which of the foe's dangerous moves is coming, so this is
+-- the worst of them. A move already seen on this ally uses that number. Otherwise
+-- its power is scaled by what this foe's other moves of the same damage type did
+-- to this ally. Nil with nothing to go on. foeBook: this foe's hit book. rowOf:
+-- skill id to its row.
+function M.warnedCast(foeBook, risk, rowOf, ally)
+    local worst, worstRow = nil, nil
+    for _, id in ipairs(risk or {}) do
+        local row = rowOf(id)
+        local amount = foeBook[id] and foeBook[id].fullTo and foeBook[id].fullTo[ally]
+        if (not amount) and row and ((row.power or 0) > 0) then
+            local rate = nil
+            for sid, sk in pairs(foeBook) do
+                local other = rowOf(sid)
+                local did = sk.fullTo and sk.fullTo[ally]
+                if did and other and ((other.power or 0) > 0) and (other.dmgType == row.dmgType) then
+                    local r = did / other.power
+                    if (not rate) or (r > rate) then rate = r end
+                end
+            end
+            if rate then amount = rate * row.power end
+        end
+        if amount and ((not worst) or (amount > worst)) then worst, worstRow = amount, row end
+    end
+    return worst, worstRow
+end
+
+-- The hit to kill a foe with this much HP, or nil. shots: { skill, real, cost }.
+-- The cheapest one with room to spare, or the hardest one that should just do it.
+function M.pickKill(shots, hp)
+    local sure, close = nil, nil
+    for _, shot in ipairs(shots or {}) do
+        if (shot.real * 0.9) >= hp then
+            if (not sure) or (shot.cost < sure.cost) or ((shot.cost == sure.cost) and (shot.real > sure.real)) then sure = shot end
+        elseif shot.real >= hp then
+            if (not close) or (shot.real > close.real) then close = shot end
+        end
+    end
+    return sure or close
+end
+
 -- The hardest hits, for the report.
 function M.lines(book, nameOf)
     local list = {}

@@ -64,6 +64,12 @@ do
     end
 end
 do
+    local okB, brace = pcall(dofile, DIR .. "/Scripts/brace.lua")
+    if okB and type(brace) == "table" then
+        Known.brace = brace
+    else
+        log("brace unavailable: %s", tostring(brace))
+    end
     local okM, measure = pcall(dofile, DIR .. "/Scripts/measure.lua")
     if okM and type(measure) == "table" then
         Known.measure = measure
@@ -647,6 +653,15 @@ end
 local function skillOf(id)
     buildSkillIndex()
     return SkillIdx and SkillIdx[id]
+end
+
+-- Which statuses cut damage, and by how much, from the skill rows. Built once.
+function Known.statusMap()
+    buildSkillIndex()
+    if (not Known.statusCuts) and SkillIdx and Known.brace then
+        Known.statusCuts = Known.brace.statusCuts(SkillIdx)
+    end
+    return Known.statusCuts or {}
 end
 
 local function paramOf(uid)
@@ -2430,7 +2445,7 @@ local applyPendingOrder
 -- Slots before that body pour book stagger, weakness at x3 and nothing
 -- past that. The slot is spent on the body only when that sum clears the
 -- live gauge. Otherwise the slot guards, heals ahead, or defends.
-local function warnTurn(uid, skills, w, phase, pay, isHit, healNow)
+local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
     if phase ~= 0 then return nil end
     if not Fight then return nil end
     if readRisk then readRisk() end
@@ -2528,9 +2543,8 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, healNow)
         end
         return bestP
     end
-    local sum, before = 0, {}
+    local sum = 0
     for _, id in ipairs(bestSlots) do
-        before[id] = true
         sum = sum + pourOf(id)
     end
     local function say(tail)
@@ -2564,113 +2578,133 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, healNow)
             end
         end
     end
+    -- Everything below is one question: what lands, whom it kills, and which
+    -- action this unit holds saves the most of them. No saving action, keep hitting.
+    local Brace = Known.brace
+    if not (Brace and Known.measure) then return nil end
     local card = mobOf(best)
-    local want = card and card.hits or nil
-    local function kindOk(k)
-        if (not k) or (k == "any") then return true end
-        if want then return k == want end
-        local known = false
-        for _, u in ipairs(w.enemies) do
-            local c = mobOf(u)
-            if c and c.danger and c.danger[1] and c.hits then
-                known = true
-                if c.hits == k then return true end
+    local risk = card and card.dangerIds
+    local foeBook = (Fight.hitSeen and Fight.hitSeen[best.id]) or {}
+    -- Does this ally act again before the hit? Effects that end at their next action lapse.
+    local function actsFirst(id)
+        local acts = 0
+        local function count(list, stop)
+            for _, v in ipairs(list) do
+                if v == stop then return end
+                if v == id then acts = acts + 1 end
             end
         end
-        if not known then return true end
-        return false
-    end
-    local function hasStatus(a, map)
-        if not next(map) then return false end
-        local set = a.statuses or {}
-        for sid in pairs(map) do
-            if set[sid] then return true end
-        end
-        return false
-    end
-    local function coveredMost(s)
-        local map = s.friendStatus or {}
-        if not next(map) then return false end
-        local living, on = 0, 0
-        for _, a in ipairs(w.allies) do
-            if (not a.dead) and not (Fight.isSummon and Fight.isSummon(a.id)) then
-                living = living + 1
-                if hasStatus(a, map) then on = on + 1 end
-            end
-        end
-        if living <= 0 then return true end
-        return (on * 2) > living
-    end
-    local guard = nil
-    for _, s in ipairs(skills) do
-        local info = s.known or knownOf(s)
-        local use = info and info.use or nil
-        local k = (info and info.guards) or "any"
-        if (use == "guardbuff") and pay(s) and kindOk(k) and (not coveredMost(s)) then
-            if (not guard) or (aoeOf(s) and (not aoeOf(guard))) then guard = s end
-        end
-    end
-    if guard then
-        local spread = aoeOf(guard) or partyOf(guard)
-        local ids = nil
-        if spread then
-            ids = {}
-            for _, a in ipairs(w.allies) do
-                if not a.dead then ids[#ids + 1] = a.id end
-            end
+        if bestCur then
+            count(cur, best.id)
         else
-            local map = guard.friendStatus or {}
-            local pick = nil
-            for _, a in ipairs(w.allies) do
-                if (a.id == uid) and (not a.dead) and (not hasStatus(a, map)) then pick = a end
+            count(cur, nil)
+            count(nxt, best.id)
+        end
+        return acts > (((id == uid) and (cur[1] == uid)) and 1 or 0)
+    end
+    local team, move, byId = {}, nil, {}
+    for _, a in ipairs(w.allies) do
+        if (not a.dead) and not (Fight.isSummon and Fight.isSummon(a.id)) then
+            local hp, maxHp = stat(a.id, PARAM.HP, false), stat(a.id, PARAM.HP, true)
+            if hp and (hp > 0) then
+                local hit, row = Known.measure.warnedCast(foeBook, risk, skillOf, a.id)
+                if row and ((not move) or ((row.power or 0) > (move.power or 0))) then move = row end
+                local unit = {
+                    id = a.id, name = a.name, hp = hp, maxHp = maxHp, hit = hit, statuses = a.statuses,
+                    actsFirst = actsFirst(a.id), noSpell = next((Fight.stance and Fight.stance[a.id]) or {}) ~= nil,
+                }
+                team[#team + 1] = unit
+                byId[a.id] = a
             end
-            if not pick then
-                for _, a in ipairs(w.allies) do
-                    if (not a.dead) and (not hasStatus(a, map)) then pick = a break end
+        end
+    end
+    if not byId[uid] then return nil end
+    if not move then
+        for _, id in ipairs(risk or {}) do
+            local row = skillOf(id)
+            if row and ((not move) or ((row.power or 0) > (move.power or 0))) then move = row end
+        end
+    end
+    local kind = move and move.dmgType
+    if (kind ~= 1) and (kind ~= 2) then
+        kind = (card and card.hits == "physical" and 1) or (card and card.hits == "magic" and 2) or nil
+    end
+    local cuts = Known.statusMap and Known.statusMap() or {}
+    for _, unit in ipairs(team) do
+        -- Nothing seen from this foe on this ally: assume it could kill them.
+        unit.hit = unit.hit or unit.maxHp or unit.hp
+        unit.share = Brace.through(unit.statuses, kind, cuts)
+    end
+    local options = {}
+    for _, s in ipairs(skills) do
+        if pay(s) and (not isHit(s, false)) and (s.rel == REL.FRIEND) then
+            local d = Brace.describe(s, kind)
+            if d then
+                d.skill, d.cost = s, s.cost or 0
+                options[#options + 1] = d
+            end
+        end
+        if (s.kind == "heal") and pay(s) and (not (isPatch and isPatch(s))) then
+            local rate = Fight.healRate and Fight.healRate[uid]
+            local amount = nil
+            if Health.FIXED and (s.calc == Health.FIXED) and ((s.power or 0) > 0) then amount = s.power
+            elseif rate and ((s.power or 0) > 0) then amount = s.power * rate end
+            if amount then
+                local scope = (partyOf(s) and "all") or ((s.target == TGT.SELF) and "self") or "one"
+                options[#options + 1] = { skill = s, heal = amount, scope = scope, spell = (s.attr == ATTR.MAGIC), cost = s.cost or 0 }
+            end
+        end
+    end
+    local okItems, owned = pcall(ownedRecovery)
+    if okItems and type(owned) == "table" then
+        local single, party = nil, nil
+        for _, it in ipairs(owned) do
+            if (it.hp or (it.kind == "heal")) and it.amount and (it.amount > 0) and (not it.rare) then
+                if it.party then
+                    if (not party) or (it.amount > party.amount) then party = it end
+                elseif (not single) or (it.amount > single.amount) then
+                    single = it
                 end
             end
-            if pick then ids = { pick.id } end
         end
-        if ids and (#ids > 0) then
-            local choice = finishChoice(uid, guard, "warn guard " .. best.name, ids, spread)
-            if choice then
-                -- The once-a-fight setup guard reads this. The warning can
-                -- still send the guard again once it is off most of the party.
-                Fight.guardOn = Fight.guardOn or {}
-                local ginfo = guard.known or knownOf(guard)
-                local gk = (ginfo and ginfo.guards) or "any"
-                Fight.guardOn[gk] = { map = guard.friendStatus or {}, seen = false }
-                say("prepare: guard")
-                return choice
-            end
-        end
+        if single then options[#options + 1] = { item = single, heal = single.amount, scope = "one", cost = 0 } end
+        if party then options[#options + 1] = { item = party, heal = party.amount, scope = "all", cost = 0 } end
     end
-    local hurt = nil
-    for _, a in ipairs(w.allies) do
-        if (not a.dead) and ((a.id == uid) or (not before[a.id])) and ((a.hp or 1) < 0.60) and (not Fight.claim.heal[a.id]) then
-            if (not hurt) or ((a.hp or 1) < (hurt.hp or 1)) then hurt = a end
-        end
+    local lethal = Brace.lethal(team)
+    local isSingle = move and (move.target == TGT.SINGLE) or false
+    local parts = {}
+    for _, unit in ipairs(team) do
+        parts[#parts + 1] = string.format("%s %d/%d", unit.name or "?", math.floor(unit.hp), math.floor(unit.hit * unit.share))
     end
-    if hurt and healNow then
-        local choice = healNow(hurt, "heal-ahead", 0.60)
+    say(string.format("%s, HP/hit: %s, %d would fall", (move and move.name) or "unknown move", table.concat(parts, ", "), lethal))
+    for _, entry in ipairs(Brace.rank(team, options, uid, isSingle)) do
+        local opt = entry.option
+        local why = string.format("brace %s, saves %d", best.name, entry.saved)
+        local choice = nil
+        if opt.item then
+            local who = byId[entry.targets[1]]
+            choice = pickRecoveryItem(uid, w, "heal", opt.item.party and { partyOnly = true } or { who = who })
+        else
+            choice = finishChoice(uid, opt.skill, why, entry.targets, opt.scope == "all")
+        end
         if choice then
-            say("prepare: heal-ahead")
-            return choice
-        end
-    end
-    local selfA = nil
-    for _, a in ipairs(w.allies) do
-        if a.id == uid then selfA = a end
-    end
-    if selfA and (not selfA.dead) and ((selfA.hp or 1) < 0.35) and (not Fight.claim.heal[uid]) then
-        for _, s in ipairs(skills) do
-            if (s.kind == "defend") or (s.effect == EFF.DEFEND) then
-                local choice = finishChoice(uid, s, "warn defend " .. best.name, { uid }, false)
-                if choice then
-                    say("prepare: defend")
-                    return choice
+            Fight.braced = Fight.braced or {}
+            for _, id in ipairs(entry.targets) do
+                if opt.heal then
+                    Fight.claim.heal[id] = true
+                else
+                    -- Until the next read, the hit book has to know this is on them.
+                    Fight.braced[id] = opt.through
                 end
             end
+            local info = opt.skill and (opt.skill.known or knownOf(opt.skill))
+            if info and (info.use == "guardbuff") then
+                -- The once-a-fight setup guard reads this.
+                Fight.guardOn = Fight.guardOn or {}
+                Fight.guardOn[info.guards or "any"] = { map = opt.skill.friendStatus or {}, seen = false }
+            end
+            say(string.format("prepare: %s", (opt.skill and opt.skill.name) or (opt.item and opt.item.name) or "?"))
+            return choice
         end
     end
     return nil
@@ -2679,6 +2713,9 @@ end
 local function turn(uid, skills, w, phase)
     -- One slot of the round. Care first, then the phase the whole field is in.
     -- Damage is scored against every living gauge, using what earlier slots already claimed.
+    if Fight.braced then Fight.braced[uid] = nil end
+    Fight.statusNow = {}
+    for _, a in ipairs(w.allies) do Fight.statusNow[a.id] = a.statuses end
     w.usedSupport = w.usedSupport or {}
     Fight.claim = Fight.claim or {
         heal = {}, revive = {}, hone = {}, ether = {},
@@ -2756,6 +2793,36 @@ local function turn(uid, skills, w, phase)
         local _, br = offenseOf(s)
         return (br or 0) * f * handOf(s, enemy), f
     end
+    -- A foe this unit can kill right now dies now, ahead of heals and everything
+    -- else: a dead foe stops hitting, and a dead boss ends the fight. With more
+    -- than one in reach, the biggest goes first.
+    if Known.measure and Fight.dealtBook then
+        local target, targetMax, shot = nil, -1, nil
+        for _, u in ipairs(w.enemies) do
+            local hp = stat(u.id, PARAM.HP, false)
+            local top = stat(u.id, PARAM.HP, true) or 0
+            if hp and (hp > 0) and (top > targetMax) and keepFoe(u.id) then
+                local shots = {}
+                for _, s in ipairs(skills) do
+                    if isHit(s, true) and pay(s) then
+                        local f = elementFactor(s, u)
+                        if f > 0 then
+                            local pow = offenseOf(s)
+                            local real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * f)
+                            if real then shots[#shots + 1] = { skill = s, real = real, cost = s.cost or 0 } end
+                        end
+                    end
+                end
+                local pick = Known.measure.pickKill(shots, hp)
+                if pick then target, targetMax, shot = u, top, pick end
+            end
+        end
+        if shot then
+            local choice = finishChoice(uid, shot.skill, "kill " .. (target.name or "?"), { target.id }, false)
+            if choice then return choice end
+        end
+    end
+
     local function allyCritical()
         local who = nil
         for _, a in ipairs(w.allies) do
@@ -3221,8 +3288,7 @@ local function turn(uid, skills, w, phase)
 
     local function healNow(hurt, why, itemAt)
         if not hurt or Fight.claim.heal[hurt.id] then return nil end
-        -- A warned hit won't wait: the healer's turn may come after it lands.
-        if Health.healerWaiting and (why ~= "heal-ahead") then
+        if Health.healerWaiting then
             local danger = false
             for _, u in ipairs(w.enemies) do
                 local card = mobOf(u)
@@ -3657,7 +3723,7 @@ local function turn(uid, skills, w, phase)
     if cured then return cured end
     -- A live warning outranks the add plan and the sync chip. Raises and a
     -- critical heal have already had this slot.
-    local warnedChoice = warnTurn(uid, skills, w, phase, pay, isHit, healNow)
+    local warnedChoice = warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
     if warnedChoice then return warnedChoice end
 
     local recoverAt, smallDanger = 0.50, false
@@ -4812,13 +4878,17 @@ local function turn(uid, skills, w, phase)
         if choice then return choice end
     end
 
+    -- A foe whose weakness this unit holds but can't pay for at any size. A
+    -- weak hit that fits needs no Ether, even if a stronger one doesn't fit.
     local function unpaidWeakness(list)
-        for _, s in ipairs(skills) do
-            if isHit(s, false) and (s.cost or 0) > (w.mp or 0) then
-                for _, u in ipairs(list) do
-                    if elementFactor(s, u) >= 3 then return true end
+        for _, u in ipairs(list) do
+            local paid, unpaid = false, false
+            for _, s in ipairs(skills) do
+                if isHit(s, false) and (elementFactor(s, u) >= 3) then
+                    if pay(s) then paid = true else unpaid = true end
                 end
             end
+            if unpaid and (not paid) then return true end
         end
         return false
     end
@@ -7039,6 +7109,15 @@ function readRisk(hitsOnly)
             if rec.dmg > (sk.cast or 0) then sk.cast = rec.dmg end
             sk.castTo = sk.castTo or {}
             if rec.dmg > (sk.castTo[rec.to] or 0) then sk.castTo[rec.to] = rec.dmg end
+            -- The same hit at full size. A hit taken through a guard would make
+            -- the next warning read as safe, and that ally would stop guarding.
+            if Known.brace and Known.statusMap then
+                local share = Known.brace.through(Fight.statusNow and Fight.statusNow[rec.to], rec.dtype, Known.statusMap())
+                share = share * ((Fight.braced and Fight.braced[rec.to]) or 1)
+                local full = (share > 0) and (rec.dmg / share) or rec.dmg
+                sk.fullTo = sk.fullTo or {}
+                if full > (sk.fullTo[rec.to] or 0) then sk.fullTo[rec.to] = full end
+            end
             if rec.maxHit > (sk.hit or 0) then sk.hit = rec.maxHit end
             if rec.dtype ~= 0 then sk.dtype = rec.dtype end
             if rec.defended and not rec.open then
@@ -7507,7 +7586,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.12. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.14. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

@@ -27,6 +27,7 @@ local c = d.units[9]
 check(c.weak.thunder and c.half.water and c.no.fire and c.absorb.ice and c.ail.sleep, "resistances come from the enemy's row")
 check(c.no.physical and c.danger, "traits fill in what the row's numbers can't")
 check(c.danger[1] == "Spark" and c.hits == "magic", "dangerous moves and their kind come from the game's list")
+check(c.dangerIds and #c.dangerIds == #c.danger, "the card keeps the dangerous moves' ids for the warned-hit estimate")
 check(d.mobs["foe"] == c, "an enemy is also found by name")
 local bio = { id = 20, name = "Toxin", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 10, power = 20, breakPower = 20, effects = { { type = 2, status = 1, params = {}, turns = 5 } } }
 local gale = { id = 21, name = "Gale", attr = 4, effect = 1, varType = 1, dmgType = 2, target = 1, rel = 2, cost = 0, power = 20, breakPower = 0, element = "wind", effects = {} }
