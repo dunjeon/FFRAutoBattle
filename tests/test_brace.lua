@@ -84,6 +84,17 @@ check(B.lethal(sheltered) == 0, "a guard that is already up counts toward surviv
 r = B.rank(team(), { { heal = 900, scope = "one", cost = 40 }, { heal = 900, scope = "one", cost = 6 } }, 3, false)
 check(r[1].option.cost == 6, "the cheaper of two equal answers")
 
+-- A multicast heal, with a 200-power spell's reduced effect on everyone.
+local hurt = {
+    { id = 1, hp = 1000, maxHp = 2000, hit = 1000, share = 1 },
+    { id = 2, hp = 1000, maxHp = 2000, hit = 1000, share = 1 },
+    { id = 3, hp = 1800, maxHp = 2000, hit = 1000, share = 1 },
+}
+r = B.rank(hurt, { { heal = 520, scope = "one", cost = 6 }, { heal = 210, scope = "all", cost = 6 } }, 3, false)
+check(r[1].option.scope == "all" and r[1].saved == 2, "at the same cost, a smaller heal on everyone beats a bigger one that saves fewer")
+r = B.rank({ hurt[1] }, { { heal = 520, scope = "one", cost = 6 }, { heal = 210, scope = "all", cost = 6 } }, 3, false)
+check(r[1].option.scope == "one", "with one ally to save, the full heal wins")
+
 -- A warning's slot, from the turn order.
 local rec = { fresh = true }
 B.noteFront(rec, 9, 1)

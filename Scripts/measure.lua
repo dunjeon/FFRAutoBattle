@@ -24,6 +24,10 @@ local function blend(rec, value)
     if value > rec.best then rec.best = value end
 end
 
+-- A multicast does this share of a single cast to each target, at the same MP
+-- (measured by hand: heals and stagger about 0.4x, damage 0.42x to 0.5x).
+M.MULTI_SHARE = 0.4
+
 -- Weakness is 3x on the stagger gauge (measured 3.08x) but about 1.5x on damage.
 -- elementFactor gives the stagger number, so a damage estimate converts it here.
 M.WEAK_DAMAGE = 1.5

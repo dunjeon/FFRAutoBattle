@@ -528,6 +528,8 @@ local function buildSkillIndex()
                     effects = rowEffects,
                     dmgType = num(field(row, "DamageType")) or 0,
                     fromUnit = (num(field(row, "hasUnit")) or 10) < 8,
+                    modeTwin = num(field(row, "skillIdAfterModeChange")),
+                    appliesAll = unwrap(field(row, "isApplyAllMag")) == true,
                 }
             end)
         end)
@@ -535,6 +537,22 @@ local function buildSkillIndex()
     local n = 0
     for _ in pairs(skills) do n = n + 1 end
     if n > 0 then
+        -- A spell's multicast is its own row, which lists the single-target numbers
+        -- and a flag that a reduction applies. The row carries what it really does.
+        local share = Known.measure and Known.measure.MULTI_SHARE or 0.4
+        for _, row in pairs(skills) do
+            if row.appliesAll then
+                row.power = (row.power or 0) * share
+                row.breakPower = (row.breakPower or 0) * share
+            end
+        end
+        for id, row in pairs(skills) do
+            local twin = row.modeTwin and skills[row.modeTwin]
+            if twin and twin.appliesAll and (not row.appliesAll) then
+                row.multicast = row.modeTwin
+                twin.multicastOf = id
+            end
+        end
         SkillIdx = skills
         log("skill table: %d rows", n)
     end
@@ -1321,8 +1339,10 @@ local function limitReady(uid, skill)
     return filled >= need
 end
 
+-- borrowed: true asks the game if this unit can activate a row it hasn't equipped.
+-- "inherited": a multicast row, already cleared by its base spell's checks.
 local function tagSkill(uid, id, borrowed)
-    if borrowed and activation(uid, id) ~= true then return nil end
+    if (borrowed == true) and activation(uid, id) ~= true then return nil end
     local s = skillOf(id)
     if not s or SKIP[s.attr] then return nil end
     local lb = limitSkill(s)
@@ -2196,12 +2216,18 @@ local function learn(v)
 end
 
 local function send(uid, choice, phase)
-    local learned = (not choice.isItem) and Template[choice.id] or nil
+    -- A multicast goes out as its own row, under the base spell's menu and keys.
+    local row = (not choice.isItem) and skillOf(choice.id) or nil
+    local menuId = (row and row.multicastOf) or choice.id
+    local learned = (not choice.isItem) and (Template[choice.id] or Template[menuId]) or nil
     local cmdType = phase
-    local commandId = choice.id
+    local commandId = menuId
     local isNotConsume, doCalcOrder = false, true
-    local pCat, pId = 1, choice.id
-    local keys = { { 1, choice.id } }
+    local pCat, pId = 1, menuId
+    local keys = { { 1, menuId } }
+    if menuId ~= choice.id then
+        log("multicast %s: id %d under %d, %s, targets %d", tostring(choice.name), choice.id, menuId, learned and "learned shape" or "plain shape", #(choice.targets or {}))
+    end
     if learned then
         commandId = learned.CommandId
         isNotConsume = learned.isNotConsume
@@ -2214,7 +2240,7 @@ local function send(uid, choice, phase)
         if choice.known and limitSkill({ known = choice.known }) then limitCast = true end
         local bfl = battleLib()
         if bfl and bfl:IsValid() and (not limitCast) then
-            local ok, enabled = pcall(function() return bfl:IsEnableCommand(uid, choice.id) end)
+            local ok, enabled = pcall(function() return bfl:IsEnableCommand(uid, menuId) end)
             if ok and enabled == false then commandId = -1 end
         end
     end
@@ -2269,7 +2295,15 @@ local function usableOf(uid)
     local usable = {}
     for _, id in ipairs(equippedIds(uid)) do
         local copy = tagSkill(uid, id, false)
-        if copy then usable[#usable + 1] = copy end
+        if copy then
+            usable[#usable + 1] = copy
+            -- The spell's "All" target is another choice. It needs what the spell
+            -- needs, so a seal on the spell covers it too.
+            if copy.multicast then
+                local twin = tagSkill(uid, copy.multicast, "inherited")
+                if twin then usable[#usable + 1] = twin end
+            end
+        end
     end
     local haveFight = false
     for _, s in ipairs(usable) do
@@ -4355,7 +4389,9 @@ local function turn(uid, skills, w, phase)
             end
             local score = pts
             if weak then score = score + 5000 end
-            if spread and useful > 1 then score = score + pts end
+            -- A multicast already counts its reduced effect on each target, so its
+            -- total is the real comparison with a single cast.
+            if spread and (useful > 1) and (not s.multicastOf) then score = score + pts end
             if finishes and cashing then score = score + 4000 end
             if finishes and not cashing and not early then score = score + 8000 - (s.cost or 0) * 20 end
             if finishes and not cashing and early then score = score - 8000 end
@@ -4387,6 +4423,12 @@ local function turn(uid, skills, w, phase)
                     local ok = true
                     for _, u in ipairs(pool) do
                         if elementFactor(s, u) <= 0 then ok = false end
+                    end
+                    -- "All" reaches every foe, not only this pool.
+                    if s.multicastOf then
+                        for _, u in ipairs(w.enemies) do
+                            if elementFactor(s, u) <= 0 then ok = false end
+                        end
                     end
                     if ok and #pool > 1 then
                         for _, u in ipairs(pool) do safe[#safe + 1] = u end
@@ -7699,7 +7741,7 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 
 local mobCount = 0
 for _ in pairs(Mobs) do mobCount = mobCount + 1 end
-log("loaded. planner v0.2.18. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
+log("loaded. planner v0.2.19. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Bestiary %d. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
