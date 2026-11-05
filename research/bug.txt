@@ -515,3 +515,49 @@ SMALLER LEFTOVERS, NOT FIXED
 - Party MP items may be sent wrong. Heal items have a party path, but the MP path sends
   every item at one target with IsAll false, including Mist Ether. Whether the game
   accepts that is not known. The new order makes these rarer. [read]
+
+
+LIMIT GAUGES, FROM THE 2026-11-05 LOGS
+
+The played report never commanded a Limit of either gauge cost. The point bar
+the report prints (the unit parameter) peaked under one gauge: Lasswell 97,
+Fina 97, Nichol 79, Rain 50. One gauge is 100 points. GetLimitBurstPointOneGauge
+returned 100. Nichol's max is 100, so his bar holds one gauge. Rain, Lasswell,
+and Fina max at 200, so theirs hold two. A two-gauge row needs 200 points.
+Nobody reached that, so this log cannot show a level-2 cast. It also cannot
+show a level-1 cast.
+
+The ready check was still wrong for the next fight that does fill. v0.2.24
+(cf1d87a) and this build shared it. GetUnitLimitBurstPointGaugeNum returned 0
+on every logged read. The first 0 set a process flag, and after that the
+gauge count replaced the points. A library point read of 0 is a number, so
+the unit parameter was never consulted. A later full bar would stay unread
+if that count stayed 0. The flag is gone. Filled gauges are the highest point
+read divided by the one-gauge size. The count is used only when the points
+are missing.
+
+When a Limit is spent, the same comparison as before picks it: more kills,
+then damage, then stagger. Two ready Limits break the remaining tie by gauge
+cost, so the row that spends more of the bar wins. On a break, a ready Limit
+is the spend unless another action kills more. That is the old cash bonus
+without a score weight. The smaller damage Limit still waits while a larger
+one on that ally can land and a foe is unbroken. It is not a boss flag.
+A full bar, or a break of the largest gauge, spends the larger row.
+
+Not played since this change. The tests check the gauge math and the
+comparison. They do not fight the game.
+
+
+ESPER, ONE CALL FOR THE WHOLE BOSS
+
+The 2026-11-05 Leviathan logs called Ramuh once. He acted, hit, and used
+Dismiss Vision. Fina could still pay Ramuh or Siren after that. No second
+call went out. The hold line stayed "acted yes, seen no, on the field no,
+holding yes" until the fight ended. The friend list never included him, so
+"seen" never became true, and the hold treated a unit it had not listed as
+still out.
+
+The hold is now: still up, or not yet acted. After it has acted, a unit that
+is not up can be called again when the caster can pay and the call is the
+one that fits. An unsummon effect (43) ends the call. A common fight still
+does not spend one. Not played since this change.

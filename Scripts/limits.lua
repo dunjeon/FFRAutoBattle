@@ -71,6 +71,63 @@ function M.lookup(name)
     return nil
 end
 
+-- Filled gauges from the live bar. points is the unit's Limit Burst points.
+-- one is how many points one gauge holds. maxPoints is the bar's size, used
+-- only when one is missing. counted is the battle library's gauge count,
+-- used only when the points are missing. A count does not replace points.
+-- An empty count at the start of a fight is not proof the count is the bar.
+-- 100 is the one-gauge size every live read has returned. It is used only
+-- when the game does not say.
+function M.filled(points, one, maxPoints, counted, slots)
+    local gauge = tonumber(one)
+    if (gauge == nil) or (gauge <= 0) then
+        local maxv = tonumber(maxPoints)
+        local n = tonumber(slots)
+        if (n == nil) or (n < 1) or (n > 4) then
+            if maxv and (maxv > 0) then
+                n = math.floor((maxv / 100) + 0.5)
+                if n < 1 then n = 1 end
+                if n > 4 then n = 4 end
+            end
+        end
+        if maxv and n and (n > 0) then gauge = maxv / n end
+    end
+    local pts = tonumber(points)
+    if pts and gauge and (gauge > 0) then
+        if pts < 0 then pts = 0 end
+        return math.floor((pts / gauge) + 1e-6)
+    end
+    local c = tonumber(counted)
+    if c and (c >= 0) and (c <= 4) then return c end
+    return nil
+end
+
+-- Whether candidate replaces the current pick. During a break, a Limit is
+-- the spend unless another action kills more. Two Limits: more kills, then
+-- the higher gauge cost, then damage, then stagger. A spell against a spell
+-- stays on kills, then damage, then stagger. No score weight.
+function M.ahead(candidate, current, cashing)
+    if not current then return true end
+    local function kills(x) return tonumber(x.kills) or 0 end
+    local function dmg(x) return tonumber(x.damage) or 0 end
+    local function stag(x) return tonumber(x.stagger) or 0 end
+    local function gauges(x) return tonumber(x.gauges) or 0 end
+    local function lim(x) return x.limit and true or false end
+    if cashing and (lim(candidate) ~= lim(current)) then
+        if kills(candidate) ~= kills(current) then return kills(candidate) > kills(current) end
+        return lim(candidate)
+    end
+    if lim(candidate) and lim(current) then
+        if kills(candidate) ~= kills(current) then return kills(candidate) > kills(current) end
+        if gauges(candidate) ~= gauges(current) then return gauges(candidate) > gauges(current) end
+        if dmg(candidate) ~= dmg(current) then return dmg(candidate) > dmg(current) end
+        return stag(candidate) > stag(current)
+    end
+    if kills(candidate) ~= kills(current) then return kills(candidate) > kills(current) end
+    if dmg(candidate) ~= dmg(current) then return dmg(candidate) > dmg(current) end
+    return stag(candidate) > stag(current)
+end
+
 -- The ready setup row that spends the most gauges. nil when none can be paid.
 function M.bestSetup(skills, pay)
     local best, bestG = nil, -1

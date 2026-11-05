@@ -208,15 +208,10 @@ local SKIP = {
     [ATTR.THROW] = true, [ATTR.THROW_MONEY] = true, [ATTR.DUAL] = true,
     [ATTR.MIMIC] = true, [ATTR.SWORD] = true, [ATTR.ESCAPE] = true,
 }
-local EFF = { DAMAGE = 1, PARAM = 2, CURE = 19, REVIVE = 20, DEFEND = 26, ANALYZE = 29, COVER = 41 }
+local EFF = { DAMAGE = 1, PARAM = 2, CURE = 19, REVIVE = 20, DEFEND = 26, ANALYZE = 29, SUMMON = 37, COVER = 41, UNSUMMON = 43 }
 local TGT = { SELF = 0, SINGLE = 1, GROUP = 2, SPREAD = 3, ALL = 4 }
 local REL = { FRIEND = 1, ENEMY = 2 }
 local PARAM = { HP = 1, MP = 2, BREAK = 3, LB = 4 }
--- One Limit gauge is 100 points in every game log so far: a 100-point bar
--- holds one gauge, a 200-point bar two. Used only when the game does not
--- say. The game's own gauge count is trusted for the launch once any unit
--- has read empty on it, since a call that always says 1 is the slot count.
-local LB_POINTS = { gauge = 100, countTrusted = false }
 local VAR = { UP = 0, RATIO = 2 }
 local ST_BREAK = 89
 local GUARD_STATUS = { [34] = true, [35] = true, [36] = true }
@@ -1248,17 +1243,20 @@ local function classify(skill)
     return nil
 end
 
--- Filled gauges, from the live limit points. IsEnableCommand is only the
--- fallback when the battle library does not answer. A full gauge is enough.
+-- Filled gauges, from the live limit points. The unit parameter is the bar
+-- the report already follows. The battle library's point read and its gauge
+-- count are the same bar when they answer. A 0 from either one does not
+-- hide a higher point read, and one empty count does not lock the rest of
+-- the launch. IsEnableCommand is only the fallback when none of them answer.
 local function limitReady(uid, skill)
     local need = (skill and skill.lbCost) or 1
     if need < 1 then need = 1 end
     local bfl = battleLib()
-    local points, one, slots, unitGauges = nil, nil, nil, nil
+    local libPoints, one, slots, unitGauges = nil, nil, nil, nil
     if bfl and bfl:IsValid() then
         local ok, v
         ok, v = pcall(function() return bfl:GetUnitLimitBurstPoint(uid) end)
-        if ok then points = num(v) end
+        if ok then libPoints = num(v) end
         ok, v = pcall(function() return bfl:GetLimitBurstPointOneGauge() end)
         if ok then one = num(v) end
         if (one == nil) or (one <= 0) then
@@ -1274,33 +1272,19 @@ local function limitReady(uid, skill)
         ok, v = pcall(function() return bfl:GetUnitLimitBurstPointGaugeNum(uid) end)
         if ok then unitGauges = num(v) end
     end
+    local paramPoints = nil
     local p = paramOf(uid)
-    if (points == nil) and p then
+    if p then
         local ok, v = pcall(function() return p:GetLimitBurstPoint() end)
-        if ok then points = num(v) end
+        if ok then paramPoints = num(v) end
     end
-    if points == nil then points = stat(uid, PARAM.LB, false) end
+    local statPoints = stat(uid, PARAM.LB, false)
     local maxv = stat(uid, PARAM.LB, true)
-    -- With no slot count from the game, the bar's size says how many gauges
-    -- it holds. Dividing by one slot read a full 200-point bar as one gauge.
-    if ((one == nil) or (one <= 0)) and maxv and (maxv > 0) then
-        local n = slots
-        if (n == nil) or (n < 1) or (n > 4) then
-            n = math.floor((maxv / LB_POINTS.gauge) + 0.5)
-            if n < 1 then n = 1 end
-            if n > 4 then n = 4 end
-        end
-        one = maxv / n
+    local points = nil
+    for _, v in ipairs({ libPoints, paramPoints, statPoints }) do
+        if (v ~= nil) and ((points == nil) or (v > points)) then points = v end
     end
-    local filled = nil
-    if (points ~= nil) and (one ~= nil) and (one > 0) then
-        filled = math.floor((points / one) + 1e-6)
-    end
-    -- The game's own count wins over the math once it is trusted.
-    if (unitGauges ~= nil) and (unitGauges >= 0) and (unitGauges <= 4) then
-        if unitGauges == 0 then LB_POINTS.countTrusted = true end
-        if LB_POINTS.countTrusted then filled = unitGauges end
-    end
+    local filled = Limits.filled and Limits.filled(points, one, maxv, unitGauges, slots) or nil
     if Fight then
         Fight.lbRead = Fight.lbRead or {}
         local bucket = filled
@@ -1308,11 +1292,17 @@ local function limitReady(uid, skill)
         local prev = Fight.lbRead[uid]
         if prev ~= bucket then
             Fight.lbRead[uid] = bucket
-            log("%s limit points %s max %s one %s slots %s unit %s needs %s",
-                unitName(uid), tostring(points), tostring(maxv), tostring(one),
-                tostring(slots), tostring(unitGauges), tostring(need))
-            if (filled ~= nil) and (filled >= need) and ((type(prev) ~= "number") or (prev < need)) then
-                appendLog("  " .. unitName(uid) .. " limit ready")
+            log("%s limit bar stat %s lib %s param %s max %s one %s slots %s count %s filled %s needs %s",
+                unitName(uid), tostring(statPoints), tostring(libPoints), tostring(paramPoints),
+                tostring(maxv), tostring(one), tostring(slots), tostring(unitGauges),
+                tostring(filled), tostring(need))
+        end
+        if (filled ~= nil) and (filled >= need) then
+            Fight.lbTold = Fight.lbTold or {}
+            local told = tostring(uid) .. ":" .. tostring(need)
+            if not Fight.lbTold[told] then
+                Fight.lbTold[told] = true
+                appendLog("  " .. unitName(uid) .. " limit ready, gauges " .. tostring(need))
             end
         end
     end
@@ -2048,9 +2038,45 @@ local function worldOf(uid, boss, summoned)
                 party[#party + 1] = a
             end
         end
+        -- The friend list can omit the unit for the whole call. A living
+        -- body this call put down is still on the field. An unsummon ends it
+        -- even if that body's points have not reached 0 yet.
+        local function hpUp(id)
+            local cur = stat(id, PARAM.HP, false)
+            return (cur ~= nil) and (cur > 0)
+        end
+        local mark = Fight.esperOut
+        if mark and mark.left then
+            live = false
+        elseif not live then
+            for id in pairs(Fight.summons) do
+                if hpUp(id) then live = true break end
+            end
+            local bfl = battleLib()
+            if (not live) and mark and bfl and bfl:IsValid() then
+                for n = 0, 15 do
+                    if not (Fight.openIds and Fight.openIds[n]) then
+                        local okP, p = pcall(function() return bfl:GetBattleUnitParameter(n, true) end)
+                        if okP and p and p.IsValid and p:IsValid() and hpUp(n) then
+                            local catalog = nil
+                            local okC, got = pcall(function() return p:GetUnitId() end)
+                            if okC then catalog = num(got) end
+                            local byUnit = mark.unit and catalog and (catalog == mark.unit)
+                            local filed = Fight.seenFoe and Fight.seenFoe[n]
+                            local byName = mark.name and (unitName(n) == mark.name) and not filed
+                            if byUnit or byName then
+                                if Fight.isSummon then Fight.isSummon(n, unitName(n)) end
+                                live = true
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
         Fight.summonLive = live
-        -- Seen only from this scan. A one-off id during the summon command
-        -- is not the unit leaving on the next turn.
+        -- Seen from a scan that found the unit up. A one-off id during the
+        -- summon command is not the unit leaving on the next turn.
         if live and Fight.esperOut then Fight.esperOut.seen = true end
         if #party > 0 then allies = party end
         for _, a in ipairs(allies) do
@@ -2208,7 +2234,8 @@ Fight.isSummon = function(id, name)
             -- row, stays an enemy.
             local already = Fight.seenFoe and Fight.seenFoe[id]
             local bound = mark and mark.who and (mark.who ~= id)
-            if called and not already and not bound then return take(catalog) end
+            local calledName = mark and mark.name and ((name or unitName(id)) == mark.name)
+            if (called or calledName) and not already and not bound then return take(catalog) end
             return false
         end
     end
@@ -4054,8 +4081,8 @@ local function turn(uid, skills, w, phase)
     -- The Esper that fits a boss, or a field with a danger move or a hit that
     -- would kill, once raises and a critical heal have had the slot. A common
     -- fight does not spend one. A hit this fight has measured outranks the
-    -- signature's element. The call stays out until that unit has acted and
-    -- has then left.
+    -- signature's element. Another call waits until that unit has acted and
+    -- is no longer up, and the caster can pay it.
     if (phase == 0) and (not allyCritical()) and (not dead) then
         local choice = summonChoice()
         if choice then return choice end
@@ -4554,13 +4581,29 @@ local function turn(uid, skills, w, phase)
                 end
             end
             if useful == 0 then return end
-            local function ahead()
-                if not bestS then return true end
-                if kills ~= bestKills then return kills > bestKills end
-                if damage ~= bestDamage then return damage > bestDamage end
-                return stagger > bestStagger
+            local function pack(skill, k, d, g)
+                return {
+                    kills = k, damage = d, stagger = g,
+                    limit = skill and (skill.attr == ATTR.LB) or false,
+                    gauges = skill and skill.lbCost or 0,
+                }
             end
-            if ahead() then
+            local ahead
+            if Limits.ahead then
+                ahead = Limits.ahead(
+                    pack(s, kills, damage, stagger),
+                    bestS and pack(bestS, bestKills, bestDamage, bestStagger) or nil,
+                    cashing)
+            elseif not bestS then
+                ahead = true
+            elseif kills ~= bestKills then
+                ahead = kills > bestKills
+            elseif damage ~= bestDamage then
+                ahead = damage > bestDamage
+            else
+                ahead = stagger > bestStagger
+            end
+            if ahead then
                 bestS, bestU, bestSpread = s, targets[1], spread and true or false
                 bestKills, bestDamage, bestStagger = kills, damage, stagger
             end
@@ -6010,6 +6053,7 @@ local function ensureBattle()
     Fight.warnCancel = 0
     Fight.warnLand = 0
     Fight.lbRead = {}
+    Fight.lbTold = {}
     Fight.lbRows = {}
     -- A low bar from the last fight is not a wipe in this one.
     Fight.mpAnchor, Fight.mpLow, Fight.mpBack, Fight.mpFed = {}, {}, {}, {}
@@ -6404,6 +6448,7 @@ local function act(serial)
         Fight.claim.cure = {}
         Fight.claim.lb = false
         Fight.claim.lbBreak = false
+        Fight.lbRead, Fight.lbTold, Fight.lbRows = {}, {}, {}
         Fight.claim.guard = false
         Fight.guardOn = {}
         Fight.veil = nil
@@ -7142,6 +7187,42 @@ function readRisk(hitsOnly)
             -- one enemy add up before they go in the book.
             if Fight.esperOut and Fight.isSummon and not (Fight.summons and Fight.summons[from]) then
                 Fight.isSummon(from)
+            end
+            -- The row's unsummon effect is the unit leaving. The friend list
+            -- can miss that unit for the whole call, so the effect is the end.
+            if Fight.esperOut then
+                local sidLeave = num(row.SkillId)
+                local skLeave = sidLeave and skillOf(sidLeave)
+                local leaves = false
+                if skLeave then
+                    if skLeave.effect == EFF.UNSUMMON then leaves = true end
+                    if not leaves then
+                        for _, e in ipairs(skLeave.effects or {}) do
+                            if e.type == EFF.UNSUMMON then leaves = true end
+                        end
+                    end
+                end
+                if leaves then
+                    local mark = Fight.esperOut
+                    local function mine(id)
+                        if not id then return false end
+                        if Fight.summons and Fight.summons[id] then return true end
+                        if mark.who and (mark.who == id) then return true end
+                        if mark.name and (unitName(id) == mark.name) and not (Fight.openIds and Fight.openIds[id]) then
+                            return true
+                        end
+                        return false
+                    end
+                    if mine(from) or mine(to) then
+                        mark.left = true
+                        mark.acted = true
+                        if Fight.summons then
+                            if from then Fight.summons[from] = nil end
+                            if to then Fight.summons[to] = nil end
+                            if mark.who then Fight.summons[mark.who] = nil end
+                        end
+                    end
+                end
             end
             local fromSummon = Fight.summons and Fight.summons[from]
             if fromSummon then friends[from] = nil end

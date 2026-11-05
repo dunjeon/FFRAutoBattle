@@ -2,11 +2,12 @@
 -- fight, a character, or a Vision, and it does not touch the battle libraries.
 --
 -- The unit on the field is the stay. A call stays out until that unit has
--- acted and, after the ally list has included it, the list no longer does.
--- A gap in the list before that action is not the unit leaving. A counted
--- stay on the row is not a clock. The element is the signature hit, and it
--- is the prior until this fight has measured the call. A support row has no
--- element. Lightning is stored as thunder, the same word the enemy book uses.
+-- acted and is no longer up. A gap in the list before that action is not the
+-- unit leaving. Once it has acted, a list that never included it is not a
+-- reason to keep the call out. A counted stay on the row is not a clock.
+-- The element is the signature hit, and it is the prior until this fight has
+-- measured the call. A support row has no element. Lightning is stored as
+-- thunder, the same word the enemy book uses.
 
 local BOOK = {}
 local UNITS = {}
@@ -78,15 +79,13 @@ function M.stillOut(at, now, turns, party)
 end
 
 -- True while another Esper must not be called.
--- `present` means this ally scan lists that unit alive. `mark.acted` means
--- the unit has taken its own action. `mark.seen` means an earlier ally scan
--- listed it. Until it has acted, it is still out. After that, it is out
--- until a scan that had listed it no longer does.
+-- `present` means that unit is still up. `mark.acted` means it has taken its
+-- own action. Until it has acted, a scan that misses it is not it leaving.
+-- After it has acted, it is out only while it is still up.
 function M.holding(mark, present)
     if present then return true end
     if not mark then return false end
     if not mark.acted then return true end
-    if not mark.seen then return true end
     return false
 end
 

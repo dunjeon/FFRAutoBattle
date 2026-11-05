@@ -22,7 +22,8 @@ waiting.acted = true
 check(E.holding(waiting, true) == true, "after it acts, it stays out while the list still has it")
 check(E.holding(waiting, false) == false, "after it acts, a list that had it and lost it is the unit leaving")
 local unseen = { seen = false, acted = true }
-check(E.holding(unseen, false) == true, "an action we never saw on the ally list does not end the call")
+check(E.holding(unseen, false) == false, "after it acts, a unit that is not up can be called again")
+check(E.holding(unseen, true) == true, "after it acts, a unit that is still up stays out")
 
 local function hits(prefer, other)
     return { { factor = prefer, prefer = true }, { factor = other, prefer = false } }
