@@ -233,6 +233,7 @@ local DECIDE_MS = 420
 local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
+    BattleLog = false,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -2836,6 +2837,7 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
         local line = string.format("warned: %s slot in %d, gauge %s/%s, %s", best.name, bestN, ltxt, mtxt, tail)
         log("%s", line)
         appendLog("  " .. line)
+        combatLine("warned: " .. best.name)
     end
     local canBreak = (type(left) == "number") and (left > 0.001) and ((sum + 0.001) >= left)
     if canBreak then
@@ -5426,6 +5428,7 @@ local function noteChanges(now)
         local summon = (was.side == "ally") and Fight.isSummon and Fight.isSummon(id)
         if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon then
             Fight.fell[#Fight.fell + 1] = was.name
+            combatLine("fell: " .. was.name)
             appendLog("  fell: " .. was.name .. (was.raised and " (raised and down again before a menu)" or ""))
             local at = Fight.raisedRound and Fight.raisedRound[id]
             if at and (((Fight.rounds or 0) - at) <= 2) then
@@ -5440,6 +5443,7 @@ local function noteChanges(now)
                 Fight.downTold[id] = true
                 local by = last and (last.who .. " (" .. last.skill .. ")") or "the party"
                 Fight.broke[#Fight.broke + 1] = was.name .. " by " .. by
+                combatLine("broke: " .. was.name)
                 appendLog("  broke: " .. was.name .. " by " .. by)
             end
         end
@@ -5743,7 +5747,7 @@ local function consider(uid)
     return nil
 end
 
-local Hud = { serial = 0, toastSerial = 0, disabled = false, box = {} }
+local Hud = { serial = 0, toastSerial = 0, disabled = false, box = {}, combat = { lines = {}, queued = false, limit = 40 } }
 
 local function showToast(msg)
     if Hud.toast then Hud.toast(msg) end
@@ -6123,6 +6127,7 @@ local function finishBattle()
     appendLog("-- " .. line)
     appendLog("")
     log("battle %d done: %s", Fight.number, line)
+    combatHide()
     Fight.actions, Fight.casts, Fight.castOrder = {}, {}, {}
     Fight.broke, Fight.fell, Fight.prev, Fight.last = {}, {}, {}, nil
 end
@@ -6212,6 +6217,9 @@ local function ensureBattle()
     Fight.finishNote = {}
     Fight.mobCards, Fight.dealtBook = nil, nil
     Fight.dealtOpen = nil
+    Fight.hurtOpen = nil
+    Fight.hurtFlush = nil
+    combatOpen()
     itemsLogged = false
     potLogged = false
     appendLog(string.format("== battle %d%s ==", Fight.number, Fight.boss and ", boss" or ""))
@@ -6630,6 +6638,7 @@ local function act(serial)
         local line = actorName .. " acts on its own"
         log("%s", line)
         appendLog("  " .. line)
+        combatLine(line)
         return
     end
     local finishingEarly = false
@@ -6981,6 +6990,13 @@ local function act(serial)
     noteRound(uid)
     appendLog("  " .. line)
     log("%s", line)
+    local cast = who .. ": " .. tostring(choice.name)
+    if choice.targets and #choice.targets > 0 then
+        local bits = {}
+        for _, tid in ipairs(choice.targets) do bits[#bits + 1] = Fight.nameOf(tid) end
+        cast = cast .. " -> " .. table.concat(bits, ", ")
+    end
+    combatLine(cast)
 end
 
 --------------------------------------------------------------------------------
@@ -7091,6 +7107,13 @@ local function noteHand(v)
     end
     log("%s", line)
     appendLog("  " .. line)
+    local cast = who .. ": " .. tostring(name)
+    if #targets > 0 then
+        local bits = {}
+        for _, tid in ipairs(targets) do bits[#bits + 1] = Fight.nameOf(tid) end
+        cast = cast .. " -> " .. table.concat(bits, ", ")
+    end
+    combatLine(cast)
     rememberCast(who, name)
     Fight.actions[#Fight.actions + 1] = line
     Fight.last = { who = who, skill = name }
@@ -7516,6 +7539,13 @@ function readRisk(hitsOnly)
                 local est = row and ((row.power or 0) * factor) or nil
                 Known.measure.noteCast(Fight.dealtBook, rec.from, rec.sid, rec.raw > 0)
                 Known.measure.add(Fight.dealtBook, rec.from, rec.sid, rec.to, rec.raw, est, rec.onBreak)
+                local n = math.floor((rec.raw or 0) + 0.5)
+                local skillName = (row and row.name) or "hit"
+                if n > 0 then
+                    combatLine(string.format("%s: %s hits %s for %d", unitName(rec.from), skillName, unitName(rec.to), n))
+                else
+                    combatLine(string.format("%s: %s misses %s", unitName(rec.from), skillName, unitName(rec.to)))
+                end
             end
             Fight.dealtOpen = nil
         end
@@ -7559,7 +7589,30 @@ function readRisk(hitsOnly)
                 sk.castOpen = rec.dmg
             end
         end
+        -- Shown once the cast stops landing, same as the damage book above.
+        if next(casts) then
+            Fight.hurtOpen = Fight.hurtOpen or {}
+            for key, rec in pairs(casts) do
+                local open = Fight.hurtOpen[key]
+                if (not open) or (rec.dmg > open.dmg) then
+                    Fight.hurtOpen[key] = { from = rec.from, sid = rec.sid, to = rec.to, dmg = rec.dmg }
+                end
+            end
+        else
+            Fight.hurtFlush = Fight.hurtOpen
+            Fight.hurtOpen = nil
+        end
     end)
+    if Fight.hurtFlush then
+        for _, rec in pairs(Fight.hurtFlush) do
+            local sk = skillOf(rec.sid)
+            local n = math.floor((rec.dmg or 0) + 0.5)
+            if n > 0 then
+                combatLine(string.format("%s: %s hits %s for %d", unitName(rec.from), (sk and sk.name) or "hit", unitName(rec.to), n))
+            end
+        end
+        Fight.hurtFlush = nil
+    end
     if hitsOnly then return end
     local ids = {}
     local ok = pcall(function()
@@ -7759,6 +7812,18 @@ local function hookMenu()
             scheduleAct()
         elseif name == "Delegate.Battle.Cmd.List.End" then
             Menu.open = false
+        elseif type(name) == "string" and name:find("Delegate.Battle.Result", 1, true) == 1 then
+            -- The spoils screen. Drop the log before that page is in the way.
+            -- A newer fight has a new life, so a late page cannot close it.
+            local book = Hud and Hud.combat
+            if book then
+                local life = book.life or 0
+                gameDelay(0, function()
+                    if (book.life or 0) ~= life then return end
+                    book.closed = true
+                    combatHide()
+                end)
+            end
         end
     end)
 end
@@ -8073,14 +8138,35 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
     tree.RootWidget = canvas
     local border = StaticConstructObject(findClass("/Script/UMG.Border"), tree, FName(base .. "_Border"))
     local text = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. "_Text"))
-    border:SetContent(text)
+    local scroll = nil
+    if kind == "log" then
+        -- Fixed box. The lines grow inside it, and the newest stays in view.
+        scroll = StaticConstructObject(findClass("/Script/UMG.ScrollBox"), tree, FName(base .. "_Scroll"))
+        border:SetContent(scroll)
+        scroll:AddChild(text)
+        pcall(function() text:SetAutoWrapText(true) end)
+        pcall(function() text:SetWrapTextAt(390) end)
+        -- The bar stays up, and the wheel scrolls even when the bar is grabbed.
+        pcall(function() scroll:SetAlwaysShowScrollbar(true) end)
+        pcall(function() scroll:SetConsumeMouseWheel(1) end)
+        pcall(function() scroll:SetVisibility(0) end)
+    else
+        border:SetContent(text)
+    end
     border:SetBrushColor({ R = 0.02, G = 0.03, B = 0.05, A = 0.72 })
-    border:SetPadding({ Left = 14, Top = 6, Right = 14, Bottom = 6 })
+    border:SetPadding({ Left = 10, Top = 6, Right = 10, Bottom = 6 })
     local slot = canvas:AddChildToCanvas(border)
-    slot:SetAutoSize(true)
     slot:SetAnchors({ Minimum = { X = ax, Y = ay }, Maximum = { X = ax, Y = ay } })
     slot:SetAlignment({ X = alx, Y = aly })
     slot:SetPosition({ X = 0, Y = 0 })
+    if kind == "log" then
+        -- A touch in from the screen edge. alignLog moves this out to the party frames.
+        slot:SetPosition({ X = -20, Y = -8 })
+        slot:SetAutoSize(false)
+        slot:SetSize({ X = 420, Y = 200 })
+    else
+        slot:SetAutoSize(true)
+    end
     local font = text.Font
     font.Size = size
     text:SetFont(font)
@@ -8088,18 +8174,23 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
     pcall(function() widget:SetIsFocusable(false) end)
     pcall(function() text:SetIsFocusable(false) end)
     widget:SetVisibility(1)
-    widget:AddToViewport(kind == "toast" and 1100 or 1000)
-    return { widget = widget, text = text }
+    local layer = (kind == "toast" and 1100) or (kind == "log" and 1050) or 1000
+    widget:AddToViewport(layer)
+    return { widget = widget, text = text, scroll = scroll, slot = slot }
 end
 
 local function widget(kind)
     local w = Hud.box[kind]
     if w and w.widget:IsValid() and w.text:IsValid() then
-        if not w.widget:IsInViewport() then w.widget:AddToViewport(kind == "toast" and 1100 or 1000) end
+        local layer = (kind == "toast" and 1100) or (kind == "log" and 1050) or 1000
+        if not w.widget:IsInViewport() then w.widget:AddToViewport(layer) end
         return w
     end
     if kind == "toast" then
         w = makeWidget(kind, 0.5, 0.16, 0.5, 0.5, 20)
+    elseif kind == "log" then
+        -- Lower right, a bit above the party frames. The bottom-right corner is the anchor.
+        w = makeWidget(kind, 1.0, 0.78, 1.0, 1.0, 14)
     else
         w = makeWidget(kind, 0.012, 0.90, 0.0, 1.0, 15)
     end
@@ -8141,6 +8232,182 @@ Hud.badgeShow = function(msg)
             log("overlay off: %s", tostring(err))
         end
     end)
+end
+
+-- Last combat lines, drawn on the next game-thread turn. A call from a hook
+-- only stores the words. The box is shown as soon as the fight starts, empty,
+-- and again for every later fight. It hides when that fight is over.
+function combatRefresh()
+    local book = Hud.combat
+    if not book or book.queued then return end
+    book.queued = true
+    gameDelay(0, function()
+        book.queued = false
+        if Hud.disabled or book.off then return end
+        local old = Hud.box and Hud.box.log
+        if book.closed or book.hidden or not book.want then
+            if old and old.widget and old.widget.IsValid and old.widget:IsValid() then
+                pcall(function() old.widget:SetVisibility(1) end)
+            end
+            return
+        end
+        local ok, err = pcall(function()
+            local box = widget("log")
+            local shownLines = {}
+            for i = 1, #book.lines do
+                local line = book.lines[i]
+                if line == "-- BattleLog --" then shownLines[i] = line
+                else shownLines[i] = "* " .. line end
+            end
+            local body = (#shownLines > 0) and table.concat(shownLines, "\n\n") or " "
+            local keep = nil
+            if book.hold and box.scroll and box.scroll.IsValid and box.scroll:IsValid() then
+                pcall(function() keep = box.scroll:GetScrollOffset() end)
+            end
+            box.text:SetText(FText(body))
+            if book.hold and type(keep) == "number" and box.scroll then
+                pcall(function() box.scroll:SetScrollOffset(keep) end)
+            end
+            -- 4 is SelfHitTestInvisible: the full-screen root lets clicks through,
+            -- and the scroll box itself still takes the wheel and the bar.
+            box.widget:SetVisibility(4)
+            if box.scroll then pcall(function() box.scroll:SetVisibility(0) end) end
+            alignLog(box)
+            if not book.hold then followLog(box) end
+        end)
+        if not ok then
+            book.off = true
+            log("combat log failed: %s", tostring(err))
+            return
+        end
+        local shown = Hud.box and Hud.box.log
+        gameDelay(0, function()
+            if book.closed or book.hidden or not book.want then return end
+            alignLog(shown)
+            followLog(shown)
+        end)
+    end)
+end
+
+function combatHide()
+    local book = Hud.combat
+    book.lines = {}
+    book.hold = false
+    book.want = false
+    combatRefresh()
+end
+
+function combatOpen()
+    local book = Hud.combat
+    book.lines = {}
+    book.hold = false
+    book.closed = false
+    book.off = false
+    book.hidden = false
+    book.life = (book.life or 0) + 1
+    if not (cfg and cfg.BattleLog) then
+        book.want = false
+        combatRefresh()
+        return
+    end
+    book.want = true
+    book.lines[1] = "-- BattleLog --"
+    combatRefresh()
+end
+
+-- Battle begin only schedules this. The unit read waits until the next turn.
+function combatKick()
+    local book = Hud and Hud.combat
+    if not (book and book.pending) then return end
+    local ok, u = pcall(function() return FindFirstOf("CPP_BtlUnit") end)
+    if not (ok and u and u.IsValid and u:IsValid()) then return end
+    book.pending = nil
+    book.closed = false
+    book.off = false
+    if ensureBattle then pcall(ensureBattle) end
+    if Fight and Fight.active then
+        book.want = true
+        book.closed = false
+        combatRefresh()
+    end
+end
+
+function followLog(box)
+    if Hud.combat and Hud.combat.hold then return end
+    if not (box and box.scroll and box.scroll.IsValid and box.scroll:IsValid()) then return end
+    local ok = pcall(function() box.scroll:ScrollToEnd() end)
+    if ok then return end
+    pcall(function() box.scroll:SetScrollOffset(box.scroll:GetScrollOffsetOfEnd()) end)
+end
+
+-- The party frames are the right edge the log is allowed to reach.
+function alignLog(box)
+    if not (box and box.slot and box.widget and box.widget.IsValid and box.widget:IsValid()) then return end
+    local placed = false
+    pcall(function()
+        local geo = box.widget:GetCachedGeometry()
+        local origin = geo:GetAbsolutePosition()
+        local absSize = geo:GetAbsoluteSize()
+        local localSize = geo:GetLocalSize()
+        if not (origin and absSize and localSize and absSize.X and absSize.X > 1 and localSize.X and localSize.X > 1) then return end
+        local best = nil
+        local function consider(list)
+            for _, w in ipairs(list or {}) do
+                if w and w.IsValid and w:IsValid() then
+                    local skip = false
+                    pcall(function()
+                        local vis = w:GetVisibility()
+                        if vis == 1 or vis == 2 then skip = true end
+                    end)
+                    if not skip then
+                        local g = w:GetCachedGeometry()
+                        local p = g:GetAbsolutePosition()
+                        local s = g:GetAbsoluteSize()
+                        if p and s and s.X and s.X > 8 and p.X then
+                            local right = p.X + s.X
+                            if right >= origin.X and right <= (origin.X + absSize.X + 2) then
+                                if (not best) or right > best then best = right end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        consider(FindAllOf("WBP_UnitStatus_Point_C"))
+        consider(FindAllOf("WBP_FriendlyUnit_HPMPGauge_C"))
+        if not best then return end
+        local scale = absSize.X / localSize.X
+        if not (scale and scale > 0) then return end
+        local localRight = (best - origin.X) / scale
+        box.slot:SetAnchors({ Minimum = { X = 1, Y = 0.78 }, Maximum = { X = 1, Y = 0.78 } })
+        box.slot:SetAlignment({ X = 1, Y = 1 })
+        box.slot:SetPosition({ X = localRight - localSize.X, Y = -8 })
+        placed = true
+    end)
+    if placed then return end
+    pcall(function()
+        box.slot:SetAnchors({ Minimum = { X = 1, Y = 0.78 }, Maximum = { X = 1, Y = 0.78 } })
+        box.slot:SetAlignment({ X = 1, Y = 1 })
+        box.slot:SetPosition({ X = -20, Y = -8 })
+    end)
+end
+
+function combatLine(text)
+    if type(text) ~= "string" or text == "" then return end
+    if not (cfg and cfg.BattleLog) then return end
+    local book = Hud.combat
+    if book.off or book.closed then return end
+    if not book.want then
+        if not (Fight and Fight.active) then return end
+        book.want = true
+    end
+    local lines = book.lines
+    lines[#lines + 1] = text
+    while #lines > book.limit do
+        local drop = (lines[1] == "-- BattleLog --" and #lines > 1) and 2 or 1
+        table.remove(lines, drop)
+    end
+    combatRefresh()
 end
 
 local function watchField()
@@ -8263,6 +8530,7 @@ local function resonanceWatch()
     local line = string.format("resonance %s by %s -> %s", bestChoice.name, who, bestChoice.reason)
     log("%s", line)
     appendLog("  " .. line)
+    combatLine(who .. ": " .. tostring(bestChoice.name))
     rememberCast(who, bestChoice.name)
     Fight.actions[#Fight.actions + 1] = line
     Fight.last = { who = who, skill = bestChoice.name }
@@ -8312,6 +8580,15 @@ local function bind(name, fn)
     end)
 end
 
+function pressLog()
+    if not (cfg and cfg.BattleLog and inFight()) then return end
+    local book = Hud and Hud.combat
+    if not book or book.off or book.closed then return end
+    book.hidden = not book.hidden
+    book.want = true
+    if combatRefresh then combatRefresh() end
+end
+
 local function pressAuto()
     cfg.Enabled = not cfg.Enabled
     saveState()
@@ -8335,6 +8612,14 @@ end
 
 local padTold, padLeft, padRight = false, false, false
 local function pollTriggers()
+    local book = Hud and Hud.combat
+    if book and book.pending then
+        if combatKick then combatKick() end
+        if book.pending then
+            book.pending = book.pending - 1
+            if book.pending <= 0 then book.pending = nil end
+        end
+    end
     local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
     if not (okPc and pc and pc.IsValid and pc:IsValid()) then return end
     local function down(name)
@@ -8348,6 +8633,68 @@ local function pollTriggers()
         end
         if ok and (type(hit) == "boolean") then return hit end
         return nil
+    end
+    local function analog(name)
+        local ok, v = pcall(function()
+            return pc:GetInputAnalogKeyState({ KeyName = FName(name) })
+        end)
+        if not (ok and type(v) == "number") then
+            ok, v = pcall(function()
+                return pc:GetInputAnalogKeyState(FName(name))
+            end)
+        end
+        if ok and type(v) ~= "number" then v = tonumber(v) end
+        if ok and type(v) == "number" then return v end
+        return nil
+    end
+    -- Right stick scrolls the log. Up moves toward the newest lines.
+    -- The game still gets the stick.
+    -- A push away from the bottom holds that place until the stick returns to the end.
+    local book = Hud and Hud.combat
+    local box = Hud and Hud.box and Hud.box.log
+    local function edge(name, slot)
+        local now = down(name)
+        if now == nil or not book then return false end
+        local was = book[slot] == true
+        book[slot] = now == true
+        return now and not was
+    end
+    -- The right stick click is sampled here. Middle mouse is a key bind, because
+    -- a click is shorter than this poll and a single click was being missed.
+    -- Both act only on the combat screen, same as the triggers.
+    local stickEdge = edge("Gamepad_RightThumbstick", "rsWas")
+    if inFight() and cfg.BattleLog and book and (not book.off) and (not book.closed) then
+        if stickEdge then
+            book.hidden = not book.hidden
+            book.want = true
+            if combatRefresh then combatRefresh() end
+        end
+    end
+    if inFight() and cfg.BattleLog and book and (not book.off) and (not book.closed) and (not book.hidden) and book.lines and #book.lines > 0
+        and box and box.scroll and box.scroll.IsValid and box.scroll:IsValid() then
+        local y = analog("Gamepad_RightY")
+        if type(y) == "number" then
+            if math.abs(y) < 0.25 then
+                pcall(function()
+                    local offset = box.scroll:GetScrollOffset()
+                    local ending = box.scroll:GetScrollOffsetOfEnd()
+                    if type(offset) == "number" and type(ending) == "number" and (ending - offset) < 12 then
+                        book.hold = false
+                    end
+                end)
+            else
+                book.hold = true
+                pcall(function()
+                    local offset = box.scroll:GetScrollOffset() or 0
+                    local ending = box.scroll:GetScrollOffsetOfEnd() or offset
+                    local nextOff = offset + (y * 64)
+                    if nextOff < 0 then nextOff = 0 end
+                    if nextOff > ending then nextOff = ending end
+                    box.scroll:SetScrollOffset(nextOff)
+                    if type(ending) == "number" and (ending - nextOff) < 12 then book.hold = false end
+                end)
+            end
+        end
     end
     local left = down("Gamepad_LeftTrigger")
     local right = down("Gamepad_RightTrigger")
@@ -8375,6 +8722,13 @@ loadConfig()
 
 bind("TakeOverKey", pressAuto)
 bind("MenuKey", pressBasic)
+if not pcall(function()
+    RegisterKeyBind(Key.MIDDLE_MOUSE_BUTTON, function()
+        ExecuteInGameThread(pressLog)
+    end)
+end) then
+    log("combat log failed: middle mouse")
+end
 -- A toggle. Ten times a second still catches a press, in a fight or out of one.
 gameLoop(100, pollTriggers)
 
@@ -8384,6 +8738,34 @@ local okHook, errHook = pcall(function()
     hookTimeline()
 end)
 if not okHook then log("hook failed: %s", tostring(errHook)) end
+
+okHook, errHook = pcall(function()
+    local function shutLog()
+        local book = Hud and Hud.combat
+        if not book then return end
+        -- A later fight gets a new life, so this end cannot close that log.
+        local life = book.life or 0
+        gameDelay(0, function()
+            if (book.life or 0) ~= life then return end
+            book.closed = true
+            if combatHide then combatHide() end
+        end)
+    end
+    -- Fight over, then the spoils page. The hook does not read the argument.
+    RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleEndBtl", function()
+        shutLog()
+    end)
+    RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult", function()
+        shutLog()
+    end)
+    RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginBtl", function()
+        if Hud and Hud.combat then Hud.combat.pending = 100 end
+        gameDelay(0, function()
+            if combatKick then combatKick() end
+        end)
+    end)
+end)
+if not okHook then log("combat log failed: %s", tostring(errHook)) end
 
 local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
