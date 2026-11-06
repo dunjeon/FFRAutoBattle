@@ -437,8 +437,26 @@ end
 
 local SkillIdx = nil
 local ItemIdx = nil
-local function buildSkillIndex()
+-- Walking these tables while a save is loading crashed the game. The startup
+-- timer must not start the walk. It waits until a command menu is open, or a
+-- fight is already underway. A hook only schedules the walk.
+local hookDepth = 0
+local rowsAllowed = false
+local rowWalkQueued = false
+local queueRowWalk
+local function battleUp()
+    if Fight and Fight.active then return true end
+    local ok, u = pcall(function() return FindFirstOf("CPP_BtlUnit") end)
+    return (ok and u and u.IsValid and u:IsValid()) and true or false
+end
+local function buildSkillIndex(fromBattle)
     if SkillIdx then return end
+    if hookDepth > 0 then
+        queueRowWalk()
+        return
+    end
+    if not (fromBattle or rowsAllowed or (Fight and Fight.active)) then return end
+    if not battleUp() then return end
     local effects = {}
     local effectRows = {}
     local skills = {}
@@ -708,6 +726,15 @@ local function buildSkillIndex()
         ItemIdx = items
         log("item table: %d rows, price cap %s", ni, tostring(cfg.ItemPrice))
     end
+end
+
+queueRowWalk = function()
+    if SkillIdx or rowWalkQueued then return end
+    rowWalkQueued = true
+    gameDelay(0, function()
+        rowWalkQueued = false
+        buildSkillIndex()
+    end)
 end
 
 local function skillOf(id)
@@ -7680,25 +7707,31 @@ end
 local function hookDecide()
     RegisterHook("/Script/mucha.CPP_BtlDelEventCmd:OnExecuteDecideCommand", function(_, value)
         -- No game reads inside a hook beyond its own value: the risk list and
-        -- the hit walk run on the game thread right after it returns.
-        if applyPendingOrder and Fight and Fight.orderFresh then gameDelay(0, applyPendingOrder) end
-        pcall(function()
-            local v = value:get()
-            local fromMod = (Menu.byMod == true)
-            Menu.byMod = false
-            Menu.fromMenu = Menu.open and (not Menu.decided) and true or false
-            learn(v)
-            if not fromMod then
-                local okTrace, errTrace = pcall(Menu.traceHand, v)
-                if not okTrace then log("hand trace failed: %s", tostring(errTrace)) end
-            end
-            Menu.decided = true
-            Menu.sub = false
-            if not fromMod then
-                local okNote, errNote = pcall(noteHand, v)
-                if not okNote then log("player command was not recorded: %s", tostring(errNote)) end
-            end
+        -- the hit walk run on the game thread right after it returns. The row
+        -- walk is the same. A lookup from here only schedules it.
+        hookDepth = hookDepth + 1
+        local okBody, errBody = pcall(function()
+            if applyPendingOrder and Fight and Fight.orderFresh then gameDelay(0, applyPendingOrder) end
+            pcall(function()
+                local v = value:get()
+                local fromMod = (Menu.byMod == true)
+                Menu.byMod = false
+                Menu.fromMenu = Menu.open and (not Menu.decided) and true or false
+                learn(v)
+                if not fromMod then
+                    local okTrace, errTrace = pcall(Menu.traceHand, v)
+                    if not okTrace then log("hand trace failed: %s", tostring(errTrace)) end
+                end
+                Menu.decided = true
+                Menu.sub = false
+                if not fromMod then
+                    local okNote, errNote = pcall(noteHand, v)
+                    if not okNote then log("player command was not recorded: %s", tostring(errNote)) end
+                end
+            end)
         end)
+        hookDepth = hookDepth - 1
+        if not okBody then log("hook error: %s", tostring(errBody)) end
     end)
 end
 
@@ -7707,6 +7740,10 @@ local function hookMenu()
         local ok, name = pcall(function() return tag:get().TagName:ToString() end)
         if not ok then return end
         if name == "Delegate.Battle.Cmd.List.Begin" then
+            -- The fight is up. Read the rows after this hook returns, before
+            -- the command is chosen.
+            rowsAllowed = true
+            queueRowWalk()
             if applyPendingOrder and Fight and Fight.orderFresh then gameDelay(0, applyPendingOrder) end
             local actor = currentActor()
             Menu.sub = (actor == Menu.actor) and (not Menu.decided)
@@ -7972,7 +8009,7 @@ end
 
 local function considerScene(skillId, actorId)
     if not cfg.SkipScenes or not skillId then return end
-    pcall(buildSkillIndex)
+    pcall(buildSkillIndex, true)
     local row = skillOf(skillId)
     local scene = row and (row.attr == ATTR.LB or row.attr == ATTR.FINISH or row.attr == ATTR.SUMMON)
     -- The summon intro is the summon skill. The attack after it belongs to
@@ -8234,7 +8271,8 @@ end
 local absent = 0
 gameLoop(400, resonanceWatch)
 gameLoop(700, function()
-    buildSkillIndex()
+    -- The row walk is not started here. This timer runs from launch, including
+    -- while a save is loading, and that walk crashed the game.
     if not Fight.active then return end
     local u = FindFirstOf("CPP_BtlUnit")
     if u and u:IsValid() then
@@ -8292,9 +8330,7 @@ local function pressBasic()
 end
 
 local function inFight()
-    if Fight and Fight.active then return true end
-    local ok, u = pcall(function() return FindFirstOf("CPP_BtlUnit") end)
-    return (ok and u and u.IsValid and u:IsValid()) and true or false
+    return battleUp()
 end
 
 local padTold, padLeft, padRight = false, false, false
