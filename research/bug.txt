@@ -636,10 +636,14 @@ Still open:
 - 25. A partial table load is not tried again. Not seen.
 - keepFoe remembers each id until the next plan or the next hit walk. It was repeating the read for every ally. Not played since this change.
 
+Played since the last list:
+
+- SkipScenes. A Vision finish and the Esper summon intro were skipped in
+  play. The Esper's own attack was skipped after that. The attack is a
+  skill by the unit the call put on the field.
+
 In the code, not played yet:
 
-- SkipScenes. A Vision finish scene was skipped in play. An Esper summon
-  now uses that same skip. Not played since the Esper was added.
 - 4. The item table has no rare column. ItemPrice in config.ini is the cap,
   default 5000, and a buy price above it is not spent. The widest step on
   the consumable table is still 99,999 to 500,000 for a higher cap. Not

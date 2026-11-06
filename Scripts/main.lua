@@ -13,7 +13,8 @@
 -- Every fact comes from the game's own tables, read live. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
 -- SkipScenes in config.ini is off unless set. On, it asks the game to skip a
--- Limit Burst, a Vision finish, or an Esper summon scene. Other scenes stay.
+-- Limit Burst, a Vision finish, an Esper summon, or that Esper's own attack.
+-- Other scenes stay.
 
 local TAG = "[FFRAutoBattle] "
 -- Reporting off: only the startup line and real errors reach UE4SS.log.
@@ -7726,9 +7727,10 @@ local function hookMenu()
 end
 
 -- SkipScenes. A Limit Burst, a Vision finish (the finish-blow attribute),
--- or an Esper summon is the scene. The battle input skip, the sequence
--- skip reaction, and stopping that playback are what ends one. The look
--- runs only after one of those skills begins. A story scene is left alone.
+-- an Esper summon, or a skill by the unit that call put on the field is
+-- the scene. The battle input skip, the sequence skip reaction, and
+-- stopping that playback are what ends one. The look runs only after one
+-- of those skills begins. A story scene is left alone.
 local Scene = { want = nil, allow = false, quietId = nil, quietUntil = 0, told = {} }
 
 local function live(obj)
@@ -7968,27 +7970,41 @@ local function watchScene(skillId, name)
     step(80)
 end
 
-local function considerScene(skillId)
-    if not cfg.SkipScenes then return end
+local function considerScene(skillId, actorId)
+    if not cfg.SkipScenes or not skillId then return end
     pcall(buildSkillIndex)
     local row = skillOf(skillId)
-    if not row then return end
-    if row.attr ~= ATTR.LB and row.attr ~= ATTR.FINISH and row.attr ~= ATTR.SUMMON then return end
-    watchScene(skillId, row.name or tostring(skillId))
+    local scene = row and (row.attr == ATTR.LB or row.attr == ATTR.FINISH or row.attr == ATTR.SUMMON)
+    -- The summon intro is the summon skill. The attack after it belongs to
+    -- the unit that call put on the field.
+    if not scene and actorId and Fight then
+        local mark = Fight.esperOut
+        local summoned = Fight.summons and Fight.summons[actorId]
+        if (not summoned) and mark and (mark.who == actorId) then summoned = true end
+        if (not summoned) and mark and (not mark.who) then
+            local catalog = catalogOf(actorId)
+            summoned = catalog and mark.unit and (catalog == mark.unit)
+                and not (Fight.openIds and Fight.openIds[actorId])
+        end
+        scene = summoned and true or false
+    end
+    if not scene then return end
+    watchScene(skillId, (row and row.name) or tostring(skillId))
 end
 
 local function hookScenes()
     if not cfg.SkipScenes then return end
     RegisterHook("/Script/mucha.CPP_VM_BtlMsg:HandleBeginSkill", function(_, delval)
         if not cfg.SkipScenes then return end
-        local id = nil
+        local id, actor = nil, nil
         pcall(function()
             local row = delval:get()
             id = num(row and row.SkillId)
+            actor = num(row and row.actionUnitUniqueId)
             row = nil
         end)
         if not id then return end
-        gameDelay(0, function() considerScene(id) end)
+        gameDelay(0, function() considerScene(id, actor) end)
     end)
     RegisterHook("/Script/mucha.CPP_UI_BtlCinematicManager:HandleSkipAllow", function(_, value)
         if not cfg.SkipScenes then return end
