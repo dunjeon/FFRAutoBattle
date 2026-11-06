@@ -8580,15 +8580,6 @@ local function bind(name, fn)
     end)
 end
 
-function pressLog()
-    if not (cfg and cfg.BattleLog and inFight()) then return end
-    local book = Hud and Hud.combat
-    if not book or book.off or book.closed then return end
-    book.hidden = not book.hidden
-    book.want = true
-    if combatRefresh then combatRefresh() end
-end
-
 local function pressAuto()
     cfg.Enabled = not cfg.Enabled
     saveState()
@@ -8659,12 +8650,12 @@ local function pollTriggers()
         book[slot] = now == true
         return now and not was
     end
-    -- The right stick click is sampled here. Middle mouse is a key bind, because
-    -- a click is shorter than this poll and a single click was being missed.
-    -- Both act only on the combat screen, same as the triggers.
+    -- Sample every poll so a button held outside a fight does not toggle on entry.
+    -- Scroll and the show/hide click act only on the combat screen, same as the triggers.
+    local midEdge = edge("MiddleMouseButton", "midWas")
     local stickEdge = edge("Gamepad_RightThumbstick", "rsWas")
     if inFight() and cfg.BattleLog and book and (not book.off) and (not book.closed) then
-        if stickEdge then
+        if midEdge or stickEdge then
             book.hidden = not book.hidden
             book.want = true
             if combatRefresh then combatRefresh() end
@@ -8722,13 +8713,6 @@ loadConfig()
 
 bind("TakeOverKey", pressAuto)
 bind("MenuKey", pressBasic)
-if not pcall(function()
-    RegisterKeyBind(Key.MIDDLE_MOUSE_BUTTON, function()
-        ExecuteInGameThread(pressLog)
-    end)
-end) then
-    log("combat log failed: middle mouse")
-end
 -- A toggle. Ten times a second still catches a press, in a fight or out of one.
 gameLoop(100, pollTriggers)
 
