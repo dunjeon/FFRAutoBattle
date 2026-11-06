@@ -3043,7 +3043,7 @@ local function turn(uid, skills, w, phase)
         end
         if use == "lb-setup" or use == "lb-revive" or use == "revive" or use == "lb-break" or use == "lb-guard" then return false end
         if (s.attr == ATTR.LB) or (use == "lb-cash") then
-            if cashing then return true end
+            if cashing and limitFight then return true end
             return false
         end
         return s.kind == "damage" or s.attr == ATTR.FIGHT or s.attr == ATTR.MAGIC or s.attr == ATTR.ABILITY
@@ -3173,6 +3173,9 @@ local function turn(uid, skills, w, phase)
     end
     local style = styleOf()
     Fight.threat = hardField
+    -- A Limit waits for a danger move, a hit that would kill, or a boss.
+    -- A common fight spends the turn on its own skills.
+    local limitFight = hardField or (Fight.boss and true or false)
 
     local function modeOf(list)
         if #list <= 1 then return "sync", list, nil end
@@ -3300,7 +3303,14 @@ local function turn(uid, skills, w, phase)
                 if (downN < 1) and focus then downN = 1 end
                 local s, partyHit = nil, false
                 if Limits.bestRaise then
-                    s, partyHit = Limits.bestRaise(skills, downN, pay, allowOne)
+                    local pool = skills
+                    if not limitFight then
+                        pool = {}
+                        for _, row in ipairs(skills) do
+                            if not limitSkill(row) then pool[#pool + 1] = row end
+                        end
+                    end
+                    s, partyHit = Limits.bestRaise(pool, downN, pay, allowOne)
                 elseif not allowOne then
                     for _, row in ipairs(skills) do
                         if (row.kind == "revive") and pay(row) then s = row break end
@@ -4545,7 +4555,7 @@ local function turn(uid, skills, w, phase)
     local function lbOwed()
         if lbOwedFlag ~= nil then return lbOwedFlag end
         lbOwedFlag = false
-        if phase ~= 0 or not hardField or Fight.claim.lb or Fight.chipped then return false end
+        if phase ~= 0 or not limitFight or Fight.claim.lb or Fight.chipped then return false end
         if Fight.fell and #Fight.fell > 0 then return false end
         if allyCritical() then return false end
         for _, a in ipairs(w.allies) do
@@ -4731,8 +4741,19 @@ local function turn(uid, skills, w, phase)
     end
 
     -- A full bar stops waiting, and a stagger on the largest gauge spends a Limit
-    -- even if a bigger one is being saved.
-    if ((phase == 0) or (phase == PHASE_BONUS)) and hardField then
+    -- even if a bigger one is being saved. A common fight does not spend one.
+    if not limitFight and not Fight.limitCommon then
+        for _, s in ipairs(skills) do
+            if limitSkill(s) and (useOf(s) ~= "skip") then
+                Fight.limitCommon = true
+                local line = "limit held: common fight"
+                log("%s", line)
+                appendLog("  " .. line)
+                break
+            end
+        end
+    end
+    if ((phase == 0) or (phase == PHASE_BONUS)) and limitFight then
         local ready = false
         for _, s in ipairs(skills) do
             if isHit(s, true) and pay(s) and ((s.attr == ATTR.LB) or (useOf(s) == "lb-cash")) then ready = true end
@@ -4986,7 +5007,7 @@ local function turn(uid, skills, w, phase)
             local choice = castDebuff(false)
             if choice then return choice end
         end
-        if bossFight and not Fight.claim.lb then
+        if limitFight and not Fight.claim.lb then
             local choice = setupLimit()
             if choice then return choice end
         end
@@ -5067,17 +5088,17 @@ local function turn(uid, skills, w, phase)
         if choice then Fight.claim.lbBreak = true end
         return choice
     end
-    if (phase == 0) and hardField and (not dead) then
+    if (phase == 0) and limitFight and (not dead) then
         local choice = barrierLimit()
         if choice then return choice end
     end
-    if (phase == 0) and hardField and (not dead) and (not allyCritical()) then
+    if (phase == 0) and limitFight and (not dead) and (not allyCritical()) then
         local choice = breakLimit()
         if choice then return choice end
     end
     -- The gauge may fill after the first chip. That one setup still goes
     -- out then. It does not go out after a fall, or while someone is critical.
-    if phase == 0 and hardField and not Fight.claim.lb
+    if phase == 0 and limitFight and not Fight.claim.lb
         and not alreadyFell and not allyCritical() and not dead then
         local choice = setupLimit()
         if choice then return choice end
@@ -6127,6 +6148,7 @@ local function ensureBattle()
     Fight.summonLive = false
     Fight.esperTold = false
     Fight.esperCommon = false
+    Fight.limitCommon = false
     Fight.esperGateWhy, Fight.esperHoldLine = nil, nil
     Fight.esperSkip = {}
     Fight.limitUntagged = {}

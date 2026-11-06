@@ -8,8 +8,8 @@
 --   lb-setup  goes out before the break: the target is easier to stagger.
 --   lb-break  goes out as a gauge nears its break: the party's next actions
 --             count for more (gauge fill, or every action twice).
---   lb-guard  a party barrier, spent while a danger move or a boss is up.
---   lb-cash   a damage row, spent on a hard fight's break.
+--   lb-guard  a party barrier, spent on a dangerous fight or a boss.
+--   lb-cash   a damage row, spent on a dangerous fight's break, or a boss's.
 --   lb-revive raises the party.
 -- An ordinary skill that shares a name is not a Limit Burst. The caller
 -- applies a row only when the live attribute is a Limit Burst.
