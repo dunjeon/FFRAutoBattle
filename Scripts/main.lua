@@ -1224,10 +1224,19 @@ end
 
 -- A friend id, an ally id, a summoned unit, or a body with no HP is not a foe.
 -- The enemy-target list has included the actor. A shared name does not.
+-- One plan asks this for the same id many times. The answer is kept until
+-- the next plan or the next hit walk.
+local foeKeep = {}
+local function clearFoeKeep()
+    foeKeep = {}
+end
 local function keepFoe(id)
     if not id or not Fight then return false end
+    local kept = foeKeep[id]
+    if kept ~= nil then return kept end
     local function drop()
         if Fight.seenFoe then Fight.seenFoe[id] = nil end
+        foeKeep[id] = false
         return false
     end
     if Fight.summons and Fight.summons[id] then return drop() end
@@ -1240,6 +1249,7 @@ local function keepFoe(id)
     if not p then return drop() end
     local r = hpRatio(id)
     if r == nil or r <= 0 then return drop() end
+    foeKeep[id] = true
     return true
 end
 -- No row field says a repeated element shrinks. The break on the skill stands.
@@ -5506,6 +5516,7 @@ local function kitFallback(uid)
 end
 
 local function consider(uid)
+    clearFoeKeep()
     if Fight then Fight.stampCache = {} end
     if outOfControl(uid) then
         log("%s is %s; leaving this turn", unitName(uid), outOfControl(uid))
@@ -7232,6 +7243,7 @@ end
 
 -- Game thread, while a party menu is open. The risk object is not kept.
 function readRisk(hitsOnly)
+    clearFoeKeep()
     if Fight then Fight.stampCache = {} end
     if not Fight then return end
     -- The last skill's hit list. Numbers only; the skill object is not kept.
@@ -8009,7 +8021,8 @@ loadConfig()
 
 bind("TakeOverKey", pressAuto)
 bind("MenuKey", pressBasic)
-gameLoop(16, pollTriggers)
+-- A toggle. Ten times a second still catches a press, in a fight or out of one.
+gameLoop(100, pollTriggers)
 
 local okHook, errHook = pcall(function()
     hookDecide()

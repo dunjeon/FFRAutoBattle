@@ -632,9 +632,9 @@ Still open:
   First Aid's 16.
 - Party MP items may be sent at one target with IsAll false. Whether the
   game accepts that is not known.
-- 24. pollTriggers calls FindFirstOf every 16 ms. Not measured.
+- 24. pollTriggers now runs every 100 ms. It was every 16 ms. Not played since this change.
 - 25. A partial table load is not tried again. Not seen.
-- keepFoe runs for every foe, for every ally, many times a turn. Not measured.
+- keepFoe remembers each id until the next plan or the next hit walk. It was repeating the read for every ally. Not played since this change.
 
 In the code, not played yet:
 
