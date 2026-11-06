@@ -7542,6 +7542,7 @@ function readRisk(hitsOnly)
                 local n = math.floor((rec.raw or 0) + 0.5)
                 local skillName = (row and row.name) or "hit"
                 if n > 0 then
+                    meterAdd("out", rec.from, n, unitName(rec.from))
                     combatLine(string.format("%s: %s hits %s for %d", unitName(rec.from), skillName, unitName(rec.to), n))
                 else
                     combatLine(string.format("%s: %s misses %s", unitName(rec.from), skillName, unitName(rec.to)))
@@ -7608,6 +7609,7 @@ function readRisk(hitsOnly)
             local sk = skillOf(rec.sid)
             local n = math.floor((rec.dmg or 0) + 0.5)
             if n > 0 then
+                meterAdd("inn", rec.to, n, unitName(rec.to))
                 combatLine(string.format("%s: %s hits %s for %d", unitName(rec.from), (sk and sk.name) or "hit", unitName(rec.to), n))
             end
         end
@@ -8138,18 +8140,81 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
     tree.RootWidget = canvas
     local border = StaticConstructObject(findClass("/Script/UMG.Border"), tree, FName(base .. "_Border"))
     local text = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. "_Text"))
-    local scroll = nil
+    local scroll, rows, probe = nil, nil, nil
+    local function style(block)
+        local font = block.Font
+        font.Size = size
+        block:SetFont(font)
+        block:SetColorAndOpacity({ SpecifiedColor = { R = 0.93, G = 0.86, B = 0.62, A = 1 }, ColorUseRule = 0 })
+        pcall(function() block:SetAutoWrapText(false) end)
+        pcall(function() block:SetVisibility(4) end)
+        pcall(function() block:SetIsFocusable(false) end)
+    end
     if kind == "log" then
-        -- Fixed box. The lines grow inside it, and the newest stays in view.
+        -- The rows sit inside the scroll box, so the wheel still moves the list.
+        -- A probe measures where the ']' of [Damage Output] is. Each bar starts there.
         scroll = StaticConstructObject(findClass("/Script/UMG.ScrollBox"), tree, FName(base .. "_Scroll"))
+        local column = StaticConstructObject(findClass("/Script/UMG.VerticalBox"), tree, FName(base .. "_Column"))
         border:SetContent(scroll)
-        scroll:AddChild(text)
-        pcall(function() text:SetAutoWrapText(true) end)
-        pcall(function() text:SetWrapTextAt(390) end)
-        -- The bar stays up, and the wheel scrolls even when the bar is grabbed.
+        scroll:AddChild(column)
         pcall(function() scroll:SetAlwaysShowScrollbar(true) end)
         pcall(function() scroll:SetConsumeMouseWheel(1) end)
         pcall(function() scroll:SetVisibility(0) end)
+        pcall(function() column:SetVisibility(4) end)
+        local function heading(id, shown, measured)
+            local overlay = StaticConstructObject(findClass("/Script/UMG.Overlay"), tree, FName(base .. id .. "V"))
+            local under = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. id .. "P"))
+            local title = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. id .. "H"))
+            style(under)
+            style(title)
+            under:SetText(FText(measured))
+            title:SetText(FText(shown))
+            pcall(function() under:SetRenderOpacity(0) end)
+            local function pin(child)
+                local held = overlay:AddChild(child)
+                pcall(function() held:SetHorizontalAlignment(1) end)
+                pcall(function() held:SetVerticalAlignment(1) end)
+            end
+            pin(under)
+            pin(title)
+            column:AddChild(overlay)
+            return title, under
+        end
+        local function slots(id)
+            local list = {}
+            for i = 1, 8 do
+                local row = StaticConstructObject(findClass("/Script/UMG.HorizontalBox"), tree, FName(base .. id .. "R" .. i))
+                local name = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. id .. "N" .. i))
+                local gap = StaticConstructObject(findClass("/Script/UMG.Spacer"), tree, FName(base .. id .. "G" .. i))
+                local bar = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. id .. "B" .. i))
+                style(name)
+                style(bar)
+                pcall(function() gap:SetSize({ X = 0, Y = 1 }) end)
+                local function addAuto(child)
+                    local held = row:AddChild(child)
+                    pcall(function()
+                        local rule = held.Size
+                        rule.SizeRule = 0
+                        rule.Value = 0
+                        held.Size = rule
+                    end)
+                end
+                addAuto(name)
+                addAuto(gap)
+                addAuto(bar)
+                column:AddChild(row)
+                pcall(function() row:SetVisibility(1) end)
+                list[i] = { row = row, name = name, gap = gap, bar = bar }
+            end
+            return list
+        end
+        text, probe = heading("_Out", "[Damage Output]", "[Damage Output")
+        local outRows = slots("_O")
+        local gap = StaticConstructObject(findClass("/Script/UMG.Spacer"), tree, FName(base .. "_Gap"))
+        pcall(function() gap:SetSize({ X = 1, Y = 8 }) end)
+        column:AddChild(gap)
+        heading("_In", "[Damage Taken]", "[Damage Taken")
+        rows = { out = outRows, inn = slots("_I") }
     else
         border:SetContent(text)
     end
@@ -8163,7 +8228,7 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
         -- A touch in from the screen edge. alignLog moves this out to the party frames.
         slot:SetPosition({ X = -20, Y = -8 })
         slot:SetAutoSize(false)
-        slot:SetSize({ X = 420, Y = 200 })
+        slot:SetSize({ X = 420, Y = 300 })
     else
         slot:SetAutoSize(true)
     end
@@ -8176,7 +8241,7 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
     widget:SetVisibility(1)
     local layer = (kind == "toast" and 1100) or (kind == "log" and 1050) or 1000
     widget:AddToViewport(layer)
-    return { widget = widget, text = text, scroll = scroll, slot = slot }
+    return { widget = widget, text = text, scroll = scroll, slot = slot, rows = rows, probe = probe }
 end
 
 local function widget(kind)
@@ -8234,6 +8299,157 @@ Hud.badgeShow = function(msg)
     end)
 end
 
+-- Display totals only. The planner does not read them.
+-- The opening party, on both columns, so a character at 0 still has a row.
+-- A summon is not a row. Its hits are already stored under the caller.
+function meterSeed()
+    if not (cfg and cfg.BattleLog) then return end
+    local book = Hud and Hud.combat
+    if not book or not Fight or not Fight.openIds then return end
+    book.meter = book.meter or { out = {}, inn = {} }
+    for id in pairs(Fight.openIds) do
+        if not (Fight.summons and Fight.summons[id]) then
+            local name = nil
+            if Fight.nameOf then
+                local ok, n = pcall(Fight.nameOf, id)
+                if ok and type(n) == "string" and n ~= "" then name = n end
+            end
+            local key = tostring(id)
+            for _, kind in ipairs({ "out", "inn" }) do
+                local col = book.meter[kind]
+                if col then
+                    local rec = col[key]
+                    if not rec then
+                        col[key] = { n = 0, name = name or key }
+                    elseif name then
+                        rec.name = name
+                    end
+                end
+            end
+        end
+    end
+end
+
+function meterAdd(kind, id, n, name)
+    if not (cfg and cfg.BattleLog) then return end
+    n = math.floor((tonumber(n) or 0) + 0.5)
+    if (not id) or (n <= 0) then return end
+    local book = Hud and Hud.combat
+    if not book or book.closed then return end
+    if Fight and Fight.summons and Fight.summons[id] then return end
+    if Fight and Fight.openIds and next(Fight.openIds) and not Fight.openIds[id] then return end
+    book.meter = book.meter or { out = {}, inn = {} }
+    local col = book.meter[kind]
+    if not col then return end
+    local key = tostring(id)
+    local rec = col[key]
+    if not rec then
+        rec = { n = 0, name = (name and name ~= "" and name) or key }
+        col[key] = rec
+    end
+    rec.n = rec.n + n
+    if name and name ~= "" then rec.name = name end
+    combatRefresh()
+end
+
+function meterBody()
+    meterSeed()
+    local meter = Hud and Hud.combat and Hud.combat.meter
+    local function rowsFor(col)
+        local rows, total = {}, 0
+        for _, rec in pairs(col or {}) do
+            total = total + (rec.n or 0)
+            rows[#rows + 1] = rec
+        end
+        table.sort(rows, function(a, b)
+            if a.n ~= b.n then return a.n > b.n end
+            return (a.name or "") < (b.name or "")
+        end)
+        -- Twenty marks inside brackets. One mark is 5%. Spaces hold the rest.
+        -- The figure is the percent, always four characters, so the row stays put.
+        -- A real hit still shows one mark and at least 1%.
+        local function bar(n)
+            local pct = 0
+            if total > 0 and n > 0 then
+                pct = math.floor((n * 100 / total) + 0.5)
+                if pct < 1 then pct = 1 end
+                if pct > 100 then pct = 100 end
+            end
+            local marks = 0
+            if pct > 0 then
+                marks = math.floor((pct / 5) + 0.5)
+                if marks < 1 then marks = 1 end
+                if marks > 20 then marks = 20 end
+            end
+            return "[" .. string.rep("|", marks) .. string.rep(" ", 20 - marks) .. "] " .. string.format("%3d%%", pct)
+        end
+        local list = {}
+        for i, rec in ipairs(rows) do
+            if i > 8 then break end
+            list[i] = { name = rec.name or "?", bar = bar(rec.n or 0) }
+        end
+        return list
+    end
+    return {
+        out = rowsFor(meter and meter.out),
+        inn = rowsFor(meter and meter.inn),
+    }
+end
+
+function paintLog(box)
+    if not (box and box.rows) then return end
+    local built = meterBody()
+    local function fill(slots, rows)
+        for i = 1, #slots do
+            local slot = slots[i]
+            local rec = rows and rows[i]
+            if rec then
+                slot.name:SetText(FText(rec.name))
+                slot.bar:SetText(FText(rec.bar))
+                pcall(function() slot.row:SetVisibility(4) end)
+            else
+                pcall(function() slot.row:SetVisibility(1) end)
+            end
+        end
+    end
+    fill(box.rows.out, built.out)
+    fill(box.rows.inn, built.inn)
+end
+
+function alignBars(box, quiet)
+    if not (box and box.probe and box.rows) then return end
+    local function width(block)
+        local n = 0
+        pcall(function()
+            block:ForceLayoutPrepass()
+            local size = block:GetDesiredSize()
+            n = (size and size.X) or 0
+        end)
+        return n
+    end
+    local target = width(box.probe)
+    if target <= 1 then
+        if (not quiet) and Hud.combat and not Hud.combat.barTold then
+            Hud.combat.barTold = true
+            log("combat log bars had no width")
+        end
+        return
+    end
+    local function place(list)
+        for _, slot in ipairs(list or {}) do
+            local shown = true
+            pcall(function() shown = slot.row:GetVisibility() ~= 1 end)
+            if shown then
+                local gap = target - width(slot.name)
+                if gap < 0 then gap = 0 end
+                pcall(function() slot.gap:SetSize({ X = gap, Y = 1 }) end)
+            end
+        end
+    end
+    place(box.rows.out)
+    place(box.rows.inn)
+end
+
 -- Last combat lines, drawn on the next game-thread turn. A call from a hook
 -- only stores the words. The box is shown as soon as the fight starts, empty,
 -- and again for every later fight. It hides when that fight is over.
@@ -8253,27 +8469,15 @@ function combatRefresh()
         end
         local ok, err = pcall(function()
             local box = widget("log")
-            local shownLines = {}
-            for i = 1, #book.lines do
-                local line = book.lines[i]
-                if line == "-- BattleLog --" then shownLines[i] = line
-                else shownLines[i] = "* " .. line end
-            end
-            local body = (#shownLines > 0) and table.concat(shownLines, "\n\n") or " "
-            local keep = nil
-            if book.hold and box.scroll and box.scroll.IsValid and box.scroll:IsValid() then
-                pcall(function() keep = box.scroll:GetScrollOffset() end)
-            end
-            box.text:SetText(FText(body))
-            if book.hold and type(keep) == "number" and box.scroll then
-                pcall(function() box.scroll:SetScrollOffset(keep) end)
-            end
+            paintLog(box)
             -- 4 is SelfHitTestInvisible: the full-screen root lets clicks through,
             -- and the scroll box itself still takes the wheel and the bar.
             box.widget:SetVisibility(4)
             if box.scroll then pcall(function() box.scroll:SetVisibility(0) end) end
             alignLog(box)
-            if not book.hold then followLog(box) end
+            book.hold = false
+            alignBars(box, true)
+            followLog(box)
         end)
         if not ok then
             book.off = true
@@ -8284,6 +8488,7 @@ function combatRefresh()
         gameDelay(0, function()
             if book.closed or book.hidden or not book.want then return end
             alignLog(shown)
+            alignBars(shown, false)
             followLog(shown)
         end)
     end)
@@ -8304,6 +8509,8 @@ function combatOpen()
     book.closed = false
     book.off = false
     book.hidden = false
+    book.meter = { out = {}, inn = {} }
+    meterSeed()
     book.life = (book.life or 0) + 1
     if not (cfg and cfg.BattleLog) then
         book.want = false
@@ -8311,7 +8518,6 @@ function combatOpen()
         return
     end
     book.want = true
-    book.lines[1] = "-- BattleLog --"
     combatRefresh()
 end
 
@@ -8333,11 +8539,8 @@ function combatKick()
 end
 
 function followLog(box)
-    if Hud.combat and Hud.combat.hold then return end
     if not (box and box.scroll and box.scroll.IsValid and box.scroll:IsValid()) then return end
-    local ok = pcall(function() box.scroll:ScrollToEnd() end)
-    if ok then return end
-    pcall(function() box.scroll:SetScrollOffset(box.scroll:GetScrollOffsetOfEnd()) end)
+    pcall(function() box.scroll:SetScrollOffset(0) end)
 end
 
 -- The party frames are the right edge the log is allowed to reach.
@@ -8392,22 +8595,9 @@ function alignLog(box)
     end)
 end
 
+-- The window replaces the party totals. It does not keep a blow-by-blow.
 function combatLine(text)
-    if type(text) ~= "string" or text == "" then return end
-    if not (cfg and cfg.BattleLog) then return end
-    local book = Hud.combat
-    if book.off or book.closed then return end
-    if not book.want then
-        if not (Fight and Fight.active) then return end
-        book.want = true
-    end
-    local lines = book.lines
-    lines[#lines + 1] = text
-    while #lines > book.limit do
-        local drop = (lines[1] == "-- BattleLog --" and #lines > 1) and 2 or 1
-        table.remove(lines, drop)
-    end
-    combatRefresh()
+    return
 end
 
 local function watchField()
@@ -8638,9 +8828,8 @@ local function pollTriggers()
         if ok and type(v) == "number" then return v end
         return nil
     end
-    -- Right stick scrolls the log. Up moves toward the newest lines.
+    -- Right stick scrolls the log. A turn refresh puts the view back at the top.
     -- The game still gets the stick.
-    -- A push away from the bottom holds that place until the stick returns to the end.
     local book = Hud and Hud.combat
     local box = Hud and Hud.box and Hud.box.log
     local function edge(name, slot)
@@ -8661,7 +8850,7 @@ local function pollTriggers()
             if combatRefresh then combatRefresh() end
         end
     end
-    if inFight() and cfg.BattleLog and book and (not book.off) and (not book.closed) and (not book.hidden) and book.lines and #book.lines > 0
+    if inFight() and cfg.BattleLog and book and (not book.off) and (not book.closed) and (not book.hidden)
         and box and box.scroll and box.scroll.IsValid and box.scroll:IsValid() then
         local y = analog("Gamepad_RightY")
         if type(y) == "number" then
