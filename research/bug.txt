@@ -638,6 +638,8 @@ Still open:
 
 In the code, not played yet:
 
+- SkipScenes. A Vision finish scene was skipped in play. An Esper summon
+  now uses that same skip. Not played since the Esper was added.
 - 4. The item table has no rare column. ItemPrice in config.ini is the cap,
   default 5000, and a buy price above it is not spent. The widest step on
   the consumable table is still 99,999 to 500,000 for a higher cap. Not

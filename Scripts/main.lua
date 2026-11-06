@@ -12,6 +12,8 @@
 --
 -- Every fact comes from the game's own tables, read live. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
+-- SkipScenes in config.ini is off unless set. On, it asks the game to skip a
+-- Limit Burst, a Vision finish, or an Esper summon scene. Other scenes stay.
 
 local TAG = "[FFRAutoBattle] "
 -- Reporting off: only the startup line and real errors reach UE4SS.log.
@@ -20,7 +22,8 @@ local function log(fmt, ...)
     local text = tostring(fmt)
     if select("#", ...) > 0 then text = string.format(fmt, ...) end
     if (not Reporting) and not (text:find("loaded. planner", 1, true) or text:find("failed", 1, true)
-        or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)) then
+        or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)
+        or text:find("scene skip", 1, true)) then
         return
     end
     print(TAG .. text .. "\n")
@@ -228,7 +231,7 @@ local DECIDE_MS = 420
 
 local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
-    TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000,
+    TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -7722,6 +7725,283 @@ local function hookMenu()
     end)
 end
 
+-- SkipScenes. A Limit Burst, a Vision finish (the finish-blow attribute),
+-- or an Esper summon is the scene. The battle input skip, the sequence
+-- skip reaction, and stopping that playback are what ends one. The look
+-- runs only after one of those skills begins. A story scene is left alone.
+local Scene = { want = nil, allow = false, quietId = nil, quietUntil = 0, told = {} }
+
+local function live(obj)
+    return type(obj) == "userdata" and obj.IsValid and obj:IsValid()
+end
+
+function Scene.same(a, b)
+    if not (live(a) and live(b)) then return false end
+    if a == b then return true end
+    local okA, na = pcall(function() return a:GetFullName() end)
+    local okB, nb = pcall(function() return b:GetFullName() end)
+    return okA and okB and type(na) == "string" and na == nb
+end
+
+-- EMovieScenePlayerStatus::Playing is 1.
+local function sequencePlaying(actor)
+    if not live(actor) then return false end
+    local ok, on = pcall(function()
+        local player = actor.SequencePlayer
+        if not live(player) then player = actor:GetSequencePlayer() end
+        if not live(player) then return false end
+        local flag = player:IsPlaying()
+        if type(flag) == "boolean" then return flag end
+        if num(flag) == 1 then return true end
+        return num(player.Status) == 1
+    end)
+    return ok and on == true
+end
+
+local function jobSkillId(job)
+    local skill = job.m_pSkill
+    if not live(skill) then return nil end
+    local ok, id = pcall(function() return skill:GetSkillId() end)
+    if not ok then return nil end
+    return num(id)
+end
+
+local function findSceneJob(skillId)
+    local ok, found = pcall(function() return FindAllOf("CPP_BtlJobSkill") end)
+    if not (ok and type(found) == "table") then return nil end
+    local jobs = {}
+    for _, job in ipairs(found) do
+        if live(job) and sequencePlaying(job.m_pLevelSequenceActor) then
+            jobs[#jobs + 1] = job
+        end
+    end
+    if #jobs == 0 then return nil end
+    for _, job in ipairs(jobs) do
+        if jobSkillId(job) == skillId then return job end
+    end
+    if #jobs == 1 then
+        local id = jobSkillId(jobs[1])
+        if id and id ~= skillId then return nil end
+        return jobs[1]
+    end
+    return nil
+end
+
+-- eBtlSequenceEventType::OtherSkipResetParameter is 120. The sequence uses
+-- it when a scene is skipped, and IsPlaySkipReaction keeps the hit.
+function Scene.flag(v)
+    if type(v) == "boolean" then return v end
+    return num(v) == 1
+end
+
+function Scene.player(actor)
+    if not live(actor) then return nil end
+    local player = actor.SequencePlayer
+    if live(player) then return player end
+    local ok, got = pcall(function() return actor:GetSequencePlayer() end)
+    if ok and live(got) then return got end
+    return nil
+end
+
+local function askSkip(job)
+    local ok, err = pcall(function()
+        local cls = StaticFindObject("/Script/mucha.CPP_MuchaDelegateValue")
+        if not live(cls) then error("could not build a scene skip") end
+        local obj = StaticConstructObject(cls, job)
+        if not live(obj) then error("could not build a scene skip") end
+        job:OnSkipSkill(obj)
+    end)
+    if not ok then
+        log("scene skip failed: %s", tostring(err))
+        return false
+    end
+    return true
+end
+
+function Scene.press()
+    local okMgr, mgr = pcall(function() return FindFirstOf("CPP_BtlManager") end)
+    if not (okMgr and live(mgr)) then return false end
+    local input = mgr.m_pBtlInput
+    if not live(input) then return false end
+    local ok, err = pcall(function() input:OnSkipSkill({}) end)
+    if not ok then
+        if not Scene.told.press then
+            Scene.told.press = true
+            log("scene skip failed: %s", tostring(err))
+        end
+        return false
+    end
+    return true
+end
+
+function Scene.react(job)
+    local event = job.m_pSequencerEvent
+    local player = Scene.player(job.m_pLevelSequenceActor)
+    if not (live(event) and player) then return false end
+    local okFound, found = pcall(function() return FindAllOf("CPP_BtlLevelSequenceDirector") end)
+    if not (okFound and type(found) == "table") then return false end
+    local director = nil
+    for _, d in ipairs(found) do
+        if live(d) and Scene.same(d.Player, player) then
+            director = d
+            break
+        end
+    end
+    if (not director) and (#found == 1) and live(found[1]) then director = found[1] end
+    if not director then return false end
+    local ok, err = pcall(function()
+        director:BattleSequencerEvent(event, {
+            EventType = 120,
+            Other_SkipResetParameter_IsPlaySkipReaction = true,
+        })
+    end)
+    if not ok then
+        if not Scene.told.reaction then
+            Scene.told.reaction = true
+            log("scene skip failed: %s", tostring(err))
+        end
+        return false
+    end
+    return true
+end
+
+function Scene.stop(actor)
+    local player = Scene.player(actor)
+    if not player then return false end
+    pcall(function() player:GoToEndAndStop() end)
+    if sequencePlaying(actor) then pcall(function() player:Stop() end) end
+    return not sequencePlaying(actor)
+end
+
+function Scene.movie()
+    local function scan(className)
+        local ok, found = pcall(function() return FindAllOf(className) end)
+        if not (ok and type(found) == "table") then return false end
+        for _, obj in ipairs(found) do
+            if live(obj) then
+                local okPlay, on = pcall(function() return obj:IsPlaying() end)
+                if okPlay and Scene.flag(on) then return true end
+            end
+        end
+        return false
+    end
+    return scan("CPP_WBP_Movie") or scan("CPP_BP_PlayMovieScreen")
+end
+
+function Scene.endMovie()
+    local function each(className, fn)
+        local ok, found = pcall(function() return FindAllOf(className) end)
+        if not (ok and type(found) == "table") then return end
+        for _, obj in ipairs(found) do
+            if live(obj) then
+                local okPlay, on = pcall(function() return obj:IsPlaying() end)
+                if okPlay and Scene.flag(on) then fn(obj) end
+            end
+        end
+    end
+    each("CPP_WBP_Movie", function(obj) pcall(function() obj:End() end) end)
+    each("CPP_BP_PlayMovieScreen", function(obj) pcall(function() obj:Destoroy() end) end)
+end
+
+local function watchScene(skillId, name)
+    if Scene.want == skillId then return end
+    if Scene.quietId == skillId and os.clock() < Scene.quietUntil then return end
+    Scene.want = skillId
+    local ticks, asked, reacted, forced, quiet = 0, false, false, false, 0
+    local function finish(text)
+        if Scene.want == skillId then Scene.want = nil end
+        Scene.quietId = skillId
+        Scene.quietUntil = os.clock() + 0.5
+        log("%s", text)
+        appendLog("  " .. text)
+    end
+    local function step(left)
+        if Scene.want ~= skillId or not cfg.SkipScenes then return end
+        local job = nil
+        local okJob, got = pcall(findSceneJob, skillId)
+        if okJob then job = got end
+        local still = job and live(job) and (
+            sequencePlaying(job.m_pLevelSequenceActor) or sequencePlaying(job.m_pSoundSequenceActor))
+        local movie = Scene.movie()
+        if still or movie then
+            ticks = ticks + 1
+            quiet = 0
+            local matched = still and jobSkillId(job) == skillId
+            local ready = movie or matched or ticks >= 3
+            if ready then
+                Scene.press()
+                if still and not asked then
+                    asked = true
+                    askSkip(job)
+                end
+                if still and not reacted and Scene.react(job) then
+                    reacted = true
+                end
+                if still then
+                    forced = true
+                    Scene.stop(job.m_pLevelSequenceActor)
+                    Scene.stop(job.m_pSoundSequenceActor)
+                end
+                if movie then
+                    forced = true
+                    Scene.endMovie()
+                end
+            end
+        elseif forced then
+            quiet = quiet + 1
+            if quiet >= 8 then
+                finish(string.format("scene skip: %s", name))
+                return
+            end
+        end
+        if Scene.want ~= skillId then return end
+        if left > 0 then
+            gameDelay(100, function() step(left - 1) end)
+            return
+        end
+        if forced or asked then
+            finish(string.format("scene skip failed: %s still playing", name))
+        else
+            finish(string.format("scene skip failed: %s had no sequence", name))
+        end
+    end
+    step(80)
+end
+
+local function considerScene(skillId)
+    if not cfg.SkipScenes then return end
+    pcall(buildSkillIndex)
+    local row = skillOf(skillId)
+    if not row then return end
+    if row.attr ~= ATTR.LB and row.attr ~= ATTR.FINISH and row.attr ~= ATTR.SUMMON then return end
+    watchScene(skillId, row.name or tostring(skillId))
+end
+
+local function hookScenes()
+    if not cfg.SkipScenes then return end
+    RegisterHook("/Script/mucha.CPP_VM_BtlMsg:HandleBeginSkill", function(_, delval)
+        if not cfg.SkipScenes then return end
+        local id = nil
+        pcall(function()
+            local row = delval:get()
+            id = num(row and row.SkillId)
+            row = nil
+        end)
+        if not id then return end
+        gameDelay(0, function() considerScene(id) end)
+    end)
+    RegisterHook("/Script/mucha.CPP_UI_BtlCinematicManager:HandleSkipAllow", function(_, value)
+        if not cfg.SkipScenes then return end
+        local allow = false
+        pcall(function()
+            local row = value:get()
+            allow = row and row.isAllow and true or false
+            row = nil
+        end)
+        Scene.allow = allow
+    end)
+end
+
 local function findClass(path)
     local cls = StaticFindObject(path)
     if not (cls and cls:IsValid()) then error("missing " .. path) end
@@ -8052,6 +8332,10 @@ local okHook, errHook = pcall(function()
     hookTimeline()
 end)
 if not okHook then log("hook failed: %s", tostring(errHook)) end
+
+local okScene, errScene = pcall(hookScenes)
+if not okScene then log("scene skip failed: %s", tostring(errScene)) end
+if cfg.SkipScenes then log("scene skip on") end
 
 log("loaded. planner v0.2.27. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",

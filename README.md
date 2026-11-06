@@ -106,7 +106,7 @@ The right trigger turns auto battle on or off during a fight. The left trigger s
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
 | Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight, while auto battle is on |
 
-The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no battle logs unless you turn on `Reporting`, below.
+The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no battle logs unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst, Vision finish, and Esper summon scenes with the game's own skip. Other attacks and story events stay. It is off unless you set it to true.
 
 Battle speed is the game's own button and marks. Auto battle leaves them alone.
 
