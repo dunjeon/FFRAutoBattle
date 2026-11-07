@@ -13,7 +13,8 @@
 -- Every fact comes from the game's own tables, read live. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
 -- SkipScenes in config.ini is off unless set. On, it asks the game to skip a
--- Limit Burst, a Vision finish, an Esper summon, or that Esper's own attack.
+-- Limit Burst, a Vision finish, an Esper summon, or that Esper's own attack
+-- once that scene allows a skip. The sequence player is never cut.
 -- Other scenes stay.
 -- LevelGate is off unless set. On, a character gains no experience from a
 -- fight where every monster is under that character's level. A monster at or
@@ -7937,11 +7938,13 @@ end
 
 -- SkipScenes. A Limit Burst, a Vision finish (the finish-blow attribute),
 -- an Esper summon, or a skill by the unit that call put on the field is
--- the scene. The battle input skip and the sequence skip reaction are what
--- end one and hand the camera back. Stopping the sequence player is only
--- the fallback, after that skip has had time to finish. Cutting it on the
--- same tick leaves the cinematic camera where the zoom was. The look runs
--- only after one of those skills begins. A story scene is left alone.
+-- the scene. Once the cinematic manager allows a skip, the battle input
+-- skip and the sequence skip reaction end it and hand the camera back.
+-- The sequence player is never stopped, and a movie widget is never
+-- closed from here. Cutting either one leaves the battle waiting on a
+-- scene that is already gone. The look runs only after one of those
+-- skills begins. A story scene is left alone. A scene that never allows
+-- a skip is left to play.
 local Scene = { want = nil, allow = false, quietId = nil, quietUntil = 0, told = {} }
 
 local function live(obj)
@@ -8002,11 +8005,6 @@ end
 
 -- eBtlSequenceEventType::OtherSkipResetParameter is 120. The sequence uses
 -- it when a scene is skipped, and IsPlaySkipReaction keeps the hit.
-function Scene.flag(v)
-    if type(v) == "boolean" then return v end
-    return num(v) == 1
-end
-
 function Scene.player(actor)
     if not live(actor) then return nil end
     local player = actor.SequencePlayer
@@ -8084,29 +8082,6 @@ function Scene.react(job)
     return true
 end
 
--- eBtlSequenceEventType::CameraSetDefault is 1. The skip reaction is what
--- returns the battle camera. This is only for a scene that ignored that skip.
-function Scene.home(job)
-    local director, event = Scene.director(job)
-    if not director then return false end
-    local ok, err = pcall(function()
-        director:BattleSequencerEvent(event, {
-            EventType = 1,
-            Camera_SetDefault_IsRotation = true,
-            Camera_SetDefault_IsLocation = true,
-            Camera_SetDefault_IsZoomInOut = true,
-        })
-    end)
-    if not ok then
-        if not Scene.told.camera then
-            Scene.told.camera = true
-            log("scene skip failed: %s", tostring(err))
-        end
-        return false
-    end
-    return true
-end
-
 function Scene.allowed()
     if Scene.allow then return true end
     local ok, mgr = pcall(function() return FindFirstOf("CPP_UI_BtlCinematicManager") end)
@@ -8114,53 +8089,15 @@ function Scene.allowed()
     return mgr.bAllowSkip == true
 end
 
-function Scene.stop(actor)
-    local player = Scene.player(actor)
-    if not player then return false end
-    pcall(function() player:GoToEndAndStop() end)
-    if sequencePlaying(actor) then pcall(function() player:Stop() end) end
-    return not sequencePlaying(actor)
-end
-
-function Scene.movie()
-    local function scan(className)
-        local ok, found = pcall(function() return FindAllOf(className) end)
-        if not (ok and type(found) == "table") then return false end
-        for _, obj in ipairs(found) do
-            if live(obj) then
-                local okPlay, on = pcall(function() return obj:IsPlaying() end)
-                if okPlay and Scene.flag(on) then return true end
-            end
-        end
-        return false
-    end
-    return scan("CPP_WBP_Movie") or scan("CPP_BP_PlayMovieScreen")
-end
-
-function Scene.endMovie()
-    local function each(className, fn)
-        local ok, found = pcall(function() return FindAllOf(className) end)
-        if not (ok and type(found) == "table") then return end
-        for _, obj in ipairs(found) do
-            if live(obj) then
-                local okPlay, on = pcall(function() return obj:IsPlaying() end)
-                if okPlay and Scene.flag(on) then fn(obj) end
-            end
-        end
-    end
-    each("CPP_WBP_Movie", function(obj) pcall(function() obj:End() end) end)
-    each("CPP_BP_PlayMovieScreen", function(obj) pcall(function() obj:Destoroy() end) end)
-end
-
 local function watchScene(skillId, name)
     if Scene.want == skillId then return end
     if Scene.quietId == skillId and os.clock() < Scene.quietUntil then return end
     Scene.want = skillId
     Scene.allow = false
-    -- askedAt is the tick the game's own skip was sent. The sequence player
-    -- is cut only after 15 ticks of that, about 1.5 seconds. Allow is the
-    -- cinematic manager's skip flag. Ten ticks is the wait when it never rises.
-    local ticks, askedAt, forced, quiet = 0, nil, false, 0
+    -- askedAt is the tick the game's own skip was sent. Nothing is sent
+    -- until the cinematic manager allows it, and the player is never cut
+    -- if that skip does not finish the scene.
+    local ticks, askedAt, seen, quiet = 0, nil, false, 0
     local function finish(text)
         if Scene.want == skillId then Scene.want = nil end
         Scene.quietId = skillId
@@ -8175,34 +8112,21 @@ local function watchScene(skillId, name)
         if okJob then job = got end
         local still = job and live(job) and (
             sequencePlaying(job.m_pLevelSequenceActor) or sequencePlaying(job.m_pSoundSequenceActor))
-        local movie = Scene.movie()
-        if movie then
-            Scene.endMovie()
-            forced = true
-        end
         if still then
+            seen = true
             ticks = ticks + 1
             quiet = 0
             local matched = jobSkillId(job) == skillId
-            local gate = Scene.allowed() or ticks >= 10
-            if gate and (matched or ticks >= 3) then
-                if not askedAt then
-                    askedAt = ticks
-                    Scene.press()
-                    askSkip(job)
-                    Scene.react(job)
-                elseif (not forced) and ((ticks - askedAt) >= 15) then
-                    Scene.home(job)
-                    Scene.stop(job.m_pLevelSequenceActor)
-                    Scene.stop(job.m_pSoundSequenceActor)
-                    forced = true
-                end
+            if (not askedAt) and Scene.allowed() and (matched or ticks >= 3) then
+                askedAt = ticks
+                Scene.press()
+                askSkip(job)
+                Scene.react(job)
             end
-        elseif askedAt or forced then
+        elseif askedAt then
             quiet = quiet + 1
             if quiet >= 8 then
-                local word = forced and "scene skip forced: %s" or "scene skip: %s"
-                finish(string.format(word, name))
+                finish(string.format("scene skip: %s", name))
                 return
             end
         end
@@ -8211,13 +8135,17 @@ local function watchScene(skillId, name)
             gameDelay(100, function() step(left - 1) end)
             return
         end
-        if askedAt or forced then
+        if askedAt and not still then
+            finish(string.format("scene skip: %s", name))
+        elseif askedAt then
             finish(string.format("scene skip failed: %s still playing", name))
+        elseif seen then
+            finish(string.format("scene skip: %s not allowed", name))
         else
             finish(string.format("scene skip failed: %s had no sequence", name))
         end
     end
-    step(80)
+    step(200)
 end
 
 local function considerScene(skillId, actorId)
