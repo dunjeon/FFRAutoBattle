@@ -268,6 +268,8 @@ local function loadConfig()
         end
     end
     for name in pairs(Defaults) do take(name) end
+    -- The meters read the hit list on the report's timer.
+    if cfg.BattleLog then cfg.Reporting = true end
     Reporting = cfg.Reporting
     if Reporting and Known.reportLib and (not Known.report) then
         Known.report = Known.reportLib.new(DIR .. "/battle_report.txt")
@@ -8887,7 +8889,7 @@ local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
 
-log("loaded. planner v0.2.29. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.30. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
