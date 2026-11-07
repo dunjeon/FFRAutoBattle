@@ -151,7 +151,16 @@ function M.new(path, clock)
         if (not lost) or (lost <= 0) then return end
         F.hpTotal = F.hpTotal + lost
         foe(F, tostring(name)).hpLost = foe(F, tostring(name)).hpLost + lost
-        F.drops[#F.drops + 1] = { lost = lost, foe = tostring(name), at = F.cmds, by = F.lastCmd or "?" }
+        local wheel = F.wheelOpen
+        if wheel then
+            wheel.total = wheel.total + lost
+            if not wheel.foes[tostring(name)] then
+                wheel.foes[tostring(name)] = 0
+                wheel.order[#wheel.order + 1] = tostring(name)
+            end
+            wheel.foes[tostring(name)] = wheel.foes[tostring(name)] + lost
+        end
+        F.drops[#F.drops + 1] = { lost = lost, foe = tostring(name), at = F.cmds, by = (wheel and wheel.tag) or F.lastCmd or "?" }
         local b = F.open[id]
         if b then
             b.hpLost = b.hpLost + lost
@@ -260,6 +269,25 @@ function M.new(path, clock)
     end
 
     -- A hit record from the game, once each.
+    -- A wheel skill has no hit rows. Foe HP lost from here to the next damage is its work.
+    function R:wheel(name, who)
+        local F = self.fight
+        if not F then return end
+        self:wheelClose()
+        F.wheelOpen = { tag = tostring(who) .. " " .. tostring(name), total = 0, foes = {}, order = {}, at = self.clock() }
+    end
+
+    function R:wheelClose()
+        local F = self.fight
+        local wheel = F and F.wheelOpen
+        if not wheel then return end
+        F.wheelOpen = nil
+        if wheel.total <= 0 then return end
+        local bits = {}
+        for _, name in ipairs(wheel.order) do bits[#bits + 1] = string.format("%s %d", name, wheel.foes[name]) end
+        self:write(string.format("%s wheel %s: %d damage by HP (%s)", wheel.at, wheel.tag, wheel.total, table.concat(bits, ", ")))
+    end
+
     function R:hit(h)
         local F = self.fight
         if not F then return end
@@ -267,6 +295,9 @@ function M.new(path, clock)
             tostring(h.before), tostring(h.after), tostring(h.breakValue) }, ":")
         if F.hitSeen[sig] then return end
         F.hitSeen[sig] = true
+        if h.fromFriend and (not h.toFriend) and (h.param == 1) and (h.vtype == 1) and ((tonumber(h.value) or 0) > 0) then
+            self:wheelClose()
+        end
         self:write(string.format("%s  hit %s > %s: %s, param %s type %s value %s (%s>%s) break %s%s%s%s", self.clock(),
             tostring(h.fromName), tostring(h.toName), tostring(h.skillName), tostring(h.param), tostring(h.vtype), tostring(h.value),
             tostring(h.before), tostring(h.after), tostring(h.breakValue), h.miss and " MISS" or "", h.defended and " DEFENDED" or "",
@@ -326,6 +357,7 @@ function M.new(path, clock)
     function R:decide(rec)
         local F = self.fight
         if not F then return end
+        self:wheelClose()
         -- The player's own turns count, but aren't flagged: the flags judge the mod.
         self.quiet = rec.byHand and true or false
         F.cmds = F.cmds + 1
@@ -458,6 +490,7 @@ function M.new(path, clock)
     function R:finish(extra)
         local F = self.fight
         if not F then return end
+        self:wheelClose()
         local snap = F.last
         local up, downN, foesUp = 0, 0, {}
         if snap then

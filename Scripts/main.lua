@@ -232,7 +232,6 @@ local DECIDE_MS = 420
 local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
-    BattleLog = false,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -268,8 +267,6 @@ local function loadConfig()
         end
     end
     for name in pairs(Defaults) do take(name) end
-    -- The meters use the report's read of the hit list each turn.
-    if cfg.BattleLog then cfg.Reporting = true end
     Reporting = cfg.Reporting
     if Reporting and Known.reportLib and (not Known.report) then
         Known.report = Known.reportLib.new(DIR .. "/battle_report.txt")
@@ -5684,7 +5681,7 @@ local function consider(uid)
     return nil
 end
 
-local Hud = { serial = 0, toastSerial = 0, disabled = false, box = {}, combat = { queued = false } }
+local Hud = { serial = 0, toastSerial = 0, disabled = false, box = {} }
 
 local function showToast(msg)
     if Hud.toast then Hud.toast(msg) end
@@ -6065,7 +6062,6 @@ local function finishBattle()
     appendLog("")
     if Known.report then pcall(Known.report.flush, Known.report) end
     log("battle %d done: %s", Fight.number, line)
-    combatHide()
     Fight.actions, Fight.casts, Fight.castOrder = {}, {}, {}
     Fight.broke, Fight.fell, Fight.prev, Fight.last = {}, {}, {}, nil
 end
@@ -6155,8 +6151,7 @@ local function ensureBattle()
     Fight.finishNote = {}
     Fight.mobCards, Fight.dealtBook = nil, nil
     Fight.dealtOpen = nil
-    Fight.hurtSeen = {}
-    combatOpen()
+    Fight.hitPrint = {}
     itemsLogged = false
     potLogged = false
     appendLog(string.format("== battle %d%s ==", Fight.number, Fight.boss and ", boss" or ""))
@@ -7240,6 +7235,28 @@ local function noteWarnTimeline(current, phase)
 end
 
 -- Game thread, while a party menu is open. The risk object is not kept.
+local GONE_FOE = -1
+-- Who cast this skill most recently, by the commands this fight has sent.
+local function lastCasterOf(sid, friends)
+    local row = sid and skillOf(sid)
+    local skill = row and row.name
+    if not skill then return nil end
+    local who = nil
+    if Fight.last and (Fight.last.skill == skill) then
+        who = Fight.last.who
+    else
+        for _, name in ipairs(Fight.castOrder or {}) do
+            local rec = Fight.casts and Fight.casts[name]
+            if rec and rec.n and rec.n[skill] then who = name end
+        end
+    end
+    if not who then return nil end
+    for fid in pairs(friends) do
+        if Fight.nameOf(fid) == who then return fid end
+    end
+    return nil
+end
+
 function readRisk(hitsOnly)
     clearFoeKeep()
     if Fight then Fight.stampCache = {} end
@@ -7281,6 +7298,29 @@ function readRisk(hitsOnly)
             local to = actorId(d.pTargetUnit)
             local row = unwrap(d.unitParameterVariationData)
             if not from or not to or not row then return end
+            -- A body the game has removed reads as unit 0, which is a party slot.
+            -- A hit from the party that isn't out of control was on that foe.
+            -- The caster can read as unit 0 too, so the skill's last caster is the name.
+            local goneFoe = false
+            if (from == 0) and (to == 0) and (num(row.variationParameter) == PARAM.HP) and (num(row.VariationType) == 1)
+                and ((num(row.VariationValue) or 0) > 0) then
+                from = lastCasterOf(num(row.SkillId), friends) or from
+            end
+            if (friends[from] or (Fight.summons and Fight.summons[from]))
+                and (num(row.variationParameter) == PARAM.HP) and (num(row.VariationType) == 1)
+                and ((num(row.VariationValue) or 0) > 0) and (unwrap(row.isMiss) ~= true) then
+                local hitKey = table.concat({ tostring(from), tostring(num(row.SkillId)), tostring(num(row.VariationValue)),
+                    tostring(num(row.beforeVariationValue)), tostring(num(row.afterVariationValue)) }, ":")
+                Fight.hitPrint = Fight.hitPrint or {}
+                if (to == 0) and not outOfControl(from) then
+                    -- The same hit, read again after its target went.
+                    if Fight.hitPrint[hitKey] then return end
+                    goneFoe = true
+                    to = GONE_FOE
+                elseif not friends[to] then
+                    Fight.hitPrint[hitKey] = true
+                end
+            end
             -- What really hit hard. Each hit counts once, and one cast's hits on
             -- one enemy add up before they go in the book.
             if Fight.esperOut and Fight.isSummon and not (Fight.summons and Fight.summons[from]) then
@@ -7343,7 +7383,7 @@ function readRisk(hitsOnly)
                         local veil = unwrap(row.isVeilDefence) == true
                         local raw = nil
                         if (not veil) and ((not guarded) or (res ~= nil and res ~= 0)) then raw = value or 0 end
-                        local lesson = (not veil) and Known.measure.lesson and Known.measure.lesson(res, false, raw)
+                        local lesson = (not veil) and (not goneFoe) and Known.measure.lesson and Known.measure.lesson(res, false, raw)
                         if lesson then
                             local sk = sidEarly and skillOf(sidEarly)
                             local key = sk and sk.element
@@ -7406,7 +7446,7 @@ function readRisk(hitsOnly)
                     local sidR = num(row.SkillId)
                     local sk = sidR and skillOf(sidR)
                     Known.report:hit({ from = from, to = to, skill = sidR, skillName = (sk and sk.name) or tostring(sidR),
-                        fromName = fromFriend and Fight.nameOf(from) or unitName(from), toName = toFriend and Fight.nameOf(to) or unitName(to),
+                        fromName = fromFriend and Fight.nameOf(from) or unitName(from), toName = (goneFoe and "a fallen foe") or (toFriend and Fight.nameOf(to)) or unitName(to),
                         fromFriend = fromFriend, toFriend = toFriend, param = num(row.variationParameter), vtype = num(row.VariationType),
                         value = num(row.VariationValue), before = num(row.beforeVariationValue), after = num(row.afterVariationValue),
                         breakValue = num(row.breakDamageValue), miss = unwrap(row.isMiss) == true, defended = unwrap(row.isDefence) == true,
@@ -7415,11 +7455,7 @@ function readRisk(hitsOnly)
             end
             if Fight.summons and Fight.summons[from] then return end
             if not friends[to] then return end
-            -- A foe at 0 HP can still land a last attack. That hit counts on the
-            -- meter only. The planner's book stays with living foes.
-            local living = keepFoe(from)
-            if (not living) and (friends[from] or (Fight.summons and Fight.summons[from])
-                or (Fight.openIds and Fight.openIds[from])) then return end
+            if not keepFoe(from) then return end
             if num(row.variationParameter) ~= PARAM.HP then return end
             if num(row.VariationType) ~= 1 then return end
             if unwrap(row.isMiss) == true then return end
@@ -7434,16 +7470,6 @@ function readRisk(hitsOnly)
             if spent and ((not dmg) or (spent > dmg)) then dmg = spent end
             if (not dmg) or (dmg <= 0) then return end
             local sid = num(row.SkillId) or 0
-            -- The window counts each hit once, the first time a read sees it.
-            if cfg.BattleLog then
-                local sig = table.concat({ tostring(from), tostring(to), tostring(sid), tostring(value), tostring(before), tostring(after) }, ":")
-                Fight.hurtSeen = Fight.hurtSeen or {}
-                if not Fight.hurtSeen[sig] then
-                    Fight.hurtSeen[sig] = true
-                    meterAdd("inn", to, dmg)
-                end
-            end
-            if not living then return end
             local defended = unwrap(row.isDefence) == true
             local dtype = num(row.DamageType) or 0
             local key = tostring(from) .. ":" .. tostring(sid) .. ":" .. tostring(to)
@@ -7475,7 +7501,6 @@ function readRisk(hitsOnly)
                 local est = row and ((row.power or 0) * factor) or nil
                 Known.measure.noteCast(Fight.dealtBook, rec.from, rec.sid, rec.raw > 0)
                 Known.measure.add(Fight.dealtBook, rec.from, rec.sid, rec.to, rec.raw, est, rec.onBreak)
-                meterAdd("out", rec.from, rec.raw)
             end
             Fight.dealtOpen = nil
         end
@@ -7597,28 +7622,10 @@ function flushWarn()
     log("%s", line)
 end
 
--- The hit list holds only the latest skill, so the report and the meters read it
--- once a turn. This runs after the hook returns, never inside it.
-function Known.queueHitRead()
-    if (not Known.report) or Known.hitReadQueued then return end
-    Known.hitReadQueued = true
-    gameDelay(0, function()
-        Known.hitReadQueued = false
-        if not (Fight and Fight.active) then return end
-        local u = FindFirstOf("CPP_BtlUnit")
-        if not (u and u:IsValid()) then return end
-        Known.repRun(function()
-            if not Known.report.fight then Known.repBegin() end
-            if readRisk then pcall(readRisk, true) end
-        end)
-    end)
-end
-
 local function hookTimeline()
     -- Copy the ids here. Holding this parameter and reading it later crashed
     -- the game (HandleUpdateRisk, twice).
     RegisterHook("/Script/mucha.CPP_VM_BtlTimeLine:HandleUpdateTimeline", function(_, delval)
-        pcall(Known.queueHitRead)
         pcall(function()
             local row = delval:get()
             local current = copyIdList(row and row.currentTimelines)
@@ -7737,18 +7744,6 @@ local function hookMenu()
             scheduleAct()
         elseif name == "Delegate.Battle.Cmd.List.End" then
             Menu.open = false
-        elseif type(name) == "string" and name:find("Delegate.Battle.Result", 1, true) == 1 then
-            -- The spoils screen. Drop the log before that page is in the way.
-            -- A newer fight has a new life, so a late page cannot close it.
-            local book = Hud and Hud.combat
-            if book then
-                local life = book.life or 0
-                gameDelay(0, function()
-                    if (book.life or 0) ~= life then return end
-                    book.closed = true
-                    combatHide()
-                end)
-            end
         end
     end)
 end
@@ -8063,98 +8058,14 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
     tree.RootWidget = canvas
     local border = StaticConstructObject(findClass("/Script/UMG.Border"), tree, FName(base .. "_Border"))
     local text = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. "_Text"))
-    local scroll, rows, probe = nil, nil, nil
-    local function style(block)
-        local font = block.Font
-        font.Size = size
-        block:SetFont(font)
-        block:SetColorAndOpacity({ SpecifiedColor = { R = 0.93, G = 0.86, B = 0.62, A = 1 }, ColorUseRule = 0 })
-        pcall(function() block:SetAutoWrapText(false) end)
-        pcall(function() block:SetVisibility(4) end)
-        pcall(function() block:SetIsFocusable(false) end)
-    end
-    if kind == "log" then
-        -- The rows sit inside the scroll box, so the wheel still moves the list.
-        -- A probe measures where the ']' of [Damage Output] is. Each bar starts there.
-        scroll = StaticConstructObject(findClass("/Script/UMG.ScrollBox"), tree, FName(base .. "_Scroll"))
-        local column = StaticConstructObject(findClass("/Script/UMG.VerticalBox"), tree, FName(base .. "_Column"))
-        border:SetContent(scroll)
-        scroll:AddChild(column)
-        pcall(function() scroll:SetAlwaysShowScrollbar(true) end)
-        pcall(function() scroll:SetConsumeMouseWheel(1) end)
-        pcall(function() scroll:SetVisibility(0) end)
-        pcall(function() column:SetVisibility(4) end)
-        local function heading(id, shown, measured)
-            local overlay = StaticConstructObject(findClass("/Script/UMG.Overlay"), tree, FName(base .. id .. "V"))
-            local under = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. id .. "P"))
-            local title = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. id .. "H"))
-            style(under)
-            style(title)
-            under:SetText(FText(measured))
-            title:SetText(FText(shown))
-            pcall(function() under:SetRenderOpacity(0) end)
-            local function pin(child)
-                local held = overlay:AddChild(child)
-                pcall(function() held:SetHorizontalAlignment(1) end)
-                pcall(function() held:SetVerticalAlignment(1) end)
-            end
-            pin(under)
-            pin(title)
-            column:AddChild(overlay)
-            return title, under
-        end
-        local function slots(id)
-            local list = {}
-            for i = 1, 8 do
-                local row = StaticConstructObject(findClass("/Script/UMG.HorizontalBox"), tree, FName(base .. id .. "R" .. i))
-                local name = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. id .. "N" .. i))
-                local gap = StaticConstructObject(findClass("/Script/UMG.Spacer"), tree, FName(base .. id .. "G" .. i))
-                local bar = StaticConstructObject(findClass("/Script/UMG.TextBlock"), tree, FName(base .. id .. "B" .. i))
-                style(name)
-                style(bar)
-                pcall(function() gap:SetSize({ X = 0, Y = 1 }) end)
-                local function addAuto(child)
-                    local held = row:AddChild(child)
-                    pcall(function()
-                        local rule = held.Size
-                        rule.SizeRule = 0
-                        rule.Value = 0
-                        held.Size = rule
-                    end)
-                end
-                addAuto(name)
-                addAuto(gap)
-                addAuto(bar)
-                column:AddChild(row)
-                pcall(function() row:SetVisibility(1) end)
-                list[i] = { row = row, name = name, gap = gap, bar = bar }
-            end
-            return list
-        end
-        text, probe = heading("_Out", "[Damage Output]", "[Damage Output")
-        local outRows = slots("_O")
-        local gap = StaticConstructObject(findClass("/Script/UMG.Spacer"), tree, FName(base .. "_Gap"))
-        pcall(function() gap:SetSize({ X = 1, Y = 8 }) end)
-        column:AddChild(gap)
-        heading("_In", "[Damage Taken]", "[Damage Taken")
-        rows = { out = outRows, inn = slots("_I") }
-    else
-        border:SetContent(text)
-    end
+    border:SetContent(text)
     border:SetBrushColor({ R = 0.02, G = 0.03, B = 0.05, A = 0.72 })
-    border:SetPadding({ Left = 10, Top = 6, Right = 10, Bottom = 6 })
+    border:SetPadding({ Left = 14, Top = 6, Right = 14, Bottom = 6 })
     local slot = canvas:AddChildToCanvas(border)
+    slot:SetAutoSize(true)
     slot:SetAnchors({ Minimum = { X = ax, Y = ay }, Maximum = { X = ax, Y = ay } })
     slot:SetAlignment({ X = alx, Y = aly })
     slot:SetPosition({ X = 0, Y = 0 })
-    if kind == "log" then
-        -- A touch in from the screen edge. alignLog moves this out to the party frames.
-        slot:SetPosition({ X = -20, Y = -8 })
-        slot:SetAutoSize(false)
-        slot:SetSize({ X = 420, Y = 300 })
-    else
-        slot:SetAutoSize(true)
-    end
     local font = text.Font
     font.Size = size
     text:SetFont(font)
@@ -8162,23 +8073,18 @@ local function makeWidget(kind, ax, ay, alx, aly, size)
     pcall(function() widget:SetIsFocusable(false) end)
     pcall(function() text:SetIsFocusable(false) end)
     widget:SetVisibility(1)
-    local layer = (kind == "toast" and 1100) or (kind == "log" and 1050) or 1000
-    widget:AddToViewport(layer)
-    return { widget = widget, text = text, scroll = scroll, slot = slot, rows = rows, probe = probe }
+    widget:AddToViewport(kind == "toast" and 1100 or 1000)
+    return { widget = widget, text = text }
 end
 
 local function widget(kind)
     local w = Hud.box[kind]
     if w and w.widget:IsValid() and w.text:IsValid() then
-        local layer = (kind == "toast" and 1100) or (kind == "log" and 1050) or 1000
-        if not w.widget:IsInViewport() then w.widget:AddToViewport(layer) end
+        if not w.widget:IsInViewport() then w.widget:AddToViewport(kind == "toast" and 1100 or 1000) end
         return w
     end
     if kind == "toast" then
         w = makeWidget(kind, 0.5, 0.16, 0.5, 0.5, 20)
-    elseif kind == "log" then
-        -- Lower right, a bit above the party frames. The bottom-right corner is the anchor.
-        w = makeWidget(kind, 1.0, 0.78, 1.0, 1.0, 14)
     else
         w = makeWidget(kind, 0.012, 0.90, 0.0, 1.0, 15)
     end
@@ -8219,307 +8125,6 @@ Hud.badgeShow = function(msg)
             Hud.disabled = true
             log("overlay off: %s", tostring(err))
         end
-    end)
-end
-
--- Display totals only. The planner does not read them.
--- The opening party, on both columns, so a character at 0 still has a row.
--- A summon is not a row. Its hits are already stored under the caller.
-function meterNamed(rec)
-    return rec.named == true
-end
-
-function meterName(id)
-    if not Fight.nameOf then return nil end
-    local ok, n = pcall(Fight.nameOf, id)
-    if ok and type(n) == "string" and n ~= "" then return n end
-    return nil
-end
-
-function meterSeed()
-    if not (cfg and cfg.BattleLog) then return end
-    local book = Hud and Hud.combat
-    if not book or not Fight or not Fight.openIds then return end
-    book.meter = book.meter or { out = {}, inn = {} }
-    -- A fallen ally can read no name. A real name, once read, stays on the row.
-    for id in pairs(Fight.openIds) do
-        if not (Fight.summons and Fight.summons[id]) then
-            local key = tostring(id)
-            local out, inn = book.meter.out[key], book.meter.inn[key]
-            if not (out and inn and meterNamed(out) and meterNamed(inn)) then
-                local name = meterName(id)
-                for _, kind in ipairs({ "out", "inn" }) do
-                    local rec = book.meter[kind][key]
-                    if not rec then
-                        rec = { n = 0, name = name or key }
-                        book.meter[kind][key] = rec
-                    end
-                    if name and not meterNamed(rec) then
-                        rec.name = name
-                        rec.named = not name:find("^Unit ")
-                    end
-                end
-            end
-        end
-    end
-end
-
-function meterAdd(kind, id, n)
-    if not (cfg and cfg.BattleLog) then return end
-    n = math.floor((tonumber(n) or 0) + 0.5)
-    if (not id) or (n <= 0) then return end
-    local book = Hud and Hud.combat
-    if not book or book.closed then return end
-    if Fight and Fight.summons and Fight.summons[id] then return end
-    if Fight and Fight.openIds and next(Fight.openIds) and not Fight.openIds[id] then return end
-    book.meter = book.meter or { out = {}, inn = {} }
-    local col = book.meter[kind]
-    if not col then return end
-    local key = tostring(id)
-    local rec = col[key]
-    if not rec then
-        rec = { n = 0, name = meterName(id) or key }
-        col[key] = rec
-    end
-    rec.n = rec.n + n
-    combatRefresh()
-end
-
-function meterBody()
-    meterSeed()
-    local meter = Hud and Hud.combat and Hud.combat.meter
-    local function rowsFor(col)
-        local rows, total = {}, 0
-        for _, rec in pairs(col or {}) do
-            total = total + (rec.n or 0)
-            rows[#rows + 1] = rec
-        end
-        table.sort(rows, function(a, b)
-            if a.n ~= b.n then return a.n > b.n end
-            return (a.name or "") < (b.name or "")
-        end)
-        -- Twenty marks inside brackets. One mark is 5%. Spaces hold the rest.
-        -- The figure is the percent, always four characters, so the row stays put.
-        -- A real hit still shows one mark and at least 1%.
-        local function bar(n)
-            local pct = 0
-            if total > 0 and n > 0 then
-                pct = math.floor((n * 100 / total) + 0.5)
-                if pct < 1 then pct = 1 end
-                if pct > 100 then pct = 100 end
-            end
-            local marks = 0
-            if pct > 0 then
-                marks = math.floor((pct / 5) + 0.5)
-                if marks < 1 then marks = 1 end
-                if marks > 20 then marks = 20 end
-            end
-            return "[" .. string.rep("|", marks) .. string.rep(" ", 20 - marks) .. "] " .. string.format("%3d%%", pct)
-        end
-        local list = {}
-        for i, rec in ipairs(rows) do
-            if i > 8 then break end
-            list[i] = { name = rec.name or "?", bar = bar(rec.n or 0) }
-        end
-        return list
-    end
-    return {
-        out = rowsFor(meter and meter.out),
-        inn = rowsFor(meter and meter.inn),
-    }
-end
-
-function paintLog(box)
-    if not (box and box.rows) then return end
-    local built = meterBody()
-    local function fill(slots, rows)
-        for i = 1, #slots do
-            local slot = slots[i]
-            local rec = rows and rows[i]
-            if rec then
-                slot.name:SetText(FText(rec.name))
-                slot.bar:SetText(FText(rec.bar))
-                pcall(function() slot.row:SetVisibility(4) end)
-            else
-                pcall(function() slot.row:SetVisibility(1) end)
-            end
-        end
-    end
-    fill(box.rows.out, built.out)
-    fill(box.rows.inn, built.inn)
-end
-
-function alignBars(box, quiet)
-    if not (box and box.probe and box.rows) then return end
-    local function width(block)
-        local n = 0
-        pcall(function()
-            block:ForceLayoutPrepass()
-            local size = block:GetDesiredSize()
-            n = (size and size.X) or 0
-        end)
-        return n
-    end
-    local target = width(box.probe)
-    if target <= 1 then
-        if (not quiet) and Hud.combat and not Hud.combat.barTold then
-            Hud.combat.barTold = true
-            log("combat log bars had no width")
-        end
-        return
-    end
-    local function place(list)
-        for _, slot in ipairs(list or {}) do
-            local shown = true
-            pcall(function() shown = slot.row:GetVisibility() ~= 1 end)
-            if shown then
-                local gap = target - width(slot.name)
-                if gap < 0 then gap = 0 end
-                pcall(function() slot.gap:SetSize({ X = gap, Y = 1 }) end)
-            end
-        end
-    end
-    place(box.rows.out)
-    place(box.rows.inn)
-end
-
--- Last combat lines, drawn on the next game-thread turn. A call from a hook
--- only stores the words. The box is shown as soon as the fight starts, empty,
--- and again for every later fight. It hides when that fight is over.
-function combatRefresh()
-    local book = Hud.combat
-    if not book or book.queued then return end
-    book.queued = true
-    gameDelay(0, function()
-        book.queued = false
-        if Hud.disabled or book.off then return end
-        local old = Hud.box and Hud.box.log
-        if book.closed or book.hidden or not book.want then
-            if old and old.widget and old.widget.IsValid and old.widget:IsValid() then
-                pcall(function() old.widget:SetVisibility(1) end)
-            end
-            return
-        end
-        local ok, err = pcall(function()
-            local box = widget("log")
-            paintLog(box)
-            -- 4 is SelfHitTestInvisible: the full-screen root lets clicks through,
-            -- and the scroll box itself still takes the wheel and the bar.
-            box.widget:SetVisibility(4)
-            if box.scroll then pcall(function() box.scroll:SetVisibility(0) end) end
-            alignLog(box)
-            alignBars(box, true)
-            followLog(box)
-        end)
-        if not ok then
-            book.off = true
-            log("combat log failed: %s", tostring(err))
-            return
-        end
-        local shown = Hud.box and Hud.box.log
-        gameDelay(0, function()
-            if book.closed or book.hidden or not book.want then return end
-            alignLog(shown)
-            alignBars(shown, false)
-            followLog(shown)
-        end)
-    end)
-end
-
-function combatHide()
-    local book = Hud.combat
-    book.want = false
-    combatRefresh()
-end
-
-function combatOpen()
-    local book = Hud.combat
-    book.closed = false
-    book.off = false
-    book.hidden = false
-    book.meter = { out = {}, inn = {} }
-    meterSeed()
-    book.life = (book.life or 0) + 1
-    if not (cfg and cfg.BattleLog) then
-        book.want = false
-        combatRefresh()
-        return
-    end
-    book.want = true
-    combatRefresh()
-end
-
--- Battle begin only schedules this. The unit read waits until the next turn.
-function combatKick()
-    local book = Hud and Hud.combat
-    if not (book and book.pending) then return end
-    local ok, u = pcall(function() return FindFirstOf("CPP_BtlUnit") end)
-    if not (ok and u and u.IsValid and u:IsValid()) then return end
-    book.pending = nil
-    book.closed = false
-    book.off = false
-    if ensureBattle then pcall(ensureBattle) end
-    if Fight and Fight.active then
-        book.want = true
-        book.closed = false
-        combatRefresh()
-    end
-end
-
-function followLog(box)
-    if not (box and box.scroll and box.scroll.IsValid and box.scroll:IsValid()) then return end
-    pcall(function() box.scroll:SetScrollOffset(0) end)
-end
-
--- The party frames are the right edge the log is allowed to reach.
-function alignLog(box)
-    if not (box and box.slot and box.widget and box.widget.IsValid and box.widget:IsValid()) then return end
-    local placed = false
-    pcall(function()
-        local geo = box.widget:GetCachedGeometry()
-        local origin = geo:GetAbsolutePosition()
-        local absSize = geo:GetAbsoluteSize()
-        local localSize = geo:GetLocalSize()
-        if not (origin and absSize and localSize and absSize.X and absSize.X > 1 and localSize.X and localSize.X > 1) then return end
-        local best = nil
-        local function consider(list)
-            for _, w in ipairs(list or {}) do
-                if w and w.IsValid and w:IsValid() then
-                    local skip = false
-                    pcall(function()
-                        local vis = w:GetVisibility()
-                        if vis == 1 or vis == 2 then skip = true end
-                    end)
-                    if not skip then
-                        local g = w:GetCachedGeometry()
-                        local p = g:GetAbsolutePosition()
-                        local s = g:GetAbsoluteSize()
-                        if p and s and s.X and s.X > 8 and p.X then
-                            local right = p.X + s.X
-                            if right >= origin.X and right <= (origin.X + absSize.X + 2) then
-                                if (not best) or right > best then best = right end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        consider(FindAllOf("WBP_UnitStatus_Point_C"))
-        consider(FindAllOf("WBP_FriendlyUnit_HPMPGauge_C"))
-        if not best then return end
-        local scale = absSize.X / localSize.X
-        if not (scale and scale > 0) then return end
-        local localRight = (best - origin.X) / scale
-        box.slot:SetAnchors({ Minimum = { X = 1, Y = 0.78 }, Maximum = { X = 1, Y = 0.78 } })
-        box.slot:SetAlignment({ X = 1, Y = 1 })
-        box.slot:SetPosition({ X = localRight - localSize.X, Y = -8 })
-        placed = true
-    end)
-    if placed then return end
-    pcall(function()
-        box.slot:SetAnchors({ Minimum = { X = 1, Y = 0.78 }, Maximum = { X = 1, Y = 0.78 } })
-        box.slot:SetAlignment({ X = 1, Y = 1 })
-        box.slot:SetPosition({ X = -20, Y = -8 })
     end)
 end
 
@@ -8643,6 +8248,11 @@ local function resonanceWatch()
     local line = string.format("resonance %s by %s -> %s", bestChoice.name, who, bestChoice.reason)
     log("%s", line)
     appendLog("  " .. line)
+    -- The hit list never holds a wheel skill, so the report measures it by HP.
+    Known.repRun(function()
+        Known.report:field(Known.repSnap())
+        Known.report:wheel(bestChoice.name, who)
+    end)
     rememberCast(who, bestChoice.name)
     Fight.actions[#Fight.actions + 1] = line
     Fight.last = { who = who, skill = bestChoice.name }
@@ -8653,8 +8263,6 @@ gameLoop(400, resonanceWatch)
 gameLoop(700, function()
     -- The row walk is not started here. This timer runs from launch, including
     -- while a save is loading, and that walk crashed the game.
-    -- A delayed read the game dropped can't hold up the next one.
-    Known.hitReadQueued = false
     if not Fight.active then return end
     local u = FindFirstOf("CPP_BtlUnit")
     if u and u:IsValid() then
@@ -8671,6 +8279,9 @@ gameLoop(700, function()
                 local snapNow = Known.repSnap()
                 Known.report:field(snapNow)
                 Known.repCards(snapNow)
+                -- The hit list holds only the latest skill, so a menu alone misses
+                -- casts. Every tick catches them, and a wipe's killing blow.
+                if readRisk then pcall(readRisk, true) end
             end)
         end
         return
@@ -8714,14 +8325,6 @@ end
 
 local padTold, padLeft, padRight = false, false, false
 local function pollTriggers()
-    local book = Hud and Hud.combat
-    if book and book.pending then
-        if combatKick then combatKick() end
-        if book.pending then
-            book.pending = book.pending - 1
-            if book.pending <= 0 then book.pending = nil end
-        end
-    end
     local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
     if not (okPc and pc and pc.IsValid and pc:IsValid()) then return end
     local function down(name)
@@ -8735,55 +8338,6 @@ local function pollTriggers()
         end
         if ok and (type(hit) == "boolean") then return hit end
         return nil
-    end
-    local function analog(name)
-        local ok, v = pcall(function()
-            return pc:GetInputAnalogKeyState({ KeyName = FName(name) })
-        end)
-        if not (ok and type(v) == "number") then
-            ok, v = pcall(function()
-                return pc:GetInputAnalogKeyState(FName(name))
-            end)
-        end
-        if ok and type(v) ~= "number" then v = tonumber(v) end
-        if ok and type(v) == "number" then return v end
-        return nil
-    end
-    -- Right stick scrolls the log. A turn refresh puts the view back at the top.
-    -- The game still gets the stick.
-    local book = Hud and Hud.combat
-    local box = Hud and Hud.box and Hud.box.log
-    local function edge(name, slot)
-        local now = down(name)
-        if now == nil or not book then return false end
-        local was = book[slot] == true
-        book[slot] = now == true
-        return now and not was
-    end
-    -- Sample every poll so a button held outside a fight does not toggle on entry.
-    -- Scroll and the show/hide click act only on the combat screen, same as the triggers.
-    local midEdge = edge("MiddleMouseButton", "midWas")
-    local stickEdge = edge("Gamepad_RightThumbstick", "rsWas")
-    if inFight() and cfg.BattleLog and book and (not book.off) and (not book.closed) then
-        if midEdge or stickEdge then
-            book.hidden = not book.hidden
-            book.want = true
-            if combatRefresh then combatRefresh() end
-        end
-    end
-    if inFight() and cfg.BattleLog and book and (not book.off) and (not book.closed) and (not book.hidden)
-        and box and box.scroll and box.scroll.IsValid and box.scroll:IsValid() then
-        local y = analog("Gamepad_RightY")
-        if type(y) == "number" and math.abs(y) >= 0.25 then
-            pcall(function()
-                local offset = box.scroll:GetScrollOffset() or 0
-                local ending = box.scroll:GetScrollOffsetOfEnd() or offset
-                local nextOff = offset + (y * 64)
-                if nextOff < 0 then nextOff = 0 end
-                if nextOff > ending then nextOff = ending end
-                box.scroll:SetScrollOffset(nextOff)
-            end)
-        end
     end
     local left = down("Gamepad_LeftTrigger")
     local right = down("Gamepad_RightTrigger")
@@ -8821,41 +8375,11 @@ local okHook, errHook = pcall(function()
 end)
 if not okHook then log("hook failed: %s", tostring(errHook)) end
 
-okHook, errHook = pcall(function()
-    local function shutLog()
-        local book = Hud and Hud.combat
-        if not book then return end
-        -- A later fight gets a new life, so this end cannot close that log.
-        local life = book.life or 0
-        gameDelay(0, function()
-            if (book.life or 0) ~= life then return end
-            book.closed = true
-            if combatHide then combatHide() end
-        end)
-    end
-    -- Fight over, then the spoils page. The hook does not read the argument.
-    RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleEndBtl", function()
-        -- No turn follows the last blow, so the fight's end reads it.
-        pcall(Known.queueHitRead)
-        shutLog()
-    end)
-    RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult", function()
-        shutLog()
-    end)
-    RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginBtl", function()
-        if Hud and Hud.combat then Hud.combat.pending = 100 end
-        gameDelay(0, function()
-            if combatKick then combatKick() end
-        end)
-    end)
-end)
-if not okHook then log("combat log failed: %s", tostring(errHook)) end
-
 local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
 
-log("loaded. planner v0.2.31. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.32. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
