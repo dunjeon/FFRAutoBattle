@@ -7750,9 +7750,11 @@ end
 
 -- SkipScenes. A Limit Burst, a Vision finish (the finish-blow attribute),
 -- an Esper summon, or a skill by the unit that call put on the field is
--- the scene. The battle input skip, the sequence skip reaction, and
--- stopping that playback are what ends one. The look runs only after one
--- of those skills begins. A story scene is left alone.
+-- the scene. The battle input skip and the sequence skip reaction are what
+-- end one and hand the camera back. Stopping the sequence player is only
+-- the fallback, after that skip has had time to finish. Cutting it on the
+-- same tick leaves the cinematic camera where the zoom was. The look runs
+-- only after one of those skills begins. A story scene is left alone.
 local Scene = { want = nil, allow = false, quietId = nil, quietUntil = 0, told = {} }
 
 local function live(obj)
@@ -7858,12 +7860,12 @@ function Scene.press()
     return true
 end
 
-function Scene.react(job)
+function Scene.director(job)
     local event = job.m_pSequencerEvent
     local player = Scene.player(job.m_pLevelSequenceActor)
-    if not (live(event) and player) then return false end
+    if not (live(event) and player) then return nil, nil end
     local okFound, found = pcall(function() return FindAllOf("CPP_BtlLevelSequenceDirector") end)
-    if not (okFound and type(found) == "table") then return false end
+    if not (okFound and type(found) == "table") then return nil, nil end
     local director = nil
     for _, d in ipairs(found) do
         if live(d) and Scene.same(d.Player, player) then
@@ -7872,6 +7874,12 @@ function Scene.react(job)
         end
     end
     if (not director) and (#found == 1) and live(found[1]) then director = found[1] end
+    if not director then return nil, nil end
+    return director, event
+end
+
+function Scene.react(job)
+    local director, event = Scene.director(job)
     if not director then return false end
     local ok, err = pcall(function()
         director:BattleSequencerEvent(event, {
@@ -7887,6 +7895,36 @@ function Scene.react(job)
         return false
     end
     return true
+end
+
+-- eBtlSequenceEventType::CameraSetDefault is 1. The skip reaction is what
+-- returns the battle camera. This is only for a scene that ignored that skip.
+function Scene.home(job)
+    local director, event = Scene.director(job)
+    if not director then return false end
+    local ok, err = pcall(function()
+        director:BattleSequencerEvent(event, {
+            EventType = 1,
+            Camera_SetDefault_IsRotation = true,
+            Camera_SetDefault_IsLocation = true,
+            Camera_SetDefault_IsZoomInOut = true,
+        })
+    end)
+    if not ok then
+        if not Scene.told.camera then
+            Scene.told.camera = true
+            log("scene skip failed: %s", tostring(err))
+        end
+        return false
+    end
+    return true
+end
+
+function Scene.allowed()
+    if Scene.allow then return true end
+    local ok, mgr = pcall(function() return FindFirstOf("CPP_UI_BtlCinematicManager") end)
+    if not (ok and live(mgr)) then return false end
+    return mgr.bAllowSkip == true
 end
 
 function Scene.stop(actor)
@@ -7931,7 +7969,11 @@ local function watchScene(skillId, name)
     if Scene.want == skillId then return end
     if Scene.quietId == skillId and os.clock() < Scene.quietUntil then return end
     Scene.want = skillId
-    local ticks, asked, reacted, forced, quiet = 0, false, false, false, 0
+    Scene.allow = false
+    -- askedAt is the tick the game's own skip was sent. The sequence player
+    -- is cut only after 15 ticks of that, about 1.5 seconds. Allow is the
+    -- cinematic manager's skip flag. Ten ticks is the wait when it never rises.
+    local ticks, askedAt, forced, quiet = 0, nil, false, 0
     local function finish(text)
         if Scene.want == skillId then Scene.want = nil end
         Scene.quietId = skillId
@@ -7947,34 +7989,33 @@ local function watchScene(skillId, name)
         local still = job and live(job) and (
             sequencePlaying(job.m_pLevelSequenceActor) or sequencePlaying(job.m_pSoundSequenceActor))
         local movie = Scene.movie()
-        if still or movie then
+        if movie then
+            Scene.endMovie()
+            forced = true
+        end
+        if still then
             ticks = ticks + 1
             quiet = 0
-            local matched = still and jobSkillId(job) == skillId
-            local ready = movie or matched or ticks >= 3
-            if ready then
-                Scene.press()
-                if still and not asked then
-                    asked = true
+            local matched = jobSkillId(job) == skillId
+            local gate = Scene.allowed() or ticks >= 10
+            if gate and (matched or ticks >= 3) then
+                if not askedAt then
+                    askedAt = ticks
+                    Scene.press()
                     askSkip(job)
-                end
-                if still and not reacted and Scene.react(job) then
-                    reacted = true
-                end
-                if still then
-                    forced = true
+                    Scene.react(job)
+                elseif (not forced) and ((ticks - askedAt) >= 15) then
+                    Scene.home(job)
                     Scene.stop(job.m_pLevelSequenceActor)
                     Scene.stop(job.m_pSoundSequenceActor)
-                end
-                if movie then
                     forced = true
-                    Scene.endMovie()
                 end
             end
-        elseif forced then
+        elseif askedAt or forced then
             quiet = quiet + 1
             if quiet >= 8 then
-                finish(string.format("scene skip: %s", name))
+                local word = forced and "scene skip forced: %s" or "scene skip: %s"
+                finish(string.format(word, name))
                 return
             end
         end
@@ -7983,7 +8024,7 @@ local function watchScene(skillId, name)
             gameDelay(100, function() step(left - 1) end)
             return
         end
-        if forced or asked then
+        if askedAt or forced then
             finish(string.format("scene skip failed: %s still playing", name))
         else
             finish(string.format("scene skip failed: %s had no sequence", name))
