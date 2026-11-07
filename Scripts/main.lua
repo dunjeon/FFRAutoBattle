@@ -8420,7 +8420,7 @@ local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
 
-log("loaded. planner v0.2.32. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.33. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

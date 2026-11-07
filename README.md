@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.32, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.33, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -55,7 +55,7 @@ When this step is done, this file exists:
 
 The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, and `items.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
-**Coming from 0.1.x:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again.
+**Coming from 0.1.x or from 0.2.28:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again.
 
 ### 4. Start the game and check
 
@@ -65,7 +65,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.2.32.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v0.2.33.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -106,7 +106,7 @@ The right trigger turns auto battle on or off during a fight. The left trigger s
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
 | Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight, while auto battle is on |
 
-The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. Other attacks and story events stay. It is off unless you set it to true.
+The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true.
 
 Battle speed is the game's own button and marks. Auto battle leaves them alone.
 
