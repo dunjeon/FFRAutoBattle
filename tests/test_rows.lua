@@ -22,7 +22,18 @@ check(d.known["spark"].use == "break" and d.known["spark"].element == "thunder" 
 check(d.known["mend"].use == "heal" and d.known["mend"].party, "a recovery row is a heal, and a group row is a party heal")
 check(d.known["ward"].use == "guardbuff" and d.known["ward"].guards == "magic", "a defense row is a guard of its kind")
 check(d.known["soften"].use == "debuff" and d.known["soften"].effect == "deprotect", "a debuff row is named by its status")
-check(d.limits["big one"].use == "lb-cash" and d.limits["big one"].gauges == 2 and d.limits["big one"].area, "a Limit's gauges come from its cost")
+check(d.limits["big one"].use == "lb-cash" and d.limits["big one"].gauges == 2 and d.limits["big one"].points == 200 and d.limits["big one"].area, "a Limit's gauges come from its cost")
+local drive = { id = 30, name = "Drive", attr = 5, effect = 1, varType = 1, dmgType = 1, target = 1, rel = 2, cost = 100, power = 40, breakPower = 20, element = "fire", effects = { { type = 27, status = 0, params = { 1 }, turns = 3 } } }
+local wall = { id = 31, name = "Wall", attr = 5, effect = 0, varType = 0, dmgType = 0, target = 2, rel = 1, cost = 100, power = 0, breakPower = 0, effects = { { type = 26, status = 27, params = { 2, 30 }, turns = 5 } } }
+local cheer = { id = 32, name = "Cheer", attr = 5, effect = 0, varType = 0, dmgType = 0, target = 2, rel = 1, cost = 300, power = 0, breakPower = 0, effects = {} }
+local rise = { id = 33, name = "Rise", attr = 5, effect = 0, varType = 0, dmgType = 0, target = 2, rel = 1, cost = 200, power = 0, breakPower = 0, effects = { { type = 20, status = 0, params = {}, turns = 0 } } }
+local mendLb = { id = 34, name = "Mend Lb", attr = 5, effect = 1, varType = 0, dmgType = 0, target = 1, rel = 1, cost = 100, power = 80, breakPower = 0, effects = {} }
+local ld = R.build({ skills = { drive, wall, cheer, rise, mendLb }, units = {}, items = {} })
+check(ld.limits["drive"].use == "lb-cash" and ld.limits["drive"].breakDef and ld.limits["drive"].gauges == 1, "a hit with another effect stays a hit")
+check(ld.limits["wall"].use == "lb-guard" and ld.limits["wall"].party, "a barrier row stays a barrier")
+check(ld.limits["cheer"].use == "buff" and ld.limits["cheer"].gauges == 3 and ld.limits["cheer"].points == 300, "a support row keeps the ordinary use, at its own gauge cost")
+check(ld.limits["rise"].use == "lb-revive", "a raise row stays a raise")
+check(ld.limits["mend lb"].use == "heal", "a recovery row stays a heal")
 check(d.items.items["sip"] == "hp" and d.items.items["clean"] == "cure" and d.items.clears["clean"][5], "items come from their skill row")
 local dear = R.build({ skills = { [6] = potion }, items = {
     [3] = { name = "Token", skillId = 6, price = 6000, scene = 3, held = true },

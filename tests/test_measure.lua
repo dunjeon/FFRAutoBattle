@@ -38,6 +38,9 @@ check(math.abs(M.warnedCast(seen, { 1, 2 }, rowOf, 7) - 1782) < 0.01, "the worst
 local both = { [1] = { fullTo = { [7] = 540 } }, [2] = { fullTo = { [7] = 1500 } } }
 check(M.warnedCast(both, { 2 }, rowOf, 7) == 1500, "what the move really did beats the estimate")
 check(M.pickKill({ { real = 100, cost = 0 } }, 500) == nil, "a hit that won't kill isn't a kill")
+check(M.kills(100, 80, true), "a measured hit that reaches the foe is a kill")
+check(not M.kills(100, 80, false), "a scaled estimate is not a kill")
+check(not M.kills(40, 80, true), "a measured hit under the foe's HP is not a kill")
 check(M.pickKill({}, 500) == nil, "nothing to hit with")
 local cheap, dear = { real = 700, cost = 0 }, { real = 2000, cost = 15 }
 check(M.pickKill({ dear, cheap }, 500) == cheap, "the cheapest hit with room to spare")

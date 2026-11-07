@@ -1309,6 +1309,7 @@ local function limitReady(uid, skill)
             ok, v = pcall(function() return bfl:GetLimitBurstPointOneGauge(uid) end)
             if ok then one = num(v) end
         end
+        if Fight and one and (one > 0) then Fight.oneGauge = one end
         ok, v = pcall(function() return bfl:GetLimitBurstPointMaxGaugeNum() end)
         if ok then slots = num(v) end
         if slots == nil then
@@ -1332,6 +1333,11 @@ local function limitReady(uid, skill)
     end
     local filled = Limits.filled and Limits.filled(points, one, maxv, unitGauges, slots) or nil
     if Fight then
+        Fight.lbBar = Fight.lbBar or {}
+        Fight.lbBar[uid] = {
+            filled = filled,
+            max = Limits.capacity and Limits.capacity(one, maxv, slots) or nil,
+        }
         Fight.lbRead = Fight.lbRead or {}
         local bucket = filled
         if (bucket == nil) and (points ~= nil) then bucket = math.floor(points) end
@@ -1428,9 +1434,31 @@ local function tagSkill(uid, id, borrowed)
     end
     if copy.effect == EFF.ANALYZE then copy.kind = "scan" end
     copy.cost = skillCost(uid, id, aoeOf(copy))
+    if info and info.use == "skip" then return nil end
     if limitSkill(copy) then
         local gauges = nil
-        if info and (type(info.gauges) == "number") and (info.gauges >= 1) then
+        if info and Limits.gauges then
+            local pts = info.points
+            if type(pts) ~= "number" then
+                local book = tonumber(info.gauges)
+                if book and (book >= 1) then pts = book * 100 end
+            end
+            local one = Fight and Fight.oneGauge or nil
+            if (not one) or (one <= 0) then
+                local bfl = battleLib()
+                if bfl and bfl:IsValid() then
+                    local ok, v = pcall(function() return bfl:GetLimitBurstPointOneGauge() end)
+                    if ok then one = num(v) end
+                    if (not one) or (one <= 0) then
+                        ok, v = pcall(function() return bfl:GetLimitBurstPointOneGauge(uid) end)
+                        if ok then one = num(v) end
+                    end
+                end
+                if Fight and one and (one > 0) then Fight.oneGauge = one end
+            end
+            gauges = Limits.gauges(pts, one)
+        end
+        if (gauges == nil) and info and (type(info.gauges) == "number") and (info.gauges >= 1) then
             gauges = info.gauges
         end
         if gauges == nil then
@@ -2684,7 +2712,7 @@ local applyPendingOrder
 -- Slots before that body pour book stagger, weakness at x3 and nothing
 -- past that. The slot is spent on the body only when that sum clears the
 -- live gauge. Otherwise the slot guards, heals ahead, or defends.
-local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
+local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch, held)
     if phase ~= 0 then return nil end
     if not Fight then return nil end
     if readRisk then readRisk() end
@@ -2771,7 +2799,7 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
         local mp = (allyId == uid) and (w.mp or 0) or (stat(allyId, PARAM.MP, false) or 0)
         local bestP = 0
         for _, s in ipairs(spells) do
-            if isHit(s, false) and ((s.cost or 0) <= mp) and (s.attr ~= ATTR.SUMMON) then
+            if isHit(s, false) and ((s.cost or 0) <= mp) and (s.attr ~= ATTR.SUMMON) and not (held and held(s)) then
                 local f = elementFactor(s, best)
                 if f < 0 then f = 0 end
                 if f > 3 then f = 3 end
@@ -2797,7 +2825,7 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
     if canBreak then
         local hit, hitWeak, hitBr = nil, false, -1
         for _, s in ipairs(skills) do
-            if isHit(s, false) and pay(s) and (s.attr ~= ATTR.SUMMON) then
+            if isHit(s, false) and pay(s) and (s.attr ~= ATTR.SUMMON) and not (held and held(s)) then
                 local f = elementFactor(s, best)
                 if f > 0 then
                     local _, br = offenseOf(s)
@@ -3029,8 +3057,12 @@ local function turn(uid, skills, w, phase)
             return false
         end
         if use == "lb-setup" or use == "lb-revive" or use == "revive" or use == "lb-break" or use == "lb-guard" then return false end
+        -- A damage Limit is a hit on a fight that may spend one. The break
+        -- flag decides whether it outranks another hit. It does not decide
+        -- whether the hit is visible.
         if (s.attr == ATTR.LB) or (use == "lb-cash") then
-            if cashing and limitFight then return true end
+            if not limitFight then return false end
+            if (use == "lb-cash") or (s.kind == "damage") then return true end
             return false
         end
         return s.kind == "damage" or s.attr == ATTR.FIGHT or s.attr == ATTR.MAGIC or s.attr == ATTR.ABILITY
@@ -3554,8 +3586,20 @@ local function turn(uid, skills, w, phase)
         local maxv = stat(hurt.id, PARAM.HP, true)
         local ratio = hurt.hp or 1
         if maxv and (maxv > 0) and (ratio < 1) then missing = (1 - ratio) * maxv end
+        -- A gauge heal is the heal this unit holds when no MP heal can be paid.
+        -- It does not outrank a spell the bar can already cast.
+        local spellHeal = false
+        for _, s in ipairs(skills) do
+            if (s.kind == "heal") and (s.attr ~= ATTR.LB) and pay(s) and (not isPatch(s))
+                and not (barred and (s.attr == ATTR.MAGIC))
+                and not (s.target == TGT.SELF and hurt.id ~= uid) then
+                spellHeal = true
+                break
+            end
+        end
         for _, s in ipairs(skills) do
             if (s.kind == "heal") and pay(s) and (not isPatch(s))
+                and not (s.attr == ATTR.LB and (spellHeal or not limitFight))
                 and not (barred and (s.attr == ATTR.MAGIC))
                 and not (s.target == TGT.SELF and hurt.id ~= uid) then
                 local party = partyOf(s)
@@ -3989,9 +4033,39 @@ local function turn(uid, skills, w, phase)
         local early = curePass(false)
         if early then return early end
     end
+    -- A cheaper damage Limit waits while a higher-cost one on this bar can
+    -- still be reached and cannot be paid yet. Each bar is its own.
+    local function limitHeld(s)
+        local damage = (useOf(s) == "lb-cash") or ((s.attr == ATTR.LB) and (s.kind == "damage"))
+        if not damage then return false end
+        local bar = Fight.lbBar and Fight.lbBar[uid]
+        if not bar then return false end
+        local cost = tonumber(s.lbCost) or tonumber(s.known and s.known.gauges) or 1
+        local higher = {}
+        local one = Fight.oneGauge
+        for _, id in ipairs(equippedIds(uid)) do
+            local row = skillOf(id)
+            local fact = row and (row.attr == ATTR.LB) and Limits.lookup and Limits.lookup(row.name)
+            if fact and (fact.use == "lb-cash") and (row.id ~= s.id) then
+                local g = (Limits.gauges and Limits.gauges(fact.points, one)) or tonumber(fact.gauges) or 1
+                if (g > cost) and (#w.enemies > 0) then
+                    local probe = { known = fact, name = row.name }
+                    local any, all = false, true
+                    for _, foe in ipairs(w.enemies) do
+                        if elementFactor(probe, foe) > 0 then any = true else all = false end
+                    end
+                    if (fact.area and all) or ((not fact.area) and any) then
+                        higher[#higher + 1] = g
+                    end
+                end
+            end
+        end
+        if Limits.holds then return Limits.holds(cost, bar.filled, bar.max, higher) end
+        return false
+    end
     -- A live warning outranks the add plan and the sync chip. Raises and a
     -- critical heal have already had this slot.
-    local warnedChoice = warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
+    local warnedChoice = warnTurn(uid, skills, w, phase, pay, isHit, isPatch, limitHeld)
     if warnedChoice then return warnedChoice end
 
     markExposed(w)
@@ -4146,12 +4220,13 @@ local function turn(uid, skills, w, phase)
                                 local fit = Known.measure.damageFit(factor)
                                 local est = (fact.power or 0) * fit
                                 if est <= 0 then est = nil end
-                                local real = Known.measure.expect(Fight.dealtBook, uid, s.id, foe.id, est, fact.accuracy or s.accuracy)
+                                local real, measured = Known.measure.expect(Fight.dealtBook, uid, s.id, foe.id, est, fact.accuracy or s.accuracy)
                                 if real then
                                     any = true
                                     if real > 0 then sum = sum + real end
-                                    local hp = stat(foe.id, PARAM.HP, false)
-                                    if hp and (hp > 0) and (real >= hp) then kills = kills + 1 end
+                                    if Known.measure.kills(real, stat(foe.id, PARAM.HP, false), measured) then
+                                        kills = kills + 1
+                                    end
                                 end
                             end
                             if any then dealt = sum end
@@ -4456,13 +4531,16 @@ local function turn(uid, skills, w, phase)
             local kit = unitKit(actorId)
             spells = (kit and kit.spells) or {}
         end
-        local out = {}
+        local spellsOnly, limits = {}, {}
         for _, s in ipairs(spells) do
             if ((useOf(s) == "debuff") or (s.kind == "debuff")) and ((s.cost or 0) <= mp) then
-                out[#out + 1] = s
+                if s.attr == ATTR.LB then limits[#limits + 1] = s else spellsOnly[#spellsOnly + 1] = s end
             end
         end
-        return out
+        -- A gauge debuff is used when it is the debuff this unit holds.
+        if #spellsOnly > 0 then return spellsOnly end
+        if limitFight then return limits end
+        return {}
     end
     local function partyMatter()
         if matterKnown ~= nil then return matterKnown end
@@ -4556,85 +4634,6 @@ local function turn(uid, skills, w, phase)
         end
         return false
     end
-    -- The weakness can sit on someone else. A setup Limit on the buffer
-    -- must not be skipped because that buffer has no weakness spell.
-    local function partyWeak(skipId, skipCost)
-        local foes = (#pool > 0) and pool or open
-        if #foes == 0 then foes = w.enemies end
-        for _, a in ipairs(w.allies) do
-            if not a.dead and a.acts ~= false and not heldOut(a) then
-                local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
-                if a.id == skipId then mp = mp - (skipCost or 0) end
-                if mp >= 0 then
-                    local spells = skills
-                    if a.id ~= uid then
-                        local kit = unitKit(a.id)
-                        spells = (kit and kit.spells) or {}
-                    end
-                    for _, foe in ipairs(foes) do
-                        for _, s in ipairs(spells) do
-                            if isHit(s, false) and (elementFactor(s, foe) >= 3) and ((s.cost or 0) <= mp) then
-                                return true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        return false
-    end
-    -- A smaller Limit waits when a larger damage Limit can still land and a
-    -- gauge is still up. Not a boss flag, and not an HP line.
-    local lbSaveMemo = {}
-    local function lbSaved(aid, s)
-        if (tonumber(s and s.lbCost) or tonumber(s and s.known and s.known.gauges) or 1) >= 2 then return false end
-        local anyUp = false
-        for _, u in ipairs(w.enemies) do
-            if not u.broken then anyUp = true end
-        end
-        if not anyUp then return false end
-        if lbSaveMemo[aid] ~= nil then return lbSaveMemo[aid] end
-        local saved = false
-        for _, id in ipairs(equippedIds(aid)) do
-            local row = skillOf(id)
-            local fact = row and (row.attr == ATTR.LB) and Limits.lookup and Limits.lookup(row.name)
-            if fact and (fact.use == "lb-cash") and ((tonumber(fact.gauges) or 1) >= 2) then
-                local probe = { known = fact, name = row.name }
-                local any, all = false, true
-                for _, u in ipairs(w.enemies) do
-                    if elementFactor(probe, u) > 0 then any = true else all = false end
-                end
-                if (fact.area and all) or ((not fact.area) and any) then saved = true end
-            end
-        end
-        lbSaveMemo[aid] = saved
-        return saved
-    end
-    local lbOwedFlag = nil
-    local function lbOwed()
-        if lbOwedFlag ~= nil then return lbOwedFlag end
-        lbOwedFlag = false
-        if phase ~= 0 or not limitFight or Fight.claim.lb or Fight.chipped then return false end
-        if Fight.fell and #Fight.fell > 0 then return false end
-        if allyCritical() then return false end
-        for _, a in ipairs(w.allies) do
-            if a.dead then return false end
-        end
-        for _, a in ipairs(w.allies) do
-            if not a.dead and a.acts ~= false and not heldOut(a) then
-                local mp = (a.id == uid) and (w.mp or 0) or (stat(a.id, PARAM.MP, false) or 0)
-                local ids = equippedIds(a.id)
-                for _, id in ipairs(ids) do
-                    local s = tagSkill(a.id, id, false)
-                    if s and useOf(s) == "lb-setup" and (s.cost or 0) <= mp and not lbSaved(a.id, s) then
-                        local keeps = partyWeak(a.id, s.cost or 0) or not partyWeak(nil, 0)
-                        if keeps then lbOwedFlag = true return true end
-                    end
-                end
-            end
-        end
-        return false
-    end
     -- The cash belongs to the break the ledger just marked. A body the
     -- game still calls broken from an older wave does not take that hit.
     local function burstTargets()
@@ -4667,8 +4666,8 @@ local function turn(uid, skills, w, phase)
         local bestKills, bestDamage, bestStagger = -1, -1, -1
         local function considerSkill(s, targets, spread)
             if not pay(s) then return end
-            local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
-            if spendLb and lbSaved(uid, s) and (not Fight.limitUrgent) then return end
+            local spendLb = (useOf(s) == "lb-cash") or ((s.attr == ATTR.LB) and (s.kind == "damage"))
+            if spendLb and limitHeld(s) then return end
             -- An area Limit hits every living enemy. A nulled element stays off.
             if spendLb and aoeOf(s) and s.known and s.known.element and (#w.enemies > 0) then
                 local blocked = false
@@ -4696,14 +4695,15 @@ local function turn(uid, skills, w, phase)
                     useful = useful + 1
                     local pow = offenseOf(s)
                     local fit = Known.measure and Known.measure.damageFit(f) or f
-                    local real = nil
+                    local real, measured = nil, false
                     if Known.measure and Fight.dealtBook then
-                        real = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * fit, s.accuracy)
+                        real, measured = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * fit, s.accuracy)
                     end
                     if real and real > 0 then
                         damage = damage + real
-                        local hp = stat(u.id, PARAM.HP, false)
-                        if hp and hp > 0 and real >= hp then kills = kills + 1 end
+                        if Known.measure.kills(real, stat(u.id, PARAM.HP, false), measured) then
+                            kills = kills + 1
+                        end
                     end
                     if not empty then stagger = stagger + (gained or 0) end
                     if (not empty) and gained >= remain then stagger = stagger + remain end
@@ -4768,8 +4768,8 @@ local function turn(uid, skills, w, phase)
             local retryS, retryU, retryMark, retryPow = nil, nil, nil, -1
             Fight.retry = Fight.retry or {}
             for _, s in ipairs(skills) do
-                local spendLb = (useOf(s) == "lb-cash") or (s.attr == ATTR.LB)
-                if isHit(s, cashing) and pay(s) and not (spendLb and lbSaved(uid, s) and (not Fight.limitUrgent)) then
+                local spendLb = (useOf(s) == "lb-cash") or ((s.attr == ATTR.LB) and (s.kind == "damage"))
+                if isHit(s, cashing) and pay(s) and not (spendLb and limitHeld(s)) then
                     local info = s.known or knownOf(s)
                     local key = (info and info.element) or kindOf(s)
                     if key then
@@ -4799,8 +4799,8 @@ local function turn(uid, skills, w, phase)
         return finishChoice(uid, bestS, reason, targets, bestSpread)
     end
 
-    -- A full bar stops waiting, and a stagger on the largest gauge spends a Limit
-    -- even if a bigger one is being saved. A common fight does not spend one.
+    -- A common fight does not spend a Limit. On a fight that may, a damage
+    -- Limit is already in the hit comparison.
     if not limitFight and not Fight.limitCommon then
         for _, s in ipairs(skills) do
             if limitSkill(s) and (useOf(s) ~= "skip") then
@@ -4809,37 +4809,6 @@ local function turn(uid, skills, w, phase)
                 log("%s", line)
                 appendLog("  " .. line)
                 break
-            end
-        end
-    end
-    if ((phase == 0) or (phase == PHASE_BONUS)) and limitFight then
-        local ready = false
-        for _, s in ipairs(skills) do
-            if isHit(s, true) and pay(s) and ((s.attr == ATTR.LB) or (useOf(s) == "lb-cash")) then ready = true end
-        end
-        if ready then
-            local cause = nil
-            local points, top = stat(uid, PARAM.LB, false), stat(uid, PARAM.LB, true)
-            if points and top and (top > 0) and (points >= top) then cause = "bar full" end
-            if (not cause) and (#brokenPool > 0) then
-                local most, brokeMost = 0, 0
-                for _, u in ipairs(w.enemies) do
-                    local gauge = gaugeOfEnemy(u) or 0
-                    if gauge > most then most = gauge end
-                end
-                for _, u in ipairs(brokenPool) do
-                    local gauge = gaugeOfEnemy(u) or 0
-                    if gauge > brokeMost then brokeMost = gauge end
-                end
-                if brokeMost >= most then cause = "stagger open" end
-            end
-            if cause then
-                Fight.limitUrgent = true
-                -- A full bar goes on the largest gauge, or on a broken gauge of that size.
-                local aimed = (#brokenPool > 0) and brokenPool or ((bossU and (not bossU.broken)) and { bossU }) or w.enemies
-                local okHit, hit = pcall(castDamage, aimed, true, "limit, " .. cause .. ",")
-                Fight.limitUrgent = false
-                if okHit and hit and ((hit.attr == ATTR.LB) or (hit.known and (hit.known.use == "lb-cash"))) then return hit end
             end
         end
     end
@@ -4871,45 +4840,6 @@ local function turn(uid, skills, w, phase)
             if useOf(s) ~= "skip" and pred(s) and pay(s) then return s end
         end
         return nil
-    end
-
-    -- One setup Limit per fight. A party row lands on the allies. A stagger
-    -- row lands on the danger body, or the largest gauge still open.
-    local function setupLimit()
-        if Fight.claim.lb then return nil end
-        local s = nil
-        local function spendable(x) return pay(x) and not lbSaved(uid, x) end
-        if Limits.bestSetup then s = Limits.bestSetup(skills, spendable) end
-        if not s then s = firstSkill(function(x) return useOf(x) == "lb-setup" and not lbSaved(uid, x) end) end
-        if not s then return nil end
-        if not (partyWeak(uid, s.cost or 0) or (not partyWeak(nil, 0))) then return nil end
-        if s.known and s.known.party then
-            local ids = {}
-            for _, a in ipairs(w.allies) do
-                if not a.dead then ids[#ids + 1] = a.id end
-            end
-            if #ids == 0 then return nil end
-            local choice = finishChoice(uid, s, "setup lb " .. (s.name or "limit") .. " party", ids, true)
-            if choice then Fight.claim.lb = true end
-            return choice
-        end
-        local best, bestGauge, danger, dangerGauge = nil, -1, nil, -1
-        local list = ((#open > 0) and open) or w.enemies
-        for _, u in ipairs(list) do
-            local gauge, _, empty = gaugeOfEnemy(u)
-            if not empty then
-                if gauge > bestGauge then best, bestGauge = u, gauge end
-                local card = mobOf(u)
-                if card and card.danger and card.danger[1] and (gauge > dangerGauge) then
-                    danger, dangerGauge = u, gauge
-                end
-            end
-        end
-        local foe = danger or best or list[1]
-        if not foe then return nil end
-        local choice = finishChoice(uid, s, "setup lb " .. (s.name or "limit") .. " " .. foe.name, { foe.id }, false)
-        if choice then Fight.claim.lb = true end
-        return choice
     end
 
     local function castDebuff(refreshOnly)
@@ -5066,10 +4996,6 @@ local function turn(uid, skills, w, phase)
             local choice = castDebuff(false)
             if choice then return choice end
         end
-        if limitFight and not Fight.claim.lb then
-            local choice = setupLimit()
-            if choice then return choice end
-        end
     end
     -- A barrier Limit for the party goes up on a hard field. It is held while
     -- its status shows and cast again once that status has shown and gone,
@@ -5102,64 +5028,8 @@ local function turn(uid, skills, w, phase)
         if #ids == 0 then return nil end
         return finishChoice(uid, s, "barrier lb " .. (s.name or "limit") .. " party", ids, true)
     end
-    -- A Limit that lifts the party's next actions (gauge fill, or every
-    -- action twice) goes out as the largest open gauge nears its break:
-    -- under 40% left. An add's break does not count. Once for each break;
-    -- the bonus phase opens the next one. A row whose status still shows on
-    -- every living ally is not cast again.
-    local function breakLimit()
-        if Fight.claim.lbBreak then return nil end
-        local big, bigGauge, bigRemain = nil, -1, 0
-        for _, u in ipairs(open) do
-            local gauge, remain, empty = gaugeOfEnemy(u)
-            if (not empty) and (gauge > bigGauge) then big, bigGauge, bigRemain = u, gauge, remain end
-        end
-        if (not big) or (bigGauge <= 0) or ((bigRemain / bigGauge) > 0.40) then return nil end
-        local function stillUp(x)
-            if not next(x.friendStatus or {}) then return false end
-            local any = false
-            for _, a in ipairs(w.allies) do
-                if not a.dead then
-                    any = true
-                    local set, on = statuses(a.id), false
-                    for sid in pairs(x.friendStatus) do
-                        if set[sid] then on = true end
-                    end
-                    if not on then return false end
-                end
-            end
-            return any
-        end
-        local best, bestG = nil, -1
-        for _, x in ipairs(skills) do
-            if (useOf(x) == "lb-break") and pay(x) and (not stillUp(x)) then
-                local g = tonumber(x.lbCost) or 1
-                if g > bestG then best, bestG = x, g end
-            end
-        end
-        if not best then return nil end
-        local ids = {}
-        for _, a in ipairs(w.allies) do
-            if not a.dead then ids[#ids + 1] = a.id end
-        end
-        if #ids == 0 then return nil end
-        local choice = finishChoice(uid, best, "break lb " .. (best.name or "limit") .. " party", ids, true)
-        if choice then Fight.claim.lbBreak = true end
-        return choice
-    end
     if (phase == 0) and limitFight and (not dead) then
         local choice = barrierLimit()
-        if choice then return choice end
-    end
-    if (phase == 0) and limitFight and (not dead) and (not allyCritical()) then
-        local choice = breakLimit()
-        if choice then return choice end
-    end
-    -- The gauge may fill after the first chip. That one setup still goes
-    -- out then. It does not go out after a fall, or while someone is critical.
-    if phase == 0 and limitFight and not Fight.claim.lb
-        and not alreadyFell and not allyCritical() and not dead then
-        local choice = setupLimit()
         if choice then return choice end
     end
 
@@ -5321,7 +5191,14 @@ local function turn(uid, skills, w, phase)
         for _, a in ipairs(w.allies or {}) do
             if a.exposed then warnedKill = true end
         end
-        local picked = Kits.pick(skills, {
+        local kitSkills = skills
+        if not limitFight then
+            kitSkills = {}
+            for _, s in ipairs(skills) do
+                if not limitSkill(s) then kitSkills[#kitSkills + 1] = s end
+            end
+        end
+        local picked = Kits.pick(kitSkills, {
             allies = w.allies, foes = foes, selfId = uid,
             actions = #(Fight.actions or {}), mp = w.mp or 0, maxMp = w.maxMp or 0,
             keep = keep, pay = (band() ~= "low"), healer = healer,

@@ -164,6 +164,16 @@ function M.expect(book, from, skill, to, est, accuracy)
     return nil, false
 end
 
+-- A kill is a measured hit that reaches the foe's current HP. A scaled
+-- estimate can order damage. It is not a kill.
+function M.kills(amount, hp, measured)
+    if measured ~= true then return false end
+    amount = tonumber(amount)
+    hp = tonumber(hp)
+    if (not amount) or (not hp) or (hp <= 0) then return false end
+    return amount >= hp
+end
+
 -- What a warned move should do to this ally at full size, and that move's row.
 -- The list doesn't say which of the foe's dangerous moves is coming, so this is
 -- the worst of them. A move already seen on this ally uses that number. Otherwise

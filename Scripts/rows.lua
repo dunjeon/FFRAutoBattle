@@ -124,20 +124,38 @@ local function factOf(row)
 end
 
 local function limitOf(row)
-    local info = { gauges = math.max(1, math.floor(((row.cost or 100) / 100) + 0.5)), element = row.element,
+    -- The row's cost is in points. One gauge is 100 until the battle says otherwise.
+    local points = tonumber(row.cost) or 0
+    if points <= 0 then points = 100 end
+    local info = { points = points, gauges = math.max(1, math.floor((points / 100) + 0.5)), element = row.element,
         stagger = row.breakPower, area = wide(row) or nil }
     local k = kindOf(row)
     if k == "phys" then info.phys = true end
     if k == "magic" then info.magic = true end
-    if has(row, E.REVIVE) then
-        info.use, info.party = "lb-revive", true
-    elseif row.effect == 1 then
-        info.use = has(row, E.BREAKDEF) and "lb-setup" or "lb-cash"
-    elseif has(row, E.DEF) then
-        info.use, info.party = "lb-guard", true
-    else
-        info.use, info.party = "lb-break", true
+    -- A hit stays a hit. Another effect on the same row does not replace it.
+    local ordinary = useOf(row)
+    if ordinary == "break" then
+        info.use = "lb-cash"
+        if has(row, E.BREAKDEF) then info.breakDef = true end
+        return info
     end
+    if ordinary == "revive" or has(row, E.REVIVE) then
+        info.use, info.party = "lb-revive", true
+        return info
+    end
+    if has(row, E.DEF) then
+        info.use, info.party = "lb-guard", true
+        return info
+    end
+    -- A support row keeps the use an ordinary skill with that effect already has.
+    if ordinary == "heal" or ordinary == "cure" or ordinary == "debuff"
+        or ordinary == "guard" or ordinary == "guardbuff" or ordinary == "opener"
+        or ordinary == "buff" then
+        info.use = ordinary
+        if wide(row) then info.party = true end
+        return info
+    end
+    info.use = "skip"
     return info
 end
 

@@ -2,15 +2,15 @@
 -- name a fight, a character, or a Vision, and it does not touch the battle
 -- libraries.
 --
--- The live row has cost and no element. This book names the element, how
--- many gauges the row spends, and what the row is for. Checked against the
--- public Limit Burst lists on 2026-11-03.
---   lb-setup  goes out before the break: the target is easier to stagger.
---   lb-break  goes out as a gauge nears its break: the party's next actions
---             count for more (gauge fill, or every action twice).
---   lb-guard  a party barrier, spent on a dangerous fight or a boss.
---   lb-cash   a damage row, spent on a dangerous fight's break, or a boss's.
---   lb-revive raises the party.
+-- A Limit is a skill whose cost is gauges. The row keeps the element, the
+-- power, the stagger, the target, and each effect. A second effect stays
+-- attached. It does not replace a hit. Gauge cost is the row's point cost
+-- divided by the live size of one gauge. 100 is only the fallback when the
+-- battle library does not say.
+--   lb-cash    a damage row. It enters the same comparison as any other hit.
+--   lb-guard   a party barrier. The caller uses the barrier rule.
+--   lb-revive  a raise. The caller uses the raise rule.
+-- A support row keeps the use an ordinary skill with that effect already has.
 -- An ordinary skill that shares a name is not a Limit Burst. The caller
 -- applies a row only when the live attribute is a Limit Burst.
 -- Lightning is stored as thunder, the same word the enemy book uses.
@@ -51,8 +51,10 @@ function M.apply(known, fact)
     end
     merged.use = fact.use
     merged.gauges = fact.gauges
+    merged.points = fact.points
     merged.element = fact.element
     merged.party = fact.party and true or nil
+    if fact.breakDef then merged.breakDef = true end
     if fact.phys then merged.phys = true end
     if fact.magic then merged.magic = true end
     if fact.area then merged.area = true end
@@ -83,11 +85,10 @@ function M.filled(points, one, maxPoints, counted, slots)
     if (gauge == nil) or (gauge <= 0) then
         local maxv = tonumber(maxPoints)
         local n = tonumber(slots)
-        if (n == nil) or (n < 1) or (n > 4) then
+        if (n == nil) or (n < 1) then
             if maxv and (maxv > 0) then
                 n = math.floor((maxv / 100) + 0.5)
                 if n < 1 then n = 1 end
-                if n > 4 then n = 4 end
             end
         end
         if maxv and n and (n > 0) then gauge = maxv / n end
@@ -98,8 +99,52 @@ function M.filled(points, one, maxPoints, counted, slots)
         return math.floor((pts / gauge) + 1e-6)
     end
     local c = tonumber(counted)
-    if c and (c >= 0) and (c <= 4) then return c end
+    if c and (c >= 0) then return c end
     return nil
+end
+
+-- How many gauges a row spends. points is the row's cost. one is the live
+-- size of one gauge. 100 is used only when the battle library does not say.
+function M.gauges(points, one)
+    local pts = tonumber(points)
+    if (not pts) or (pts <= 0) then return nil end
+    local gauge = tonumber(one)
+    if (not gauge) or (gauge <= 0) then gauge = 100 end
+    local n = math.floor((pts / gauge) + 0.5)
+    if n < 1 then n = 1 end
+    return n
+end
+
+-- How many gauges this bar can hold. slots is the library's own count.
+-- Otherwise the bar's max points divided by one gauge.
+function M.capacity(one, maxPoints, slots)
+    local n = tonumber(slots)
+    if n and (n >= 1) then return math.floor(n) end
+    local gauge = tonumber(one)
+    if (not gauge) or (gauge <= 0) then gauge = 100 end
+    local maxv = tonumber(maxPoints)
+    if (not maxv) or (maxv <= 0) then return nil end
+    local c = math.floor((maxv / gauge) + 0.5)
+    if c < 1 then c = 1 end
+    return c
+end
+
+-- A cheaper damage Limit waits while a higher-cost one on this same bar
+-- is still out of reach. filled is what the bar holds now. maxGauges is
+-- what it can hold. higher is the list of higher costs that can still land.
+-- A full bar does not wait. A bar that cannot hold the higher cost does not wait.
+function M.holds(cost, filled, maxGauges, higher)
+    cost = tonumber(cost) or 1
+    filled = tonumber(filled)
+    maxGauges = tonumber(maxGauges)
+    if (not filled) or (not maxGauges) then return false end
+    if filled >= maxGauges then return false end
+    if type(higher) ~= "table" then return false end
+    for i = 1, #higher do
+        local g = tonumber(higher[i])
+        if g and (g > cost) and (g <= maxGauges) and (g > filled) then return true end
+    end
+    return false
 end
 
 -- Whether candidate replaces the current pick. During a break, a Limit is
@@ -126,22 +171,6 @@ function M.ahead(candidate, current, cashing)
     if kills(candidate) ~= kills(current) then return kills(candidate) > kills(current) end
     if dmg(candidate) ~= dmg(current) then return dmg(candidate) > dmg(current) end
     return stag(candidate) > stag(current)
-end
-
--- The ready setup row that spends the most gauges. nil when none can be paid.
-function M.bestSetup(skills, pay)
-    local best, bestG = nil, -1
-    for _, s in ipairs(skills or {}) do
-        local info = s.known
-        local use = info and info.use
-        local payable = true
-        if pay then payable = pay(s) and true or false end
-        if (use == "lb-setup") and payable then
-            local g = tonumber(s.lbCost) or tonumber(info.gauges) or 1
-            if g > bestG then best, bestG = s, g end
-        end
-    end
-    return best
 end
 
 -- Which raise to spend. The second return is true when it raises the party.
