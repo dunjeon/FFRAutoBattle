@@ -268,7 +268,7 @@ local function loadConfig()
         end
     end
     for name in pairs(Defaults) do take(name) end
-    -- The meters read the hit list on the report's timer.
+    -- The meters use the report's read of the hit list each turn.
     if cfg.BattleLog then cfg.Reporting = true end
     Reporting = cfg.Reporting
     if Reporting and Known.reportLib and (not Known.report) then
@@ -2777,7 +2777,6 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
         local line = string.format("warned: %s slot in %d, gauge %s/%s, %s", best.name, bestN, ltxt, mtxt, tail)
         log("%s", line)
         appendLog("  " .. line)
-        combatLine("warned: " .. best.name)
     end
     local canBreak = (type(left) == "number") and (left > 0.001) and ((sum + 0.001) >= left)
     if canBreak then
@@ -5368,7 +5367,6 @@ local function noteChanges(now)
         local summon = (was.side == "ally") and Fight.isSummon and Fight.isSummon(id)
         if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon then
             Fight.fell[#Fight.fell + 1] = was.name
-            combatLine("fell: " .. was.name)
             appendLog("  fell: " .. was.name .. (was.raised and " (raised and down again before a menu)" or ""))
             local at = Fight.raisedRound and Fight.raisedRound[id]
             if at and (((Fight.rounds or 0) - at) <= 2) then
@@ -5383,7 +5381,6 @@ local function noteChanges(now)
                 Fight.downTold[id] = true
                 local by = last and (last.who .. " (" .. last.skill .. ")") or "the party"
                 Fight.broke[#Fight.broke + 1] = was.name .. " by " .. by
-                combatLine("broke: " .. was.name)
                 appendLog("  broke: " .. was.name .. " by " .. by)
             end
         end
@@ -5687,7 +5684,7 @@ local function consider(uid)
     return nil
 end
 
-local Hud = { serial = 0, toastSerial = 0, disabled = false, box = {}, combat = { lines = {}, queued = false, limit = 40 } }
+local Hud = { serial = 0, toastSerial = 0, disabled = false, box = {}, combat = { queued = false } }
 
 local function showToast(msg)
     if Hud.toast then Hud.toast(msg) end
@@ -6066,6 +6063,7 @@ local function finishBattle()
     local line = string.format("Auto, %d commands. %s. %s.", turns, broke, fell)
     appendLog("-- " .. line)
     appendLog("")
+    if Known.report then pcall(Known.report.flush, Known.report) end
     log("battle %d done: %s", Fight.number, line)
     combatHide()
     Fight.actions, Fight.casts, Fight.castOrder = {}, {}, {}
@@ -6157,8 +6155,7 @@ local function ensureBattle()
     Fight.finishNote = {}
     Fight.mobCards, Fight.dealtBook = nil, nil
     Fight.dealtOpen = nil
-    Fight.hurtOpen = nil
-    Fight.hurtFlush = nil
+    Fight.hurtSeen = {}
     combatOpen()
     itemsLogged = false
     potLogged = false
@@ -6578,7 +6575,6 @@ local function act(serial)
         local line = actorName .. " acts on its own"
         log("%s", line)
         appendLog("  " .. line)
-        combatLine(line)
         return
     end
     local finishingEarly = false
@@ -6930,13 +6926,6 @@ local function act(serial)
     noteRound(uid)
     appendLog("  " .. line)
     log("%s", line)
-    local cast = who .. ": " .. tostring(choice.name)
-    if choice.targets and #choice.targets > 0 then
-        local bits = {}
-        for _, tid in ipairs(choice.targets) do bits[#bits + 1] = Fight.nameOf(tid) end
-        cast = cast .. " -> " .. table.concat(bits, ", ")
-    end
-    combatLine(cast)
 end
 
 --------------------------------------------------------------------------------
@@ -7047,13 +7036,6 @@ local function noteHand(v)
     end
     log("%s", line)
     appendLog("  " .. line)
-    local cast = who .. ": " .. tostring(name)
-    if #targets > 0 then
-        local bits = {}
-        for _, tid in ipairs(targets) do bits[#bits + 1] = Fight.nameOf(tid) end
-        cast = cast .. " -> " .. table.concat(bits, ", ")
-    end
-    combatLine(cast)
     rememberCast(who, name)
     Fight.actions[#Fight.actions + 1] = line
     Fight.last = { who = who, skill = name }
@@ -7289,7 +7271,7 @@ function readRisk(hitsOnly)
             local ok, got = pcall(function() return obj:GetUniqueId() end)
             return ok and num(got) or nil
         end
-        local casts, fallen = {}, {}
+        local casts = {}
         local dealt = nil
         list:ForEach(function(i, e)
             if i > 128 then return true end
@@ -7342,7 +7324,7 @@ function readRisk(hitsOnly)
             end
             local fromSummon = Fight.summons and Fight.summons[from]
             if fromSummon then friends[from] = nil end
-            if Known.measure and (friends[from] or fromSummon) and (not friends[to]) then
+            if Known.measure and (friends[from] or fromSummon) and (not friends[to]) and not (Fight.summons and Fight.summons[to]) then
                 pcall(function()
                     local value = num(row.VariationValue)
                     -- A miss reads as no HP change at all. It still counts as a cast.
@@ -7436,7 +7418,8 @@ function readRisk(hitsOnly)
             -- A foe at 0 HP can still land a last attack. That hit counts on the
             -- meter only. The planner's book stays with living foes.
             local living = keepFoe(from)
-            if (not living) and (friends[from] or (Fight.summons and Fight.summons[from])) then return end
+            if (not living) and (friends[from] or (Fight.summons and Fight.summons[from])
+                or (Fight.openIds and Fight.openIds[from])) then return end
             if num(row.variationParameter) ~= PARAM.HP then return end
             if num(row.VariationType) ~= 1 then return end
             if unwrap(row.isMiss) == true then return end
@@ -7451,17 +7434,26 @@ function readRisk(hitsOnly)
             if spent and ((not dmg) or (spent > dmg)) then dmg = spent end
             if (not dmg) or (dmg <= 0) then return end
             local sid = num(row.SkillId) or 0
+            -- The window counts each hit once, the first time a read sees it.
+            if cfg.BattleLog then
+                local sig = table.concat({ tostring(from), tostring(to), tostring(sid), tostring(value), tostring(before), tostring(after) }, ":")
+                Fight.hurtSeen = Fight.hurtSeen or {}
+                if not Fight.hurtSeen[sig] then
+                    Fight.hurtSeen[sig] = true
+                    meterAdd("inn", to, dmg)
+                end
+            end
+            if not living then return end
             local defended = unwrap(row.isDefence) == true
             local dtype = num(row.DamageType) or 0
             local key = tostring(from) .. ":" .. tostring(sid) .. ":" .. tostring(to)
-            local into = living and casts or fallen
-            local rec = into[key]
+            local rec = casts[key]
             if not rec then
                 rec = {
                     from = from, sid = sid, to = to, dmg = 0, maxHit = 0,
                     defended = defended, open = not defended, dtype = dtype,
                 }
-                into[key] = rec
+                casts[key] = rec
             end
             rec.dmg = rec.dmg + dmg
             if dmg > rec.maxHit then rec.maxHit = dmg end
@@ -7483,14 +7475,7 @@ function readRisk(hitsOnly)
                 local est = row and ((row.power or 0) * factor) or nil
                 Known.measure.noteCast(Fight.dealtBook, rec.from, rec.sid, rec.raw > 0)
                 Known.measure.add(Fight.dealtBook, rec.from, rec.sid, rec.to, rec.raw, est, rec.onBreak)
-                local n = math.floor((rec.raw or 0) + 0.5)
-                local skillName = (row and row.name) or "hit"
-                if n > 0 then
-                    meterAdd("out", rec.from, n, unitName(rec.from))
-                    combatLine(string.format("%s: %s hits %s for %d", unitName(rec.from), skillName, unitName(rec.to), n))
-                else
-                    combatLine(string.format("%s: %s misses %s", unitName(rec.from), skillName, unitName(rec.to)))
-                end
+                meterAdd("out", rec.from, rec.raw)
             end
             Fight.dealtOpen = nil
         end
@@ -7534,32 +7519,7 @@ function readRisk(hitsOnly)
                 sk.castOpen = rec.dmg
             end
         end
-        -- Shown once the cast stops landing, same as the damage book above.
-        for key, rec in pairs(fallen) do casts[key] = rec end
-        if next(casts) then
-            Fight.hurtOpen = Fight.hurtOpen or {}
-            for key, rec in pairs(casts) do
-                local open = Fight.hurtOpen[key]
-                if (not open) or (rec.dmg > open.dmg) then
-                    Fight.hurtOpen[key] = { from = rec.from, sid = rec.sid, to = rec.to, dmg = rec.dmg }
-                end
-            end
-        else
-            Fight.hurtFlush = Fight.hurtOpen
-            Fight.hurtOpen = nil
-        end
     end)
-    if Fight.hurtFlush then
-        for _, rec in pairs(Fight.hurtFlush) do
-            local sk = skillOf(rec.sid)
-            local n = math.floor((rec.dmg or 0) + 0.5)
-            if n > 0 then
-                meterAdd("inn", rec.to, n, unitName(rec.to))
-                combatLine(string.format("%s: %s hits %s for %d", unitName(rec.from), (sk and sk.name) or "hit", unitName(rec.to), n))
-            end
-        end
-        Fight.hurtFlush = nil
-    end
     if hitsOnly then return end
     local ids = {}
     local ok = pcall(function()
@@ -7637,10 +7597,28 @@ function flushWarn()
     log("%s", line)
 end
 
+-- The hit list holds only the latest skill, so the report and the meters read it
+-- once a turn. This runs after the hook returns, never inside it.
+function Known.queueHitRead()
+    if (not Known.report) or Known.hitReadQueued then return end
+    Known.hitReadQueued = true
+    gameDelay(0, function()
+        Known.hitReadQueued = false
+        if not (Fight and Fight.active) then return end
+        local u = FindFirstOf("CPP_BtlUnit")
+        if not (u and u:IsValid()) then return end
+        Known.repRun(function()
+            if not Known.report.fight then Known.repBegin() end
+            if readRisk then pcall(readRisk, true) end
+        end)
+    end)
+end
+
 local function hookTimeline()
     -- Copy the ids here. Holding this parameter and reading it later crashed
     -- the game (HandleUpdateRisk, twice).
     RegisterHook("/Script/mucha.CPP_VM_BtlTimeLine:HandleUpdateTimeline", function(_, delval)
+        pcall(Known.queueHitRead)
         pcall(function()
             local row = delval:get()
             local current = copyIdList(row and row.currentTimelines)
@@ -8247,27 +8225,38 @@ end
 -- Display totals only. The planner does not read them.
 -- The opening party, on both columns, so a character at 0 still has a row.
 -- A summon is not a row. Its hits are already stored under the caller.
+function meterNamed(rec)
+    return rec.named == true
+end
+
+function meterName(id)
+    if not Fight.nameOf then return nil end
+    local ok, n = pcall(Fight.nameOf, id)
+    if ok and type(n) == "string" and n ~= "" then return n end
+    return nil
+end
+
 function meterSeed()
     if not (cfg and cfg.BattleLog) then return end
     local book = Hud and Hud.combat
     if not book or not Fight or not Fight.openIds then return end
     book.meter = book.meter or { out = {}, inn = {} }
+    -- A fallen ally can read no name. A real name, once read, stays on the row.
     for id in pairs(Fight.openIds) do
         if not (Fight.summons and Fight.summons[id]) then
-            local name = nil
-            if Fight.nameOf then
-                local ok, n = pcall(Fight.nameOf, id)
-                if ok and type(n) == "string" and n ~= "" then name = n end
-            end
             local key = tostring(id)
-            for _, kind in ipairs({ "out", "inn" }) do
-                local col = book.meter[kind]
-                if col then
-                    local rec = col[key]
+            local out, inn = book.meter.out[key], book.meter.inn[key]
+            if not (out and inn and meterNamed(out) and meterNamed(inn)) then
+                local name = meterName(id)
+                for _, kind in ipairs({ "out", "inn" }) do
+                    local rec = book.meter[kind][key]
                     if not rec then
-                        col[key] = { n = 0, name = name or key }
-                    elseif name then
+                        rec = { n = 0, name = name or key }
+                        book.meter[kind][key] = rec
+                    end
+                    if name and not meterNamed(rec) then
                         rec.name = name
+                        rec.named = not name:find("^Unit ")
                     end
                 end
             end
@@ -8275,7 +8264,7 @@ function meterSeed()
     end
 end
 
-function meterAdd(kind, id, n, name)
+function meterAdd(kind, id, n)
     if not (cfg and cfg.BattleLog) then return end
     n = math.floor((tonumber(n) or 0) + 0.5)
     if (not id) or (n <= 0) then return end
@@ -8289,11 +8278,10 @@ function meterAdd(kind, id, n, name)
     local key = tostring(id)
     local rec = col[key]
     if not rec then
-        rec = { n = 0, name = (name and name ~= "" and name) or key }
+        rec = { n = 0, name = meterName(id) or key }
         col[key] = rec
     end
     rec.n = rec.n + n
-    if name and name ~= "" then rec.name = name end
     combatRefresh()
 end
 
@@ -8420,7 +8408,6 @@ function combatRefresh()
             box.widget:SetVisibility(4)
             if box.scroll then pcall(function() box.scroll:SetVisibility(0) end) end
             alignLog(box)
-            book.hold = false
             alignBars(box, true)
             followLog(box)
         end)
@@ -8441,16 +8428,12 @@ end
 
 function combatHide()
     local book = Hud.combat
-    book.lines = {}
-    book.hold = false
     book.want = false
     combatRefresh()
 end
 
 function combatOpen()
     local book = Hud.combat
-    book.lines = {}
-    book.hold = false
     book.closed = false
     book.off = false
     book.hidden = false
@@ -8538,11 +8521,6 @@ function alignLog(box)
         box.slot:SetAlignment({ X = 1, Y = 1 })
         box.slot:SetPosition({ X = -20, Y = -8 })
     end)
-end
-
--- The window replaces the party totals. It does not keep a blow-by-blow.
-function combatLine(text)
-    return
 end
 
 local function watchField()
@@ -8665,7 +8643,6 @@ local function resonanceWatch()
     local line = string.format("resonance %s by %s -> %s", bestChoice.name, who, bestChoice.reason)
     log("%s", line)
     appendLog("  " .. line)
-    combatLine(who .. ": " .. tostring(bestChoice.name))
     rememberCast(who, bestChoice.name)
     Fight.actions[#Fight.actions + 1] = line
     Fight.last = { who = who, skill = bestChoice.name }
@@ -8676,6 +8653,8 @@ gameLoop(400, resonanceWatch)
 gameLoop(700, function()
     -- The row walk is not started here. This timer runs from launch, including
     -- while a save is loading, and that walk crashed the game.
+    -- A delayed read the game dropped can't hold up the next one.
+    Known.hitReadQueued = false
     if not Fight.active then return end
     local u = FindFirstOf("CPP_BtlUnit")
     if u and u:IsValid() then
@@ -8692,9 +8671,6 @@ gameLoop(700, function()
                 local snapNow = Known.repSnap()
                 Known.report:field(snapNow)
                 Known.repCards(snapNow)
-                -- The hit list holds only the latest skill, so a menu alone misses
-                -- casts. Every tick catches them, and a wipe's killing blow.
-                if readRisk then pcall(readRisk, true) end
             end)
         end
         return
@@ -8798,27 +8774,15 @@ local function pollTriggers()
     if inFight() and cfg.BattleLog and book and (not book.off) and (not book.closed) and (not book.hidden)
         and box and box.scroll and box.scroll.IsValid and box.scroll:IsValid() then
         local y = analog("Gamepad_RightY")
-        if type(y) == "number" then
-            if math.abs(y) < 0.25 then
-                pcall(function()
-                    local offset = box.scroll:GetScrollOffset()
-                    local ending = box.scroll:GetScrollOffsetOfEnd()
-                    if type(offset) == "number" and type(ending) == "number" and (ending - offset) < 12 then
-                        book.hold = false
-                    end
-                end)
-            else
-                book.hold = true
-                pcall(function()
-                    local offset = box.scroll:GetScrollOffset() or 0
-                    local ending = box.scroll:GetScrollOffsetOfEnd() or offset
-                    local nextOff = offset + (y * 64)
-                    if nextOff < 0 then nextOff = 0 end
-                    if nextOff > ending then nextOff = ending end
-                    box.scroll:SetScrollOffset(nextOff)
-                    if type(ending) == "number" and (ending - nextOff) < 12 then book.hold = false end
-                end)
-            end
+        if type(y) == "number" and math.abs(y) >= 0.25 then
+            pcall(function()
+                local offset = box.scroll:GetScrollOffset() or 0
+                local ending = box.scroll:GetScrollOffsetOfEnd() or offset
+                local nextOff = offset + (y * 64)
+                if nextOff < 0 then nextOff = 0 end
+                if nextOff > ending then nextOff = ending end
+                box.scroll:SetScrollOffset(nextOff)
+            end)
         end
     end
     local left = down("Gamepad_LeftTrigger")
@@ -8871,6 +8835,8 @@ okHook, errHook = pcall(function()
     end
     -- Fight over, then the spoils page. The hook does not read the argument.
     RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleEndBtl", function()
+        -- No turn follows the last blow, so the fight's end reads it.
+        pcall(Known.queueHitRead)
         shutLog()
     end)
     RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult", function()
@@ -8889,7 +8855,7 @@ local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
 
-log("loaded. planner v0.2.30. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.31. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

@@ -8,6 +8,7 @@ local function check(ok, msg)
     if not ok then fails = fails + 1 end
 end
 local function read()
+    R:flush()
     local f = io.open(path); local s = f:read("a"); f:close(); return s
 end
 local function ally(hp, mp, down) return { name = "Fina", hp = hp, maxHp = 1000, mp = mp, maxMp = 200, lb = 0, gauge = 100, maxGauge = 100, statuses = {}, down = down } end
@@ -70,6 +71,7 @@ R:finish({})
 R:decide({ who = "x", name = "y" })
 check(true, "calls with no fight open do nothing")
 local function fightFile(count)
+    R:flush()
     local f = io.open(path, "w")
     for i = 1, count do
         f:write("12:00:00 == battle ", i, " ==\n\n=== FIGHT ", i, ", boss false ===\nbody ", i, "\n--- END REPORT\n12:00:01 after ", i, "\n")
@@ -92,10 +94,15 @@ local whole = read()
 R:trim()
 check(read() == whole, "five fights are left alone")
 fightFile(5)
+whole = read()
 R:begin({ number = 6, boss = false })
-R.fight = nil
+R:note("a line mid-fight")
+R:finish({})
+local disk = io.open(path); local before = disk:read("a"); disk:close()
+check(before == whole, "nothing reaches the disk during a fight")
 t = read()
-check(countFights(t) == 5 and t:find("=== FIGHT 6", 1, true) and not t:find("=== FIGHT 1,", 1, true), "a new fight drops the oldest")
+check(countFights(t) == 5 and t:find("=== FIGHT 6", 1, true) and not t:find("=== FIGHT 1,", 1, true), "a finished fight drops the oldest")
+check(t:find("a line mid-fight", 1, true), "the flush writes the fight's lines")
 os.remove(path)
 print(fails == 0 and "OK" or (fails .. " checks failed"))
 -- HP readings and enemy moves, on a fight of their own.
@@ -110,6 +117,7 @@ R2:field({ allies = { [1] = hero }, foes = { [9] = body(200, 0) } })
 R2:hit({ from = 9, to = 1, skill = 5, skillName = "Big Wave", fromName = "Boss", toName = "Rain", fromFriend = false, toFriend = true, param = 1, vtype = 1, value = 60, before = 50, after = 0 })
 R2:field({ allies = { [1] = hero }, foes = {} })
 R2:finish({})
+R2:flush()
 local f2 = io.open(path2); local s2 = f2:read("a"); f2:close(); os.remove(path2)
 check(s2:find("damage by HP readings: 1000 total", 1, true), "HP readings count every drop, and a body that goes")
 check(s2:find("drop 500 on Boss", 1, true), "the biggest drops are listed")

@@ -1,11 +1,12 @@
 -- battle_report.txt: everything a fight can tell us, so a fight isn't replayed
 -- to answer a question it could have answered. This file only writes. It does
 -- not touch the game, and it never picks a command. main.lua hands it plain
--- numbers and names. It writes as it goes, so a crash keeps what came before.
+-- numbers and names. Lines stay in memory until the fight is over, then go to
+-- disk at once. A crash loses the fight it happened in, and no earlier one.
 
 local M = {}
 
--- The file holds this many fights. A new fight drops the oldest.
+-- The file holds this many fights. A finished fight drops the oldest.
 M.KEEP_FIGHTS = 5
 
 local function pct(cur, max)
@@ -27,17 +28,26 @@ local function setText(t)
 end
 
 function M.new(path, clock)
-    local R = { path = path, clock = clock or function() return os.date("%H:%M:%S") end }
+    local R = { path = path, clock = clock or function() return os.date("%H:%M:%S") end, pending = {} }
 
     function R:write(lines)
+        local pending = self.pending
+        if type(lines) == "table" then
+            for _, l in ipairs(lines) do pending[#pending + 1] = l end
+        else
+            pending[#pending + 1] = tostring(lines)
+        end
+    end
+
+    -- The one disk write for a fight. A file that won't open keeps the lines for the next try.
+    function R:flush()
+        if #self.pending == 0 then return end
         local f = io.open(self.path, "a")
         if not f then return end
-        if type(lines) == "table" then
-            for _, l in ipairs(lines) do f:write(l, "\n") end
-        else
-            f:write(tostring(lines), "\n")
-        end
+        f:write(table.concat(self.pending, "\n"), "\n")
         f:close()
+        self.pending = {}
+        pcall(self.trim, self)
     end
 
     -- Keeps the newest fights. A fight starts at its == battle line, when it has one.
@@ -77,7 +87,6 @@ function M.new(path, clock)
     end
 
     function R:begin(info)
-        pcall(self.trim, self, M.KEEP_FIGHTS - 1)
         self.fight = {
             info = info, started = self.clock(), startClock = os.time(), cmds = 0, who = {}, whoOrder = {},
             foes = {}, foeOrder = {}, kinds = {}, flags = {}, flagOrder = {}, hits = {}, hitSeen = {},
