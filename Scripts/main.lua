@@ -15,6 +15,9 @@
 -- SkipScenes in config.ini is off unless set. On, it asks the game to skip a
 -- Limit Burst, a Vision finish, an Esper summon, or that Esper's own attack.
 -- Other scenes stay.
+-- LevelGate is off unless set. On, a character gains no experience from a
+-- fight where every monster is under that character's level. A monster at or
+-- above them still pays the game's own amount.
 
 local TAG = "[FFRAutoBattle] "
 -- Reporting off: only the startup line and real errors reach UE4SS.log.
@@ -24,7 +27,7 @@ local function log(fmt, ...)
     if select("#", ...) > 0 then text = string.format(fmt, ...) end
     if (not Reporting) and not (text:find("loaded. planner", 1, true) or text:find("failed", 1, true)
         or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)
-        or text:find("scene skip", 1, true)) then
+        or text:find("scene skip", 1, true) or text:find("level gate", 1, true)) then
         return
     end
     print(TAG .. text .. "\n")
@@ -111,6 +114,15 @@ local function knownOf(skill)
     return Known.skills[key]
 end
 local Mobs = {}
+local Growth = {}
+do
+    local ok, loaded = pcall(dofile, DIR .. "/Scripts/growth.lua")
+    if ok and type(loaded) == "table" then
+        Growth = loaded
+    else
+        log("growth unavailable: %s", tostring(loaded))
+    end
+end
 local Health = {}
 do
     local ok, loaded = pcall(dofile, DIR .. "/Scripts/health.lua")
@@ -232,6 +244,7 @@ local DECIDE_MS = 420
 local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
+    LevelGate = false,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -574,6 +587,7 @@ local function buildSkillIndex(fromBattle)
     end
     -- Enemy rows, then every fact the planner reads, from what was just walked.
     local units = {}
+    local growthRows = {}
     local function readMap(map, into)
         if not (map and map.ForEach) then return end
         pcall(function()
@@ -602,9 +616,12 @@ local function buildSkillIndex(fromBattle)
                     end)
                 end
                 units[id] = u
+                local lv = num(field(row, "Level"))
+                if lv ~= nil then growthRows[id] = { level = lv } end
             end)
         end)
     end
+    if next(growthRows) then Known.growth = growthRows end
     -- The game's own lists of each enemy's dangerous moves and counters.
     local function idList(list, into)
         if not (list and list.ForEach) then return end
@@ -2134,6 +2151,7 @@ local function worldOf(uid, boss, summoned)
             return
         end
         seenFoe[id] = true
+        if Growth.enemy then Growth.enemy(id) end
         local name = unitName(id)
         local isBroken, left = gaugeOf(id, name)
         enemies[#enemies + 1] = {
@@ -6108,8 +6126,222 @@ Known.repFinish = function()
 end
 
 local flushWarn
+
+-- LevelGate. Enemy catalog ids seen this fight, and the exp to write once
+-- the game pays out. hold keeps them after the field is gone.
+function Growth.install()
+local bflUnit, bflSaveUnit
+local function unitLib()
+    if not (bflUnit and bflUnit:IsValid()) then
+        bflUnit = StaticFindObject("/Script/mucha.Default__CPP_BFL_Unit")
+    end
+    return bflUnit
+end
+local function saveUnitLib()
+    if not (bflSaveUnit and bflSaveUnit:IsValid()) then
+        bflSaveUnit = StaticFindObject("/Script/mucha.Default__CPP_BFL_SaveDataUnit")
+    end
+    return bflSaveUnit
+end
+local Gate = { seen = {}, hold = nil, targets = {}, writing = false, missTold = false }
+
+local function playableLevel(unitId)
+    local lib = unitLib()
+    if not (lib and lib:IsValid()) then return nil end
+    local ok, v = pcall(function() return lib:GetPlayableUnitLevel(unitId) end)
+    return ok and num(v) or nil
+end
+
+local function saveExp(unitId)
+    local lib = saveUnitLib()
+    if not (lib and lib:IsValid()) then return nil end
+    local ok, v = pcall(function() return lib:GetSaveDataUnitExperience(unitId) end)
+    return ok and num(v) or nil
+end
+
+local function writeExp(unitId, exp)
+    local lib = unitLib()
+    if not (lib and lib:IsValid()) then return end
+    Gate.writing = true
+    pcall(function() lib:SetPlayableUnitExperience(unitId, exp, true) end)
+    Gate.writing = false
+end
+
+local function growthIds()
+    local ids = {}
+    for _, id in pairs(Gate.seen) do ids[#ids + 1] = id end
+    if #ids > 0 then return ids end
+    return Gate.hold or {}
+end
+
+-- nil when a monster's level was not read. The payout is then left alone.
+local function growthMobs()
+    local ids = growthIds()
+    if #ids == 0 or not Known.growth then return nil end
+    local mobs, missing = {}, false
+    for _, id in ipairs(ids) do
+        local row = Known.growth[id]
+        if not row or type(row.level) ~= "number" then missing = true
+        else mobs[#mobs + 1] = { level = row.level } end
+    end
+    if missing or #mobs == 0 then return nil end
+    return mobs
+end
+
+function Growth.enemy(uid)
+    if not (cfg.LevelGate and Fight and uid and not Gate.seen[uid]) then return end
+    if Fight.summons and Fight.summons[uid] then return end
+    local id = catalogOf(uid)
+    if id then Gate.seen[uid] = id end
+end
+
+function Growth.field()
+    if not (cfg.LevelGate and Fight and Fight.active) then return end
+    local bfl = battleLib()
+    if not (bfl and bfl:IsValid()) then return end
+    for n = 0, 15 do
+        if not Gate.seen[n] and not (Fight.summons and Fight.summons[n]) then
+            local ok, p = pcall(function() return bfl:GetBattleUnitParameter(n, false) end)
+            if ok and p and p.IsValid and p:IsValid() then
+                local okR, rel = pcall(function() return p:GetRelation() end)
+                if okR and num(rel) == REL.ENEMY then Growth.enemy(n) end
+            end
+        end
+    end
+end
+
+function Growth.hold()
+    local ids = {}
+    for _, id in pairs(Gate.seen) do ids[#ids + 1] = id end
+    if #ids > 0 then Gate.hold = ids end
+end
+
+function Growth.newFight()
+    Gate.seen, Gate.hold, Gate.targets, Gate.missTold, Gate.sigTold = {}, nil, {}, false, false
+end
+
+local function growthTarget(unitId, level, before, after)
+    if Gate.targets[unitId] ~= nil then return Gate.targets[unitId] end
+    if not (cfg.LevelGate and Growth.keeps and unitId and level and before and after) then return nil end
+    local mobs = growthMobs()
+    if not mobs then
+        if #growthIds() > 0 and not Gate.missTold then
+            Gate.missTold = true
+            log("level gate could not read the monsters")
+        end
+        return nil
+    end
+    local keeps = Growth.keeps(level, mobs)
+    if keeps == nil then return nil end
+    local target = Growth.apply(before, after, keeps)
+    Gate.targets[unitId] = target
+    if target ~= after then
+        log("level gate: unit %s level %s gain 0", tostring(unitId), tostring(level))
+    end
+    return target
+end
+
+local function wipeGains(row)
+    local function wipe(container)
+        if type(container) ~= "userdata" then return end
+        pcall(function()
+            if container.Empty then container:Empty()
+            elseif container.Clear then container:Clear() end
+        end)
+    end
+    wipe(row.increasedParameters)
+    wipe(row.addSkillList)
+    wipe(row.extraAddSkillList)
+end
+
+local function patchGrowthResult(data)
+    if not (cfg.LevelGate and data and data.unitDataList and data.unitDataList.ForEach) then return end
+    local cut, kept = 0, 0
+    pcall(function()
+        data.unitDataList:ForEach(function(_, entry)
+            local row = unwrap(entry)
+            if type(row) ~= "userdata" and type(row) ~= "table" then return end
+            local id = num(row.UnitId)
+            local level = num(row.beforeBattleLevel)
+            local before = num(row.beforeBattleExp)
+            local after = num(row.afterBattleExp)
+            if not (id and level and before and after) then return end
+            local target = growthTarget(id, level, before, after)
+            if target == nil then return end
+            if target < after then
+                cut = cut + 1
+                pcall(function() row.afterBattleExp = target end)
+                pcall(function() row.afterBattleLevel = level end)
+                wipeGains(row)
+                local now = saveExp(id)
+                if now and now ~= target then writeExp(id, target) end
+            elseif target > before then
+                kept = kept + 1
+            end
+        end)
+    end)
+    if cut > 0 and kept == 0 then
+        pcall(function()
+            data.totalExperience = 0
+            data.baseExperience = 0
+            data.bonusExperience = 0
+        end)
+    end
+end
+
+function Growth.hook()
+    if not Growth.keeps then return end
+    local function guard(label, fn)
+        local ok, err = pcall(fn)
+        if not ok then log("level gate failed: %s: %s", label, tostring(err)) end
+    end
+    guard("payout", function()
+    RegisterHook("/Script/mucha.CPP_BFL_Unit:SetPlayableUnitExperience", function(_, unitId, exp)
+        if Gate.writing or not cfg.LevelGate then return end
+        local id = num(unitId and unitId:get())
+        local incoming = num(exp and exp:get())
+        if not id or incoming == nil then
+            if not Gate.sigTold then
+                Gate.sigTold = true
+                log("level gate could not read the payout")
+            end
+            return
+        end
+        local target = Gate.targets[id]
+        if target == nil then
+            target = growthTarget(id, playableLevel(id), saveExp(id), incoming)
+        end
+        if target ~= nil and incoming ~= target then exp:set(target) end
+    end)
+    end)
+    guard("result", function()
+    RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult", function(_, value)
+        if not cfg.LevelGate then return end
+        pcall(function()
+            local row = value:get()
+            if row and row.resultData then patchGrowthResult(row.resultData) end
+        end)
+    end)
+    end)
+    guard("result end", function()
+    RegisterHook("/Script/mucha.CPP_BtlDelEventResult:OnExecuteResultEnd", function()
+        -- The payout can still be inside this call. Drop the fight after it returns.
+        gameDelay(0, function()
+            Gate.seen, Gate.hold, Gate.targets = {}, nil, {}
+        end)
+    end)
+    end)
+end
+    if Growth.hook then Growth.hook() end
+end
+do
+    local okGrowth, errGrowth = pcall(Growth.install)
+    if not okGrowth then log("level gate failed: %s", tostring(errGrowth)) end
+end
+
 local function finishBattle()
     if not Fight.active then return end
+    if Growth.hold then Growth.hold() end
     Known.repRun(Known.repFinish)
     Fight.active = false
     Fight.hitSeen, Fight.hitHold, Fight.killHold = nil, nil, false
@@ -6140,6 +6372,7 @@ end
 
 local function ensureBattle()
     if Fight.active then return end
+    if Growth.newFight then Growth.newFight() end
     Fight.active = true
     Fight.number = Fight.number + 1
     Fight.boss = bossBattle()
@@ -8388,6 +8621,7 @@ gameLoop(700, function()
         -- A fall between turns is noted here too, so the last one before
         -- the battle ends, such as a wipe, still reaches the log.
         pcall(function() noteChanges(livingSnapshot()) end)
+        if Growth.field then pcall(Growth.field) end
         -- The report opens on the timer too, so a fight's first commands count
         -- even when the player sends them by hand.
         if Known.report and Fight.active then
@@ -8496,6 +8730,8 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
+
+if cfg.LevelGate then log("level gate on") end
 
 log("loaded. planner v0.2.33. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
