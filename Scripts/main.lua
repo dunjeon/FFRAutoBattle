@@ -199,7 +199,6 @@ end
 
 local CONFIG_PATH = DIR .. "/config.ini"
 local STATE_PATH = DIR .. "/state.txt"
-local LOG_PATH = DIR .. "/battle_log.txt"
 
 local ATTR = {
     FIGHT = 1, CHASE = 2, ABILITY = 3, MAGIC = 4, LB = 5,
@@ -287,71 +286,10 @@ local function saveState()
     f:close()
 end
 
--- The on-disk log keeps this many fights. A new header drops the oldest.
-local function keepFights(text, keep)
-    local fights, buf = {}, {}
-    local function push()
-        if #buf == 0 then return end
-        local body = table.concat(buf, "\n")
-        if body:match("%S") then fights[#fights + 1] = body end
-        buf = {}
-    end
-    text = (text or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
-    for row in (text .. "\n"):gmatch("([^\n]*)\n") do
-        if row:match("^== battle ") then push() end
-        buf[#buf + 1] = row
-    end
-    push()
-    while #fights > keep do table.remove(fights, 1) end
-    return table.concat(fights, "\n")
-end
-
+-- Every line goes to battle_report.txt, which keeps the last five fights.
 local function appendLog(line)
     if not Reporting then return end
     if Known.report and type(line) == "string" then pcall(Known.report.note, Known.report, line) end
-    if type(line) == "string" and line:match("^== battle ") then
-        local read = io.open(LOG_PATH, "r")
-        local text, size = "", 0
-        if read then
-            size = read:seek("end") or 0
-            read:seek("set", 0)
-            local function slurp()
-                local ok, got = pcall(function() return read:read("*a") end)
-                if ok and type(got) == "string" and got ~= "" then return got end
-                read:seek("set", 0)
-                ok, got = pcall(function() return read:read("a") end)
-                if ok and type(got) == "string" and got ~= "" then return got end
-                read:seek("set", 0)
-                local parts = {}
-                while true do
-                    local block = read:read(8192)
-                    if (not block) or (block == "") then break end
-                    parts[#parts + 1] = block
-                end
-                return table.concat(parts)
-            end
-            local okRead, got = pcall(slurp)
-            if okRead and type(got) == "string" then text = got end
-            read:close()
-        end
-        -- A failed read must not replace a log that still has bytes.
-        if text == "" and size > 0 then text = nil end
-        local kept = text and keepFights(text, 4) or nil
-        if kept then
-            local out = io.open(LOG_PATH, "w")
-            if out then
-                if kept ~= "" then
-                    out:write(kept)
-                    if kept:sub(-1) ~= "\n" then out:write("\n") end
-                end
-                out:close()
-            end
-        end
-    end
-    local f = io.open(LOG_PATH, "a")
-    if not f then return end
-    f:write(line .. "\n")
-    f:close()
 end
 
 --------------------------------------------------------------------------------
@@ -7349,7 +7287,7 @@ function readRisk(hitsOnly)
             local ok, got = pcall(function() return obj:GetUniqueId() end)
             return ok and num(got) or nil
         end
-        local casts = {}
+        local casts, fallen = {}, {}
         local dealt = nil
         list:ForEach(function(i, e)
             if i > 128 then return true end
@@ -7493,7 +7431,10 @@ function readRisk(hitsOnly)
             end
             if Fight.summons and Fight.summons[from] then return end
             if not friends[to] then return end
-            if not keepFoe(from) then return end
+            -- A foe at 0 HP can still land a last attack. That hit counts on the
+            -- meter only. The planner's book stays with living foes.
+            local living = keepFoe(from)
+            if (not living) and (friends[from] or (Fight.summons and Fight.summons[from])) then return end
             if num(row.variationParameter) ~= PARAM.HP then return end
             if num(row.VariationType) ~= 1 then return end
             if unwrap(row.isMiss) == true then return end
@@ -7511,13 +7452,14 @@ function readRisk(hitsOnly)
             local defended = unwrap(row.isDefence) == true
             local dtype = num(row.DamageType) or 0
             local key = tostring(from) .. ":" .. tostring(sid) .. ":" .. tostring(to)
-            local rec = casts[key]
+            local into = living and casts or fallen
+            local rec = into[key]
             if not rec then
                 rec = {
                     from = from, sid = sid, to = to, dmg = 0, maxHit = 0,
                     defended = defended, open = not defended, dtype = dtype,
                 }
-                casts[key] = rec
+                into[key] = rec
             end
             rec.dmg = rec.dmg + dmg
             if dmg > rec.maxHit then rec.maxHit = dmg end
@@ -7591,6 +7533,7 @@ function readRisk(hitsOnly)
             end
         end
         -- Shown once the cast stops landing, same as the damage book above.
+        for key, rec in pairs(fallen) do casts[key] = rec end
         if next(casts) then
             Fight.hurtOpen = Fight.hurtOpen or {}
             for key, rec in pairs(casts) do
@@ -8944,7 +8887,7 @@ local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
 
-log("loaded. planner v0.2.28. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.29. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

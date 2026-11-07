@@ -69,11 +69,33 @@ check(s:find("12:00:00 a line from the battle log", 1, true), "battle log lines 
 R:finish({})
 R:decide({ who = "x", name = "y" })
 check(true, "calls with no fight open do nothing")
-local big = io.open(path, "w")
-big:write(string.rep("x", Report.MAX_BYTES + 10), "\n=== FIGHT 9, kept\ntail\n"); big:close()
+local function fightFile(count)
+    local f = io.open(path, "w")
+    for i = 1, count do
+        f:write("12:00:00 == battle ", i, " ==\n\n=== FIGHT ", i, ", boss false ===\nbody ", i, "\n--- END REPORT\n12:00:01 after ", i, "\n")
+    end
+    f:close()
+end
+local function countFights(s)
+    local n = 0
+    for _ in s:gmatch("=== FIGHT") do n = n + 1 end
+    return n
+end
+fightFile(7)
 R:trim()
 local t = read()
-check(t:sub(1, 11) == "=== FIGHT 9" and #t < 100, "an oversize file keeps its newest fights")
+check(countFights(t) == 5, "a launch keeps five fights")
+check(t:sub(1, 20) == "12:00:00 == battle 3", "the kept file opens on the oldest kept fight's battle line")
+check(t:find("after 7", 1, true) and not t:find("after 2", 1, true), "the newest fights stay and the older ones go")
+fightFile(5)
+local whole = read()
+R:trim()
+check(read() == whole, "five fights are left alone")
+fightFile(5)
+R:begin({ number = 6, boss = false })
+R.fight = nil
+t = read()
+check(countFights(t) == 5 and t:find("=== FIGHT 6", 1, true) and not t:find("=== FIGHT 1,", 1, true), "a new fight drops the oldest")
 os.remove(path)
 print(fails == 0 and "OK" or (fails .. " checks failed"))
 -- HP readings and enemy moves, on a fight of their own.

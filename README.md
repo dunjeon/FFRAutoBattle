@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.28, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.29, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -65,7 +65,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.2.28.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v0.2.29.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -106,7 +106,7 @@ The right trigger turns auto battle on or off during a fight. The left trigger s
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
 | Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight, while auto battle is on |
 
-The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no battle logs unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. Other attacks and story events stay. It is off unless you set it to true.
+The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. Other attacks and story events stay. It is off unless you set it to true.
 
 Battle speed is the game's own button and marks. Auto battle leaves them alone.
 
@@ -131,7 +131,7 @@ An ally who is confused, charmed, or berserk is left to the game. If a fight sta
 
 ## If a choice goes wrong
 
-Set `Submit = false` and `Reporting = true` in `config.ini` and restart. The mod still chooses and writes the choice to `battle_log.txt` and `UE4SS.log`, and it leaves the menu open.
+Set `Submit = false` and `Reporting = true` in `config.ini` and restart. The mod still chooses and writes the choice to `battle_report.txt` and `UE4SS.log`, and it leaves the menu open.
 
 If FFRS QoL's auto-repeat (F8) is on, turn that off. Both mods would press the command.
 

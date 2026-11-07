@@ -5,8 +5,8 @@
 
 local M = {}
 
--- A longer file loses its oldest fights at the next launch.
-M.MAX_BYTES = 6000000
+-- The file holds this many fights. A new fight drops the oldest.
+M.KEEP_FIGHTS = 5
 
 local function pct(cur, max)
     if not cur or not max or max <= 0 then return nil end
@@ -40,19 +40,35 @@ function M.new(path, clock)
         f:close()
     end
 
-    -- At launch: an oversize file keeps its newest part, from a fight's start.
-    function R:trim()
+    -- Keeps the newest fights. A fight starts at its == battle line, when it has one.
+    function R:trim(keep)
+        keep = keep or M.KEEP_FIGHTS
         local f = io.open(self.path, "r")
         if not f then return end
-        local size = f:seek("end") or 0
-        if size <= M.MAX_BYTES then f:close(); return end
-        f:seek("set", size - math.floor(M.MAX_BYTES / 2))
-        local tail = f:read("a") or ""
+        local text = f:read("a")
         f:close()
-        local at = tail:find("\n=== FIGHT", 1, true)
-        if not at then return end
+        if not text then return end
+        local heads, at = {}, 1
+        while true do
+            local found = text:find("=== FIGHT", at, true)
+            if not found then break end
+            if (found == 1) or (text:sub(found - 1, found - 1) == "\n") then heads[#heads + 1] = found end
+            at = found + 1
+        end
+        if #heads <= keep then return end
+        local first = #heads - keep + 1
+        local cut = heads[first]
+        local from = heads[first - 1] or 1
+        local chunk = text:sub(from, cut - 1)
+        local mark, seek = nil, 1
+        while true do
+            local found = chunk:find("\n%d%d:%d%d:%d%d == battle ", seek)
+            if not found then break end
+            mark, seek = found + 1, found + 1
+        end
+        if mark then cut = from + mark - 1 end
         local out = io.open(self.path, "w")
-        if out then out:write(tail:sub(at + 1)); out:close() end
+        if out then out:write(text:sub(cut)); out:close() end
     end
 
     function R:note(line)
@@ -61,6 +77,7 @@ function M.new(path, clock)
     end
 
     function R:begin(info)
+        pcall(self.trim, self, M.KEEP_FIGHTS - 1)
         self.fight = {
             info = info, started = self.clock(), startClock = os.time(), cmds = 0, who = {}, whoOrder = {},
             foes = {}, foeOrder = {}, kinds = {}, flags = {}, flagOrder = {}, hits = {}, hitSeen = {},
