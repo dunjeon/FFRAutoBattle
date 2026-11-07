@@ -43,10 +43,52 @@ local M = {}
 M.FIXED = FIXED
 M.OUT = OUT
 
--- Kept so older callers still load. Healing no longer uses a fixed line.
--- A hit this fight has already shown, or a warned hit, decides who is hurt.
+-- Kept so older callers still load. Mid-fight, a hit this fight has already
+-- shown, or a warned hit, decides who is hurt. There is no second line.
 function M.recoverAt()
     return 0, false
+end
+
+-- The share the planner already calls hurt when a party heal is the pick.
+-- Someone who walks in under it is hurt before this fight has shown a hit.
+M.HURT = 0.5
+
+function M.walkedInHurt(ratio)
+    return (type(ratio) == "number") and (ratio > 0) and (ratio < M.HURT)
+end
+
+-- A hit already shown would drop them, and it is small enough that a heal
+-- can still put them past it. A hit at or over their whole bar cannot.
+function M.hitWouldDrop(hp, maxHp, shown)
+    hp, maxHp, shown = tonumber(hp), tonumber(maxHp), tonumber(shown)
+    if (not hp) or (not maxHp) or (not shown) then return false end
+    if (hp <= 0) or (maxHp <= 0) or (shown <= 0) or (shown >= maxHp) then return false end
+    return hp <= shown
+end
+
+function M.openingHurt(ratio, hp, maxHp, shown)
+    if M.walkedInHurt(ratio) then return true end
+    return M.hitWouldDrop(hp, maxHp, shown)
+end
+
+-- Who this actor heals at the door. needs: { id, hp } still waiting.
+-- The actor heals their own body when they are in the list and someone else
+-- is the healer. The healer, or anyone when there is no healer, heals the
+-- lowest. A healthy ally leaves the list for the healer.
+function M.openingTarget(actorId, needs, healerId)
+    if (not needs) or (#needs == 0) then return nil end
+    local selfNeed, lowest, lowHp = nil, nil, 2
+    for _, n in ipairs(needs) do
+        if n.id == actorId then selfNeed = n end
+        local r = n.hp
+        if r == nil then r = 1 end
+        if (not lowest) or (r < lowHp) then lowest, lowHp = n, r end
+    end
+    if (not healerId) or (actorId == healerId) then
+        return lowest and lowest.id or nil
+    end
+    if selfNeed then return actorId end
+    return nil
 end
 
 -- A flat restore is the row's power when the calc type is Fixed. A magic
@@ -194,6 +236,17 @@ local function hasAny(set, ids)
         if set[id] then return true end
     end
     return false
+end
+
+-- Doom, a lock, silence, poison, blind, or slow. The opening clears these
+-- before the chip. Anything else is not an opening problem.
+function M.careStatus(set)
+    if not set then return false end
+    if hasId(set, DOOM) or hasId(set, POISON) or hasId(set, BLIND)
+        or hasId(set, SLOW) or hasId(set, SILENCE) then
+        return true
+    end
+    return hasAny(set, OUT)
 end
 
 local function realHeals(kit)

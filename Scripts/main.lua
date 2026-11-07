@@ -3048,6 +3048,34 @@ local function turn(uid, skills, w, phase)
         local land = Known.measure and Known.measure.landRate(Fight.dealtBook, uid, s.id, s.accuracy) or 1
         return (br or 0) * f * handOf(s, enemy) * land, f
     end
+    -- How they walked in. Under half, or a hit already shown that their
+    -- current HP would not survive. A status this file already clears.
+    -- Read once, before the first swing, so a later chip does not reopen it.
+    local function noteEntry()
+        if Fight.entrySet then return end
+        Fight.entrySet = true
+        Fight.entryCare = {}
+        Fight.entryStatus = false
+        local bits = {}
+        for _, a in ipairs(w.allies) do
+            if not a.dead then
+                local shown = Fight.borne and Fight.borne[a.id]
+                local hpNow = stat(a.id, PARAM.HP, false)
+                local maxHp = stat(a.id, PARAM.HP, true)
+                if Health.openingHurt and Health.openingHurt(a.hp, hpNow, maxHp, shown) then
+                    Fight.entryCare[a.id] = true
+                    bits[#bits + 1] = string.format("%s %d%%", a.name or "?", math.floor((a.hp or 0) * 100 + 0.5))
+                end
+                if Health.careStatus and Health.careStatus(a.statuses) then Fight.entryStatus = true end
+            end
+        end
+        if #bits > 0 then
+            local line = "opening: " .. table.concat(bits, ", ")
+            log("%s", line)
+            appendLog("  " .. line)
+        end
+    end
+    noteEntry()
     -- A foe this unit can kill right now dies now, ahead of heals and everything
     -- else: a dead foe stops hitting, and a dead boss ends the fight. With more
     -- than one in reach, the biggest goes first.
@@ -3455,7 +3483,8 @@ local function turn(uid, skills, w, phase)
 
     local function healNow(hurt, why, itemAt)
         if not hurt or Fight.claim.heal[hurt.id] then return nil end
-        if Health.healerWaiting then
+        -- Opening care already chose this actor. They do not leave it for later.
+        if Health.healerWaiting and (why ~= "opening") then
             local danger = false
             for _, u in ipairs(w.enemies) do
                 local card = mobOf(u)
@@ -3609,6 +3638,44 @@ local function turn(uid, skills, w, phase)
         end
         return nil
     end
+
+    -- Before the chip, the Ether, and the summon. Self first when someone
+    -- else is the healer. The healer, or anyone if there is none, takes the
+    -- lowest. A foe acting before the healer means this actor does not wait.
+    local function openingHeal()
+        if (phase ~= 0) or (not Fight.entryCare) then return nil end
+        local needs = {}
+        for _, a in ipairs(w.allies) do
+            if Fight.entryCare[a.id] and (not a.dead) and not (Fight.claim.heal and Fight.claim.heal[a.id]) then
+                needs[#needs + 1] = { id = a.id, hp = a.hp }
+            elseif Fight.entryCare[a.id] then
+                Fight.entryCare[a.id] = nil
+            end
+        end
+        if #needs == 0 then return nil end
+        local mpOf = function(id)
+            if id == uid then return w.mp or 0 end
+            return stat(id, PARAM.MP, false) or 0
+        end
+        local healer = Health.mainHealer and Health.mainHealer(w.allies, unitKit) or nil
+        local healerId = nil
+        if healer and Health.available and Health.available(healer, healer.statuses, unitKit, mpOf) then
+            if (healer.id == uid) or (not foeBeforeHealer()) then healerId = healer.id end
+        end
+        local pick = Health.openingTarget and Health.openingTarget(uid, needs, healerId) or nil
+        if not pick then return nil end
+        local who = nil
+        for _, a in ipairs(w.allies) do
+            if a.id == pick then who = a end
+        end
+        if not who then return nil end
+        local choice = healNow(who, "opening", nil)
+        if choice then return choice end
+        Fight.entryCare[pick] = nil
+        return nil
+    end
+    local opened = openingHeal()
+    if opened then return opened end
 
     local crit = allyCritical()
     local function deferHeal()
@@ -3899,6 +3966,11 @@ local function turn(uid, skills, w, phase)
     end
     local cured = curePass(true)
     if cured then return cured end
+    -- A status they walked in with, before the warning and the chip.
+    if Fight.entryStatus and (not Fight.chipped) and (phase == 0) then
+        local early = curePass(false)
+        if early then return early end
+    end
     -- A live warning outranks the add plan and the sync chip. Raises and a
     -- critical heal have already had this slot.
     local warnedChoice = warnTurn(uid, skills, w, phase, pay, isHit, isPatch)
@@ -6148,6 +6220,9 @@ local function ensureBattle()
     Fight.unmarkedTold = false
     Fight.recoverTold = false
     Fight.entryTold = false
+    Fight.entrySet = false
+    Fight.entryCare = nil
+    Fight.entryStatus = false
     Fight.finishNote = {}
     Fight.mobCards, Fight.dealtBook = nil, nil
     Fight.dealtOpen = nil
@@ -7535,6 +7610,8 @@ function readRisk(hitsOnly)
                 local full = (share > 0) and (rec.dmg / share) or rec.dmg
                 sk.fullTo = sk.fullTo or {}
                 if full > (sk.fullTo[rec.to] or 0) then sk.fullTo[rec.to] = full end
+                Fight.borne = Fight.borne or {}
+                if full > (Fight.borne[rec.to] or 0) then Fight.borne[rec.to] = full end
             end
             if rec.maxHit > (sk.hit or 0) then sk.hit = rec.maxHit end
             if rec.dtype ~= 0 then sk.dtype = rec.dtype end
