@@ -3359,6 +3359,24 @@ local function turn(uid, skills, w, phase)
         end
     end
     noteEntry()
+    -- Read before the kill below, so a Limit is in reach of it on a fight
+    -- that may spend one.
+    local hardField = false
+    local function styleOf()
+        markExposed(w)
+        hardField = hardFight(w)
+        -- Setup when the field has a danger move or a hit that would kill.
+        -- Otherwise hit. Healer count, the boss flag, and the round do not
+        -- choose this.
+        if hardField then return "balanced" end
+        return "aggressive"
+    end
+    local style = styleOf()
+    Fight.threat = hardField
+    -- A Limit waits for a danger move, a hit that would kill, or a boss.
+    -- A common fight spends the turn on its own skills.
+    limitFight = hardField or (Fight.boss and true or false)
+
     -- A foe this unit can kill right now dies now, ahead of heals and everything
     -- else: a dead foe stops hitting, and a dead boss ends the fight. With more
     -- than one in reach, the biggest goes first.
@@ -3368,7 +3386,7 @@ local function turn(uid, skills, w, phase)
             local hp = stat(u.id, PARAM.HP, false)
             local top = stat(u.id, PARAM.HP, true) or 0
             if hp and (hp > 0) and (top > targetMax) and keepFoe(u.id) then
-                local shots = {}
+                local shots, lbShots, bestPlain = {}, {}, 0
                 for _, s in ipairs(skills) do
                     if isHit(s, true) and pay(s) then
                         local f = elementFactor(s, u)
@@ -3377,16 +3395,40 @@ local function turn(uid, skills, w, phase)
                             local real, measured = Known.measure.expect(Fight.dealtBook, uid, s.id, u.id, (pow or 0) * Known.measure.damageFit(f), s.accuracy)
                             -- Only what this hit has really done to this foe. An estimate
                             -- for an untried hit has been off by four times.
-                            if real and measured then shots[#shots + 1] = { skill = s, real = real, cost = s.cost or 0 } end
+                            if s.attr == ATTR.LB then
+                                lbShots[#lbShots + 1] = { skill = s, real = (real and measured) and real or nil, cost = 0 }
+                            elseif real and measured then
+                                shots[#shots + 1] = { skill = s, real = real, cost = s.cost or 0 }
+                                if real > bestPlain then bestPlain = real end
+                            end
                         end
                     end
                 end
-                local pick = Known.measure.pickKill(shots, hp)
+                -- A Limit that has not landed on this foe counts at twice this
+                -- unit's best measured hit on it. Its rows scale with level, and
+                -- the logs show it at two and a half to six times that hit.
+                local lbReach = {}
+                for _, shot in ipairs(lbShots) do
+                    if shot.real then
+                        lbReach[#lbReach + 1] = shot
+                    elseif bestPlain > 0 then
+                        shot.real, shot.floor = bestPlain * 2, true
+                        lbReach[#lbReach + 1] = shot
+                    end
+                end
+                -- Another hit that kills keeps the Limit for later.
+                local pick = Known.measure.pickKill(shots, hp) or Known.measure.pickKill(lbReach, hp)
                 if pick then target, targetMax, shot = u, top, pick end
             end
         end
         if shot then
-            local choice = finishChoice(uid, shot.skill, "kill " .. (target.name or "?"), { target.id }, false)
+            local why = "kill " .. (target.name or "?")
+            if shot.skill.attr == ATTR.LB then
+                why = why .. (shot.floor and " with lb, at twice the best hit" or " with lb")
+            end
+            local ids, all = { target.id }, false
+            if (shot.skill.attr == ATTR.LB) and aoeOf(shot.skill) then ids, all = idsOf(w.enemies), true end
+            local choice = finishChoice(uid, shot.skill, why, ids, all)
             if choice then return choice end
         end
     end
@@ -3440,22 +3482,6 @@ local function turn(uid, skills, w, phase)
         if u.broken or empty or waiting then brokenPool[#brokenPool + 1] = u
         else open[#open + 1] = u end
     end
-
-    local hardField = false
-    local function styleOf()
-        markExposed(w)
-        hardField = hardFight(w)
-        -- Setup when the field has a danger move or a hit that would kill.
-        -- Otherwise hit. Healer count, the boss flag, and the round do not
-        -- choose this.
-        if hardField then return "balanced" end
-        return "aggressive"
-    end
-    local style = styleOf()
-    Fight.threat = hardField
-    -- A Limit waits for a danger move, a hit that would kill, or a boss.
-    -- A common fight spends the turn on its own skills.
-    limitFight = hardField or (Fight.boss and true or false)
 
     local function modeOf(list)
         if #list <= 1 then return "sync", list, nil end
@@ -8961,7 +8987,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v0.2.37. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.38. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
