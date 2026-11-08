@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.33, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.34, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -53,9 +53,9 @@ When this step is done, this file exists:
 
 `FFRS\Binaries\Win64\ue4ss\Mods\FFRAutoBattle\Scripts\main.lua`
 
-The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, and `growth.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
+The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, and `pace.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
-**Coming from 0.1.x or from 0.2.28:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again.
+**Coming from 0.1.x or from an earlier 0.2 build:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again.
 
 ### 4. Start the game and check
 
@@ -65,7 +65,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.2.33.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v0.2.34.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -106,7 +106,7 @@ The right trigger turns auto battle on or off during a fight. The left trigger s
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
 | Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight, while auto battle is on |
 
-The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true. `LevelGate` gives a character no experience from a fight where every monster is under that character's level. A monster at or above them still pays the game's own amount, so a lower-level character in the same fight still gains it. It is off unless you set it to true. `Turbo` plays a fight's actions at twice the battle speed button's fastest mark. The command menu stays at the game's own slower speed, and a Limit Burst, a Vision finish, or an Esper scene stays at normal speed. It stops when the battle result begins, so the story after the fight stays at normal speed. It is off unless you set it to true.
+The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true. `LevelGate` is for development use only and is not meant for normal play. It gives a character no experience from a fight where every monster is under that character's level. A monster at or above them still pays the game's own amount, so a lower-level character in the same fight still gains it. It is off unless you set it to true. `Turbo` is experimental. It plays a fight's actions at twice the battle speed button's fastest mark. The command menu stays at the game's own slower speed, and a Limit Burst, a Vision finish, or an Esper scene stays at normal speed. It stops when the battle result begins, and the game goes back to normal speed, so the field and the story after the fight are not sped up. It is off unless you set it to true. If anything looks wrong with it on, turn it off.
 
 Battle speed is the game's own button and marks. `Turbo` is the only thing that goes past the last mark, and only while that setting is on.
 
