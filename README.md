@@ -106,9 +106,9 @@ The right trigger turns auto battle on or off during a fight. The left trigger s
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
 | Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight, while auto battle is on |
 
-The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true. `LevelGate` gives a character no experience from a fight where every monster is under that character's level. A monster at or above them still pays the game's own amount, so a lower-level character in the same fight still gains it. It is off unless you set it to true.
+The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true. `LevelGate` gives a character no experience from a fight where every monster is under that character's level. A monster at or above them still pays the game's own amount, so a lower-level character in the same fight still gains it. It is off unless you set it to true. `Turbo` plays a fight's actions at twice the battle speed button's fastest mark. The command menu stays at the game's own slower speed, and a Limit Burst, a Vision finish, or an Esper scene stays at normal speed. It is off unless you set it to true.
 
-Battle speed is the game's own button and marks. Auto battle leaves them alone.
+Battle speed is the game's own button and marks. `Turbo` is the only thing that goes past the last mark, and only while that setting is on.
 
 ## How a fight is played
 

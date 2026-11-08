@@ -19,6 +19,10 @@
 -- LevelGate is off unless set. On, a character gains no experience from a
 -- fight where every monster is under that character's level. A monster at or
 -- above them still pays the game's own amount.
+-- Turbo is off unless set. On, a fight's actions play at twice the battle
+-- speed button's fastest mark. The command menu stays at the game's
+-- command-select speed. A Limit Burst, a Vision finish, and an Esper scene
+-- stay at normal speed.
 
 local TAG = "[FFRAutoBattle] "
 -- Reporting off: only the startup line and real errors reach UE4SS.log.
@@ -28,7 +32,8 @@ local function log(fmt, ...)
     if select("#", ...) > 0 then text = string.format(fmt, ...) end
     if (not Reporting) and not (text:find("loaded. planner", 1, true) or text:find("failed", 1, true)
         or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)
-        or text:find("scene skip", 1, true) or text:find("level gate", 1, true)) then
+        or text:find("scene skip", 1, true) or text:find("level gate", 1, true)
+        or text:find("turbo", 1, true)) then
         return
     end
     print(TAG .. text .. "\n")
@@ -186,6 +191,12 @@ do
     else
         log("items unavailable: %s", tostring(loaded))
     end
+    ok, loaded = pcall(dofile, DIR .. "/Scripts/pace.lua")
+    if ok and type(loaded) == "table" then
+        Known.pace = loaded
+    else
+        log("pace unavailable: %s", tostring(loaded))
+    end
 end
 local function foldName(name)
     local n = (name or ""):lower()
@@ -245,7 +256,7 @@ local DECIDE_MS = 420
 local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
-    LevelGate = false,
+    LevelGate = false, Turbo = false,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -2232,7 +2243,162 @@ end
 local Menu = {
     open = false, serial = 0, actor = -1, decided = true, sub = false,
     byMod = false,
+    pace = { held = nil, applied = nil, marks = nil, command = nil, fast = nil, scene = false, fail = false, lib = nil },
 }
+
+function Menu.paceLib()
+    local lib = Menu.pace.lib
+    if lib and lib.IsValid and lib:IsValid() then return lib end
+    local found = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+    if found and found.IsValid and found:IsValid() then
+        Menu.pace.lib = found
+        return found
+    end
+    return nil
+end
+
+function Menu.worldSettings()
+    local ok, settings = pcall(function() return FindFirstOf("WorldSettings") end)
+    if ok and settings and settings.IsValid and settings:IsValid() then return settings end
+    return nil
+end
+
+function Menu.dilation()
+    local settings = Menu.worldSettings()
+    if settings then
+        local n = num(settings.TimeDilation)
+        if n then return n end
+    end
+    local lib = Menu.paceLib()
+    if not lib then return nil end
+    local ok, got = pcall(function() return lib:GetGlobalTimeDilation() end)
+    if ok and tonumber(got) then return tonumber(got) end
+    local world = FindFirstOf("World")
+    ok, got = pcall(function() return lib:GetGlobalTimeDilation(world) end)
+    if ok then return tonumber(got) end
+    return nil
+end
+
+function Menu.setDilation(rate)
+    local function close(now)
+        return now and (math.abs(now - rate) < 0.01)
+    end
+    local lib = Menu.paceLib()
+    if lib then
+        local ok = pcall(function() lib:SetGlobalTimeDilation(rate) end)
+        if (not ok) or not close(Menu.dilation()) then
+            local world = FindFirstOf("World")
+            pcall(function() lib:SetGlobalTimeDilation(world, rate) end)
+        end
+        if close(Menu.dilation()) then return true end
+    end
+    local settings = Menu.worldSettings()
+    if not settings then return false end
+    local ok = pcall(function() settings.TimeDilation = rate end)
+    return ok and close(num(settings.TimeDilation))
+end
+
+function Menu.readMarks()
+    if Menu.pace.fast then return true end
+    local bfl = battleLib()
+    if not (bfl and bfl.IsValid and bfl:IsValid()) then return false end
+    local data = nil
+    local ok, got = pcall(function()
+        local holder = {}
+        bfl:GetBattleGeneralData(holder)
+        return holder
+    end)
+    if ok and type(got) == "table" then data = got end
+    if not data then
+        ok, got = pcall(function() return bfl:GetBattleGeneralData() end)
+        if ok then data = got end
+    end
+    if not data then return false end
+    local command = num(field(data, "CommandSelectGameSpeed"))
+    local list = field(data, "GameSpeedList")
+    local marks = {}
+    if list and list.ForEach then
+        pcall(function()
+            list:ForEach(function(_, v)
+                local n = num(v)
+                if n and (n > 0) then marks[#marks + 1] = n end
+            end)
+        end)
+    elseif type(list) == "table" then
+        for _, v in ipairs(list) do
+            local n = num(v)
+            if n and (n > 0) then marks[#marks + 1] = n end
+        end
+    end
+    local fast = Known.pace and Known.pace.fastest(marks)
+    if not fast then return false end
+    Menu.pace.marks = marks
+    Menu.pace.command = command
+    Menu.pace.fast = fast
+    return true
+end
+
+function Menu.applyPace(rate)
+    if Menu.pace.applied == rate then return end
+    if Menu.pace.held == nil then
+        local now = Menu.dilation()
+        if (not now) or (now <= 0) or (now < 1) then now = 1 end
+        Menu.pace.held = now
+    end
+    if Menu.setDilation(rate) then
+        Menu.pace.applied = rate
+        return
+    end
+    if not Menu.pace.fail then
+        Menu.pace.fail = true
+        log("turbo failed: could not set the battle speed")
+    end
+end
+
+function Menu.restorePace()
+    local held = Menu.pace.held
+    if held == nil then return end
+    Menu.pace.held, Menu.pace.applied = nil, nil
+    if not Menu.setDilation(held) and not Menu.pace.fail then
+        Menu.pace.fail = true
+        log("turbo failed: could not restore the battle speed")
+    end
+end
+
+function Menu.keepPace()
+    if (not cfg.Turbo) or not (Fight and Fight.active) then
+        Menu.restorePace()
+        return
+    end
+    if not Known.pace then return end
+    if not Menu.readMarks() then
+        if not Menu.pace.fail then
+            Menu.pace.fail = true
+            log("turbo failed: the battle speed marks were not read")
+        end
+        return
+    end
+    local rate = Known.pace.rate(Menu.pace.marks, Menu.pace.command, Menu.open == true, Menu.pace.scene == true)
+    if not rate then return end
+    Menu.applyPace(rate)
+end
+
+-- A battle-speed mark on a sequence would stack on the world rate.
+-- Slows, including the command menu and a hit pause, stay as the game set them.
+function Menu.hookPace()
+    if not cfg.Turbo then return end
+    local ok, err = pcall(function()
+        RegisterHook("/Script/mucha.ACPP_BtlGameSpeedManager:SetSequenceGameSpeed", function(_, dilation)
+            if not (cfg.Turbo and Fight and Fight.active and (not Menu.open) and (not Menu.pace.scene)) then return end
+            local fast = Menu.pace.fast
+            local d = num(dilation and dilation:get())
+            if not fast or not d then return end
+            if (d >= 1) and (d <= (fast + 0.01)) then dilation:set(1) end
+        end)
+    end)
+    if not ok then log("turbo failed: %s", tostring(err)) end
+end
+
 local Template = {}
 Fight = {
     boss = false, summoned = false,
@@ -6222,6 +6388,7 @@ local function finishBattle()
     if Growth.hold then Growth.hold() end
     Known.repRun(Known.repFinish)
     Fight.active = false
+    if Menu.restorePace then Menu.restorePace() end
     Fight.hitSeen, Fight.hitHold, Fight.killHold = nil, nil, false
     Fight.orderPending, Fight.orderFresh = nil, false
     local turns = #Fight.actions
@@ -7928,10 +8095,12 @@ local function hookMenu()
             Menu.decided = false
             Menu.open = true
             Menu.serial = Menu.serial + 1
+            gameDelay(0, function() if Menu.keepPace then Menu.keepPace() end end)
             if Menu.sub then return end
             scheduleAct()
         elseif name == "Delegate.Battle.Cmd.List.End" then
             Menu.open = false
+            gameDelay(0, function() if Menu.keepPace then Menu.keepPace() end end)
         end
     end)
 end
@@ -8094,6 +8263,9 @@ local function watchScene(skillId, name)
     if Scene.quietId == skillId and os.clock() < Scene.quietUntil then return end
     Scene.want = skillId
     Scene.allow = false
+    -- A watched scene stays at normal speed. Turbo resumes when it ends.
+    Menu.pace.scene = true
+    if Menu.keepPace then Menu.keepPace() end
     -- askedAt is the tick the game's own skip was sent. Nothing is sent
     -- until the cinematic manager allows it, and the player is never cut
     -- if that skip does not finish the scene.
@@ -8102,11 +8274,22 @@ local function watchScene(skillId, name)
         if Scene.want == skillId then Scene.want = nil end
         Scene.quietId = skillId
         Scene.quietUntil = os.clock() + 0.5
+        if Menu.pace.scene then
+            Menu.pace.scene = false
+            if Menu.keepPace then Menu.keepPace() end
+        end
         log("%s", text)
         appendLog("  " .. text)
     end
     local function step(left)
-        if Scene.want ~= skillId or not cfg.SkipScenes then return end
+        if Scene.want ~= skillId then return end
+        if not cfg.SkipScenes then
+            if Menu.pace.scene then
+                Menu.pace.scene = false
+                if Menu.keepPace then Menu.keepPace() end
+            end
+            return
+        end
         local job = nil
         local okJob, got = pcall(findSceneJob, skillId)
         if okJob then job = got end
@@ -8537,6 +8720,12 @@ if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
 
 if cfg.LevelGate then log("level gate on") end
+if cfg.Turbo then
+    log("turbo on")
+    pcall(Menu.hookPace)
+    -- Often enough that a menu open does not spend a beat at the action rate.
+    gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
+end
 
 log("loaded. planner v0.2.33. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
