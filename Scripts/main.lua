@@ -3275,6 +3275,9 @@ local function turn(uid, skills, w, phase)
     local function isPatch(s)
         return s.known and s.known.patch and true or false
     end
+    -- Set once styleOf has read the field, below. Declared here so isHit
+    -- sees this local and not an unset global.
+    local limitFight = false
     local function isHit(s, cashing)
         if s.kind == "heal" or s.kind == "buff" or s.kind == "debuff" or s.kind == "cure"
             or s.kind == "revive" or s.kind == "defend" or s.kind == "scan" then
@@ -3451,7 +3454,7 @@ local function turn(uid, skills, w, phase)
     Fight.threat = hardField
     -- A Limit waits for a danger move, a hit that would kill, or a boss.
     -- A common fight spends the turn on its own skills.
-    local limitFight = hardField or (Fight.boss and true or false)
+    limitFight = hardField or (Fight.boss and true or false)
 
     local function modeOf(list)
         if #list <= 1 then return "sync", list, nil end
