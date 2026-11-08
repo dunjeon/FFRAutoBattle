@@ -110,9 +110,27 @@ The right trigger turns auto battle on or off during a fight. The left trigger s
 
 F8, and the right trigger or the middle mouse button on the field, only work when `LargeMap = true` is set in `config.ini`. It is off by default. The large map is drawn by the game at the bigger size, so it stays sharp. It only turns on outside a fight. A press of F8 during a fight still turns it off. The middle mouse button does the same as F8 on the field, and is left to the game in a menu or on the world map. After a conversation or a new area, the map is made large again on its own. `MapSize` in `config.ini` sets how big it is, as a percent of the screen height. The default is 80.
 
-The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true. `LevelGate` is for development use only and is not meant for normal play. It gives a character no experience from a fight where every monster is under that character's level. A monster at or above them still pays the game's own amount, so a lower-level character in the same fight still gains it. It is off unless you set it to true. `Turbo` is experimental. It plays a fight's actions at twice the battle speed button's fastest mark. The command menu stays at the game's own slower speed, and a Limit Burst, a Vision finish, or an Esper scene stays at normal speed. It stops when the battle result begins, and the game goes back to normal speed, so the field and the story after the fight are not sped up. It is off unless you set it to true. If anything looks wrong with it on, turn it off.
+The other settings are in `config.ini`, listed under [Settings](#settings) below. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true. `LevelGate` is for development use only and is not meant for normal play. It gives a character no experience from a fight where every monster is under that character's level. A monster at or above them still pays the game's own amount, so a lower-level character in the same fight still gains it. It is off unless you set it to true. `Turbo` is experimental. It plays a fight's actions at twice the battle speed button's fastest mark. The command menu stays at the game's own slower speed, and a Limit Burst, a Vision finish, or an Esper scene stays at normal speed. It stops when the battle result begins, and the game goes back to normal speed, so the field and the story after the fight are not sped up. It is off unless you set it to true. If anything looks wrong with it on, turn it off.
 
 Battle speed is the game's own button and marks. `Turbo` is the only thing that goes past the last mark, and only while that setting is on.
+
+## Settings
+
+`config.ini` has two sections. Edit the file, then restart the game. A missing line uses its default.
+
+**AutoBattle Core Features** is how auto battle plays and the keys that control it: `Enabled`, `AttacksOnly`, `Submit`, `TakeOverKey`, `MenuKey`, and `ItemPrice`.
+
+**Optional Settings** are extras that are off by default. These are the ones you may want to turn on. Set one to `true` (`MapSize` takes a number):
+
+```
+SkipScenes - Skips Limit Burst, Vision finish, and Esper scenes
+Turbo - Speeds up battle actions (experimental)
+LargeMap - Shows the field minimap large in the center (F8 / RT / middle mouse)
+MapSize - Size of the large map, % of screen height (default 80)
+Reporting - Saves the last five fights to battle_report.txt
+```
+
+`MapKey` changes the large map's key, F8 by default. `LevelGate` is for development use only, so leave it off. The section names are only for reading, and a setting works in either section.
 
 ## How a fight is played
 
