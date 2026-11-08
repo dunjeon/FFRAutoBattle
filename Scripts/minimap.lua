@@ -94,9 +94,32 @@ local function viewSize()
     return { x = size.X / scale, y = size.Y / scale }
 end
 
+-- When the game puts its own scale back on a map that was made large, as it
+-- does after a conversation, that scale is the new normal one. The map is
+-- raised by the same ratio as before. Returns the new normal scale and the
+-- large one, or nil when the map is still as it was set.
+function M.rescale(saved, current)
+    local cur, set, base = tonumber(current), tonumber(saved and saved.set), tonumber(saved and saved.scale)
+    if not (cur and set and base) or cur <= 0 or base <= 0 then return nil end
+    if math.abs(cur - set) < 1e-4 then return nil end
+    return cur, cur * (set / base)
+end
+
 local function enlarge(e, fraction)
-    if state.touched[e.key] then return end
-    local saved = {
+    local saved = state.touched[e.key]
+    if saved then
+        local base, target = M.rescale(saved, e.box.UserSpecifiedScale)
+        if target then
+            saved.scale = base
+            saved.set = target
+            e.box:SetUserSpecifiedScale(target)
+        end
+        saved.box = e.box
+        if e.slot.HorizontalAlignment ~= CENTER then e.slot:SetHorizontalAlignment(CENTER) end
+        if e.slot.VerticalAlignment ~= CENTER then e.slot:SetVerticalAlignment(CENTER) end
+        return
+    end
+    saved = {
         h = e.slot.HorizontalAlignment,
         v = e.slot.VerticalAlignment,
         scale = e.box.UserSpecifiedScale,
@@ -113,6 +136,7 @@ local function enlarge(e, fraction)
     e.slot:SetVerticalAlignment(CENTER)
     e.box:SetUserSpecifiedScale(target)
     saved.widget = e.layout
+    saved.box = e.box
     saved.set = target
     state.touched[e.key] = saved
 end
@@ -135,8 +159,28 @@ local function restoreAll()
     end
 end
 
--- A loaded area builds a new field HUD. While the large map is on, it is
--- put in the middle too, until the player presses again.
+-- Every frame while the large map is on. A conversation puts the game's own
+-- scale back from inside the game's code, where no hook reaches. Only the maps
+-- already made large are read here, one number each, so it costs little and
+-- the map is small for a frame at most.
+function M.hold()
+    if not state.on then return end
+    for _, saved in pairs(state.touched) do
+        local box = saved.box
+        if valid(box) then
+            local base, target = M.rescale(saved, box.UserSpecifiedScale)
+            if target then
+                saved.scale = base
+                saved.set = target
+                box:SetUserSpecifiedScale(target)
+            end
+        end
+    end
+end
+
+-- A loaded area builds a new field HUD, and a conversation puts the game's
+-- own scale back. While the large map is on, both are made large again,
+-- until the player presses again.
 function M.keep(fraction, onField)
     if not state.on then return end
     if not onField then return end

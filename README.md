@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.39, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.40, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -65,7 +65,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.2.39.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v0.2.40.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -100,15 +100,15 @@ If you turn auto battle off, play some turns yourself, and turn it back on, the 
 
 ### Gamepad
 
-The right trigger turns auto battle on or off during a fight. The left trigger switches Take it Easy and No Mercy during a fight while auto battle is on. The game still receives that left-trigger press. While auto battle is off, the left trigger keeps the game's own battle action. On the field, and in menus outside a fight, both triggers keep the actions the game already uses.
+The right trigger turns auto battle on or off during a fight. The left trigger switches Take it Easy and No Mercy during a fight while auto battle is on. The game still receives that left-trigger press. While auto battle is off, the left trigger keeps the game's own battle action. On the field, and in menus outside a fight, both triggers keep the actions the game already uses, except that with `LargeMap` on, the right trigger on the field opens and closes the large map.
 
 | Button | What it does | When |
 | --- | --- | --- |
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
 | Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight, while auto battle is on |
-| Right bumper (RB / R1) | Same as F8. Large map in the middle, or back to the corner. | On the field, when `LargeMap` is on. Not in a fight or a menu. |
+| Right trigger | Same as F8. Large map in the middle, or back to the corner. | On the field, when `LargeMap` is on. Not in a menu. |
 
-F8 and the right bumper only work when `LargeMap = true` is set in `config.ini`. It is off by default. The large map is drawn by the game at the bigger size, so it stays sharp. It only turns on outside a fight. A press during a fight still turns it off. `MapSize` in `config.ini` sets how big it is, as a percent of the screen height. The default is 80.
+F8, and the right trigger or the middle mouse button on the field, only work when `LargeMap = true` is set in `config.ini`. It is off by default. The large map is drawn by the game at the bigger size, so it stays sharp. It only turns on outside a fight. A press of F8 during a fight still turns it off. The middle mouse button does the same as F8 on the field, and is left to the game in a menu or on the world map. After a conversation or a new area, the map is made large again on its own. `MapSize` in `config.ini` sets how big it is, as a percent of the screen height. The default is 80.
 
 The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true. `LevelGate` is for development use only and is not meant for normal play. It gives a character no experience from a fight where every monster is under that character's level. A monster at or above them still pays the game's own amount, so a lower-level character in the same fight still gains it. It is off unless you set it to true. `Turbo` is experimental. It plays a fight's actions at twice the battle speed button's fastest mark. The command menu stays at the game's own slower speed, and a Limit Burst, a Vision finish, or an Esper scene stays at normal speed. It stops when the battle result begins, and the game goes back to normal speed, so the field and the story after the fight are not sped up. It is off unless you set it to true. If anything looks wrong with it on, turn it off.
 

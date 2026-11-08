@@ -24,4 +24,13 @@ check(M.fraction(150) == 0.8, "too large falls back")
 
 check(M.isOn() == false, "starts off")
 
+local saved = { scale = 1, set = 3.2 }
+check(M.rescale(saved, 3.2) == nil, "a map still at its large scale is left alone")
+local base, big = M.rescale(saved, 1)
+check(base == 1 and near(big, 3.2), "a reset to the old scale is raised again")
+base, big = M.rescale(saved, 1.5)
+check(base == 1.5 and near(big, 4.8), "a new game scale keeps the same ratio")
+check(M.rescale(saved, nil) == nil, "an unread scale is left alone")
+check(M.rescale({ scale = 0, set = 3 }, 1) == nil, "a broken record is left alone")
+
 os.exit(fails == 0 and 0 or 1)
