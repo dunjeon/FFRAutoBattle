@@ -6409,7 +6409,7 @@ local function finishBattle()
     if Growth.hold then Growth.hold() end
     Known.repRun(Known.repFinish)
     Fight.active = false
-    if Menu.restorePace then Menu.restorePace() end
+    if Menu.stopPace then Menu.stopPace() end
     Fight.hitSeen, Fight.hitHold, Fight.killHold = nil, nil, false
     Fight.orderPending, Fight.orderFresh = nil, false
     local turns = #Fight.actions
