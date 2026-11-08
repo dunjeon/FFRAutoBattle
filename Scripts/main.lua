@@ -2428,23 +2428,37 @@ end
 -- Slows, including the command menu and a hit pause, stay as the game set them.
 function Menu.hookPace()
     if not cfg.Turbo then return end
-    local ok, err = pcall(function()
-        RegisterHook("/Script/mucha.ACPP_BtlGameSpeedManager:SetSequenceGameSpeed", function(_, dilation)
-            if not (cfg.Turbo and Fight and Fight.active and (not Menu.pace.done) and (not Menu.open) and (not Menu.pace.scene)) then return end
-            local fast = Menu.pace.fast
-            local d = num(dilation and dilation:get())
-            if not fast or not d then return end
-            if (d >= 1) and (d <= (fast + 0.01)) then dilation:set(1) end
-        end)
-        -- Win or loss. Either way the actions are over, and a story scene may follow.
-        RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult", function()
-            Menu.stopPace()
-        end)
-        RegisterHook("/Script/mucha.CPP_BtlDelEventResult:OnExecuteResultEnd", function()
-            Menu.stopPace()
-        end)
+    -- Each hook is registered on its own, so a missing function does not take
+    -- the result hooks down with it. That is what kept turbo on through the
+    -- result screen: the speed hook failed first and the rest never ran.
+    local function hook(label, paths, fn)
+        local last = nil
+        for _, path in ipairs(paths) do
+            local ok, err = pcall(RegisterHook, path, fn)
+            if ok then return true end
+            last = err
+        end
+        log("turbo failed: %s: %s", label, tostring(last))
+        return false
+    end
+    -- An object path names a class without its A prefix.
+    hook("sequence speed", {
+        "/Script/mucha.CPP_BtlGameSpeedManager:SetSequenceGameSpeed",
+        "/Script/mucha.ACPP_BtlGameSpeedManager:SetSequenceGameSpeed",
+    }, function(_, dilation)
+        if not (cfg.Turbo and Fight and Fight.active and (not Menu.pace.done) and (not Menu.open) and (not Menu.pace.scene)) then return end
+        local fast = Menu.pace.fast
+        local d = num(dilation and dilation:get())
+        if not fast or not d then return end
+        if (d >= 1) and (d <= (fast + 0.01)) then dilation:set(1) end
     end)
-    if not ok then log("turbo failed: %s", tostring(err)) end
+    -- Win or loss. Either way the actions are over, and a story scene may follow.
+    hook("result begin", { "/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult" }, function()
+        Menu.stopPace()
+    end)
+    hook("result end", { "/Script/mucha.CPP_BtlDelEventResult:OnExecuteResultEnd" }, function()
+        Menu.stopPace()
+    end)
 end
 
 local Template = {}
