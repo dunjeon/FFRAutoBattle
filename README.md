@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.36, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.37, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -65,7 +65,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.2.36.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v0.2.37.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -116,6 +116,7 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 
 - **Find what hits hard, then use it.** The mod measures the real damage of each skill on each enemy, including how often it misses. Weaknesses, gauges, and dangerous moves come from the game's data.
 - **Stagger is the main source of damage.** The party builds the gauge, then goes all in while the enemy is staggered, including Limit Bursts. It does not stop to prepare during a stagger.
+- **Every Limit Burst has a job.** On a boss or a dangerous fight, each Limit is read from the game's own row and used for what it does: a party raise when two are down, a barrier before a dangerous move, acting twice or a stagger bonus while the enemy is staggered, a gauge mark or a bar fill before the break, a hit that lands the break, and a full bar spent rather than held. These come ahead of the opening heal and the setup. A one-gauge Limit waits for the two-gauge Limit on a long boss fight.
 - **A foe that can die this turn dies this turn.** A measured killing blow comes before heals and raises.
 - **The team prepares for a big hit.** When the game warns of a dangerous move, each character estimates that hit against each ally, then uses whichever guard, Shell, Protect, Cover, heal, item, or Defend saves the most of them. If nothing would save anyone, they keep hitting.
 - **Multicast is a normal choice.** An All cast is its own row. The planner uses that row's magnification.

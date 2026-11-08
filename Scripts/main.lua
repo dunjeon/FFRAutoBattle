@@ -1488,9 +1488,9 @@ local function tagSkill(uid, id, borrowed)
             local rowKey = tostring(uid) .. ":" .. tostring(id)
             if not Fight.lbRows[rowKey] then
                 Fight.lbRows[rowKey] = true
-                local line = string.format("limit row %s on %s: use %s, gauges %s, kind %s, effect %s, target %s",
+                local line = string.format("limit row %s on %s: use %s, role %s, gauges %s, kind %s, effect %s, target %s",
                     (copy.name and copy.name ~= "") and copy.name or ("#" .. tostring(id)), unitName(uid),
-                    tostring(info and info.use or "none"), tostring(gauges), tostring(copy.kind),
+                    tostring(info and info.use or "none"), tostring(info and info.role or "none"), tostring(gauges), tostring(copy.kind),
                     tostring(copy.effect), tostring(copy.target))
                 log("%s", line)
                 appendLog("  " .. line)
@@ -3555,6 +3555,97 @@ local function turn(uid, skills, w, phase)
             Fight.claim.revive[dead.id] = nil
         end
     end
+    -- Each Limit has a use case read from its row (limits.lua). It is asked
+    -- here, ahead of the item raise, the opening heal and the setup, so a
+    -- full bar is not left behind a turn that could wait. A common fight
+    -- spends no Limit.
+    local function limitPlan(stage)
+        if not (Limits.plan and limitFight) then return nil end
+        if phase == PHASE_FINISH then return nil end
+        local ready = {}
+        for _, s in ipairs(skills) do
+            if limitSkill(s) and s.known and s.known.role and pay(s) then ready[#ready + 1] = s end
+        end
+        if #ready == 0 then return nil end
+        local foes, maxGauge = {}, 0
+        for _, u in ipairs(w.enemies) do
+            local gauge = gaugeOfEnemy(u)
+            if gauge > maxGauge then maxGauge = gauge end
+        end
+        for i, u in ipairs(w.enemies) do
+            local gauge, remain = gaugeOfEnemy(u)
+            local hp = stat(u.id, PARAM.HP, false) or 0
+            local top = stat(u.id, PARAM.HP, true) or 0
+            foes[i] = {
+                broken = (u.broken or Fight.down[u.id]) and true or false,
+                remain = remain or 0,
+                hp = (top > 0) and (hp / top) or 1,
+                boss = (Fight.boss and (gauge >= maxGauge)) and true or false,
+            }
+        end
+        local list = {}
+        for i, s in ipairs(ready) do
+            local l = { role = s.known.role, gauges = s.lbCost or 1, area = aoeOf(s) and true or false,
+                lands = {}, pour = {}, blocked = false }
+            for j, u in ipairs(w.enemies) do
+                local f = elementFactor(s, u)
+                l.lands[j] = f > 0
+                l.pour[j] = (f > 0) and (staggerOf(s, u) or 0) or 0
+                if l.area and (f <= 0) then l.blocked = true end
+            end
+            list[i] = l
+        end
+        -- The largest damage Limit this unit has equipped, ready or not.
+        local higher = 0
+        for _, id in ipairs(equippedIds(uid)) do
+            local row = skillOf(id)
+            local fact = row and (row.attr == ATTR.LB) and Limits.lookup and Limits.lookup(row.name)
+            if fact and Limits.DAMAGE and Limits.DAMAGE[fact.role] then
+                local g = (Limits.gauges and Limits.gauges(fact.points, Fight.oneGauge)) or tonumber(fact.gauges) or 1
+                if g > higher then higher = g end
+            end
+        end
+        local up = 0
+        for _, a in ipairs(w.allies) do
+            if not a.dead then up = up + 1 end
+        end
+        local bar = Fight.lbBar and Fight.lbBar[uid] or {}
+        local plan = Limits.plan({
+            stage = stage, limits = list, foes = foes,
+            filled = bar.filled, max = bar.max, higher = higher,
+            boss = Fight.boss and true or false, bonus = (phase == PHASE_BONUS),
+            breakClose = breakClose(), up = up, down = #(Fight.downNow or {}),
+        })
+        if not plan then return nil end
+        local s = ready[plan.at]
+        local role = s.known.role
+        local ids, all
+        if role == "revive" then
+            ids, all = idsOf(Fight.downNow), true
+        elseif (role == "double") or (role == "fill") then
+            ids = {}
+            for _, a in ipairs(w.allies) do
+                if not a.dead then ids[#ids + 1] = a.id end
+            end
+            all = true
+        elseif plan.foe then
+            ids, all = { w.enemies[plan.foe].id }, false
+        else
+            ids, all = idsOf(w.enemies), true
+        end
+        local who = plan.foe and (" " .. (w.enemies[plan.foe].name or "enemy")) or ""
+        local choice = finishChoice(uid, s, plan.why .. who, ids, all)
+        if choice and (role == "revive") then
+            local at = #(Fight.actions or {})
+            for _, ally in ipairs(Fight.downNow) do Fight.claim.revive[ally.id] = at end
+        end
+        return choice
+    end
+    do
+        local choice = limitPlan("urgent")
+        if choice then return choice end
+    end
+
     -- A fallen ally is raised once nobody living would die to a hit this
     -- fight has already shown. A raise is not held for a round count.
     Fight.refell = Fight.refell or {}
@@ -3968,6 +4059,50 @@ local function turn(uid, skills, w, phase)
         if choice then return choice end
         Fight.entryCare[pick] = nil
         return nil
+    end
+    -- A barrier Limit for the party goes up on a hard field. It is held while
+    -- its status shows and cast again once that status has shown and gone,
+    -- or two rounds after a cast whose status never showed. A row that lists
+    -- no status goes out once a fight.
+    local function barrierLimit()
+        local veil = Fight.veil
+        if veil then
+            local up = false
+            for _, a in ipairs(w.allies) do
+                if not a.dead then
+                    local set = statuses(a.id)
+                    for sid in pairs(veil.map or {}) do
+                        if set[sid] then up = true end
+                    end
+                end
+            end
+            if up then veil.seen = true return nil end
+            local stale = ((Fight.rounds or 0) - (veil.round or 0)) >= 2
+            if (not veil.seen) and (not stale) then return nil end
+            if not next(veil.map or {}) then return nil end
+            Fight.veil = nil
+        end
+        local s = nil
+        for _, x in ipairs(skills) do
+            if (not s) and (useOf(x) == "lb-guard") and pay(x) then s = x end
+        end
+        if not s then return nil end
+        local ids = {}
+        for _, a in ipairs(w.allies) do
+            if not a.dead then ids[#ids + 1] = a.id end
+        end
+        if #ids == 0 then return nil end
+        return finishChoice(uid, s, "barrier lb " .. (s.name or "limit") .. " party", ids, true)
+    end
+    -- The barrier and every other Limit's use case, before the opening heal
+    -- and the setup. Someone a shown hit would kill is healed first.
+    if (phase ~= PHASE_FINISH) and limitFight and (not allyCritical()) then
+        if (phase == 0) and (not dead) then
+            local veil = barrierLimit()
+            if veil then return veil end
+        end
+        local choice = limitPlan("main")
+        if choice then return choice end
     end
     local opened = openingHeal()
     if opened then return opened end
@@ -5257,41 +5392,6 @@ local function turn(uid, skills, w, phase)
             local choice = castDebuff(false)
             if choice then return choice end
         end
-    end
-    -- A barrier Limit for the party goes up on a hard field. It is held while
-    -- its status shows and cast again once that status has shown and gone,
-    -- or two rounds after a cast whose status never showed. A row that lists
-    -- no status goes out once a fight.
-    local function barrierLimit()
-        local veil = Fight.veil
-        if veil then
-            local up = false
-            for _, a in ipairs(w.allies) do
-                if not a.dead then
-                    local set = statuses(a.id)
-                    for sid in pairs(veil.map or {}) do
-                        if set[sid] then up = true end
-                    end
-                end
-            end
-            if up then veil.seen = true return nil end
-            local stale = ((Fight.rounds or 0) - (veil.round or 0)) >= 2
-            if (not veil.seen) and (not stale) then return nil end
-            if not next(veil.map or {}) then return nil end
-            Fight.veil = nil
-        end
-        local s = firstSkill(function(x) return useOf(x) == "lb-guard" and pay(x) end)
-        if not s then return nil end
-        local ids = {}
-        for _, a in ipairs(w.allies) do
-            if not a.dead then ids[#ids + 1] = a.id end
-        end
-        if #ids == 0 then return nil end
-        return finishChoice(uid, s, "barrier lb " .. (s.name or "limit") .. " party", ids, true)
-    end
-    if (phase == 0) and limitFight and (not dead) then
-        local choice = barrierLimit()
-        if choice then return choice end
     end
 
     -- A damage Limit that marks the gauge goes on an open foe before the
@@ -8861,7 +8961,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v0.2.36. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.37. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

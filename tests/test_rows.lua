@@ -75,4 +75,34 @@ local twinHit = { id = 26, name = "Twinbolt", attr = 4, effect = 1, varType = 1,
 local twinCaller = { id = 27, name = "Twin Caller", attr = 7, effect = 0, varType = 0, dmgType = 0, target = 0, rel = 1, cost = 50, power = 0, breakPower = 0, effects = { { type = 37, status = 0, params = { 2, 72 }, turns = -1 } } }
 local d5 = R.build({ skills = { [26] = twinHit, [27] = twinCaller }, units = { [72] = { name = "Twin Unit", elements = {}, status = {}, traits = {}, moves = { 26 } } }, items = {} })
 check(d5.espers["twin caller"].power == 33, "a multi-hit signature keeps the row magnification, not magnification times hits")
+
+-- Every Limit's role, from the effect types the game's own rows carry.
+local function lb(id, name, effect, rel, target, cost, effects)
+    return { id = id, name = name, attr = 5, effect = effect, varType = 1, dmgType = (effect == 1) and 1 or 0, target = target,
+        rel = rel, cost = cost, power = (effect == 1) and 22 or 0, breakPower = 25, effects = effects }
+end
+local lev = { type = 157, status = 0, params = { 1500 }, turns = 1 }
+local rd = R.build({ skills = {
+    [40] = lb(40, "Mark Hit", 1, 2, 1, 100, { { type = 27, status = 22, params = { 130 }, turns = 3 }, lev }),
+    [41] = lb(41, "Staggered Hit", 1, 2, 1, 100, { { type = 98, status = 0, params = { 50 }, turns = 1 }, lev }),
+    [42] = lb(42, "Fewer Hit", 1, 2, 2, 200, { { type = 128, status = 0, params = { 4, 20 }, turns = 1 }, lev }),
+    [43] = lb(43, "Luck Hit", 1, 2, 1, 200, { { type = 124, status = 0, params = { 3 }, turns = 1 }, { type = 19, status = 0, params = { 0, 0, 0, 38 } }, lev }),
+    [44] = lb(44, "Plain Hit", 1, 2, 2, 100, { lev }),
+    [45] = lb(45, "Confuse Hit", 1, 2, 2, 100, { { type = 42, status = 6, params = { 2 }, turns = 2 }, lev }),
+    [46] = lb(46, "Twice", 0, 1, 2, 200, { { type = 13, status = 85, params = {}, turns = 1 }, lev }),
+    [47] = lb(47, "Bar Fill", 0, 1, 2, 100, { { type = 2, status = 79, params = { 10, 4, 2 }, turns = 3 }, lev }),
+    [48] = lb(48, "Veil", 0, 1, 2, 100, { { type = 26, status = 39, params = { 0, 100, 1 }, turns = 1 }, lev }),
+    [49] = { id = 49, name = "Rise All", attr = 5, effect = 1, varType = 0, dmgType = 0, target = 2, rel = 1, cost = 200, power = 330, breakPower = 50,
+        effects = { { type = 20, status = 0, params = { 25 }, turns = 1 }, lev } },
+}, units = {}, items = {} })
+local function role(name) return rd.limits[name] and rd.limits[name].role end
+check(role("mark hit") == "mark", "a hit that marks the gauge is a mark")
+check(role("staggered hit") == "stagger", "a hit with a damage bonus is a stagger Limit")
+check(role("fewer hit") == "few", "a hit that grows as foes fall is a few Limit")
+check(role("luck hit") == "luck", "a hit that scales with luck is a luck Limit")
+check(role("plain hit") == "nuke" and role("confuse hit") == "nuke", "any other hit is a nuke")
+check(role("twice") == "double", "a party row that repeats the action is a double")
+check(role("bar fill") == "fill", "a party row that raises the Limit stat is a fill")
+check(role("veil") == "barrier", "a party barrier is a barrier")
+check(role("rise all") == "revive", "a party raise is a revive")
 os.exit(fails == 0 and 0 or 1)

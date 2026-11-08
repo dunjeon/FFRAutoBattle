@@ -17,6 +17,7 @@ local E = {
     ANALYZE = 29, DEATH = 30, REFLECT = 34, SUMMON = 37, COVER = 41, AUTO = 42, UNSUMMON = 43, BERSERK = 46,
     LUCK = 72, CRIT = 77, BREAKUP = 92, EXTEND = 94, DMG = 98, HATE = 99, CLOCK = 116, HONE = 118, OVERCLOCK = 119,
     ACT = 129, MOGSCAN = 142, DEMON = 144, UNDEMON = 145, RANDOM = 154, NOLB = 95,
+    LUCKMAG = 124, FEWER = 128,
 }
 
 -- eUnitStatusCondition, by what the planner's debuffs are called.
@@ -123,7 +124,31 @@ local function factOf(row)
     return info
 end
 
-local function limitOf(row)
+-- What a Limit is for, from its row's effects. limits.lua plans by this.
+--   revive   raises the party          barrier  a party barrier
+--   double   the party acts twice      fill     fills the party's bars
+--   mark     marks a foe's gauge       stagger  more damage on a staggered foe
+--   few      more damage as foes fall  luck     scales with luck
+--   nuke     any other damage Limit
+local function limitRole(row, use)
+    if use == "lb-revive" then return "revive" end
+    if use == "lb-guard" then return "barrier" end
+    if use == "lb-cash" then
+        if has(row, E.BREAKDEF) then return "mark" end
+        if has(row, E.DMG) then return "stagger" end
+        if has(row, E.FEWER) then return "few" end
+        if has(row, E.LUCKMAG) then return "luck" end
+        return "nuke"
+    end
+    if row.rel == FRIEND then
+        if has(row, E.MIMIC2) then return "double" end
+        local p = has(row, E.PARAM)
+        if p and p.params and (p.params[2] == 4) then return "fill" end
+    end
+    return nil
+end
+
+local function limitUseOf(row)
     -- The row's cost is in points. One gauge is 100 until the battle says otherwise.
     local points = tonumber(row.cost) or 0
     if points <= 0 then points = 100 end
@@ -156,6 +181,12 @@ local function limitOf(row)
         return info
     end
     info.use = "skip"
+    return info
+end
+
+local function limitOf(row)
+    local info = limitUseOf(row)
+    info.role = limitRole(row, info.use)
     return info
 end
 
