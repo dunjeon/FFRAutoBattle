@@ -34,7 +34,7 @@ local function log(fmt, ...)
     if (not Reporting) and not (text:find("loaded. planner", 1, true) or text:find("failed", 1, true)
         or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)
         or text:find("scene skip", 1, true) or text:find("level gate", 1, true)
-        or text:find("turbo", 1, true)) then
+        or text:find("turbo", 1, true) or text:find("large map", 1, true)) then
         return
     end
     print(TAG .. text .. "\n")
@@ -198,6 +198,12 @@ do
     else
         log("pace unavailable: %s", tostring(loaded))
     end
+    ok, loaded = pcall(dofile, DIR .. "/Scripts/minimap.lua")
+    if ok and type(loaded) == "table" then
+        Known.minimap = loaded
+    else
+        log("large map unavailable: %s", tostring(loaded))
+    end
 end
 local function foldName(name)
     local n = (name or ""):lower()
@@ -257,7 +263,7 @@ local DECIDE_MS = 420
 local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
-    LevelGate = false, Turbo = false,
+    LevelGate = false, Turbo = false, LargeMap = false, MapKey = "F8", MapSize = 80,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -8923,6 +8929,14 @@ local function inFight()
     return battleUp()
 end
 
+-- The large field map. On only works on the field. Off works anywhere.
+function Known.pressMap()
+    local mm = Known.minimap
+    if not (mm and cfg.LargeMap) then return end
+    local ok, err = pcall(mm.toggle, mm.fraction(cfg.MapSize), not inFight())
+    if not ok then log("large map failed: %s", tostring(err)) end
+end
+
 local padTold, padLeft, padRight = false, false, false
 local function pollTriggers()
     local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
@@ -8941,6 +8955,7 @@ local function pollTriggers()
     end
     local left = down("Gamepad_LeftTrigger")
     local right = down("Gamepad_RightTrigger")
+    local stick = cfg.LargeMap and down("Gamepad_RightShoulder") or nil
     if (left == nil) and (right == nil) then
         if not padTold then
             padTold = true
@@ -8952,9 +8967,15 @@ local function pollTriggers()
         if now == nil then return false, was end
         return (now and not was) and true or false, now
     end
-    local leftRose, rightRose
+    local leftRose, rightRose, stickRose
     leftRose, padLeft = rose(left, padLeft)
     rightRose, padRight = rose(right, padRight)
+    stickRose, Known.padStick = rose(stick, Known.padStick or false)
+    -- The map button works on the field, so it is read before the fight check.
+    -- It is left alone in a fight and in a menu, where the game uses it.
+    if stickRose and (not inFight()) and Known.minimap and Known.minimap.fieldActive() then
+        Known.pressMap()
+    end
     if not (leftRose or rightRose) then return end
     if not inFight() then return end
     if leftRose and cfg.Enabled then pressBasic() end
@@ -8965,6 +8986,15 @@ loadConfig()
 
 bind("TakeOverKey", pressAuto)
 bind("MenuKey", pressBasic)
+if cfg.LargeMap then
+    bind("MapKey", Known.pressMap)
+    log("large map on. %s toggles it. On the field the right bumper toggles it.", tostring(cfg.MapKey))
+end
+-- A new area builds a new field HUD. While the large map is on, it stays on.
+gameLoop(500, function()
+    local mm = Known.minimap
+    if mm and mm.isOn() then mm.keep(mm.fraction(cfg.MapSize), not inFight()) end
+end)
 -- A toggle. Ten times a second still catches a press, in a fight or out of one.
 gameLoop(100, pollTriggers)
 
@@ -8987,7 +9017,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v0.2.38. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.39. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

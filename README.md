@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.38, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.39, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -53,7 +53,7 @@ When this step is done, this file exists:
 
 `FFRS\Binaries\Win64\ue4ss\Mods\FFRAutoBattle\Scripts\main.lua`
 
-The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, and `pace.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
+The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, `pace.lua`, and `minimap.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
 **Coming from 0.1.x or from an earlier 0.2 build:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again.
 
@@ -65,7 +65,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v0.2.38.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v0.2.39.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -80,16 +80,17 @@ Work down this list.
 
 ## Controls
 
-Two switches. Each press flashes a short notice. The game remembers both choices after you quit.
+Two switches and a map key. Each switch press flashes a short notice. The game remembers both switch choices after you quit.
 
 ### Keyboard
 
-F9 and F10 work any time: on the field, in a menu, and in a fight.
+F9 and F10 work any time: on the field, in a menu, and in a fight. F8 is for the field.
 
 | Key | What it does | Notice |
 | --- | --- | --- |
 | F10 | Turns auto battle off or back on. It starts on. | AutoBattle Off, or AutoBattle On |
 | F9 | Turns basic attacks on or off. It starts off. | AutoBattle: Take it Easy!, or AutoBattle: No Mercy! |
+| F8 | When `LargeMap` is on, on the field, moves the minimap to the middle of the screen and draws it large. Press again to put it back. | None |
 
 **Take it Easy** means the party uses Attack only. No spells, no items, and no MP.
 
@@ -105,6 +106,9 @@ The right trigger turns auto battle on or off during a fight. The left trigger s
 | --- | --- | --- |
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
 | Left trigger | Same as F9. Take it Easy or No Mercy. | During a fight, while auto battle is on |
+| Right bumper (RB / R1) | Same as F8. Large map in the middle, or back to the corner. | On the field, when `LargeMap` is on. Not in a fight or a menu. |
+
+F8 and the right bumper only work when `LargeMap = true` is set in `config.ini`. It is off by default. The large map is drawn by the game at the bigger size, so it stays sharp. It only turns on outside a fight. A press during a fight still turns it off. `MapSize` in `config.ini` sets how big it is, as a percent of the screen height. The default is 80.
 
 The other settings are in `config.ini`. A change there needs a restart. The mod remembers the F9 and F10 choices in `state.txt`. It writes no report unless you turn on `Reporting`, below. `SkipScenes` skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the attack or heal still lands and the battle camera comes back. Other attacks and story events stay. It is off unless you set it to true. `LevelGate` is for development use only and is not meant for normal play. It gives a character no experience from a fight where every monster is under that character's level. A monster at or above them still pays the game's own amount, so a lower-level character in the same fight still gains it. It is off unless you set it to true. `Turbo` is experimental. It plays a fight's actions at twice the battle speed button's fastest mark. The command menu stays at the game's own slower speed, and a Limit Burst, a Vision finish, or an Esper scene stays at normal speed. It stops when the battle result begins, and the game goes back to normal speed, so the field and the story after the fight are not sped up. It is off unless you set it to true. If anything looks wrong with it on, turn it off.
 
