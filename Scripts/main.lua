@@ -4266,6 +4266,10 @@ local function turn(uid, skills, w, phase)
         local early = curePass(false)
         if early then return early end
     end
+    -- A damage Limit spends the bar on a hit.
+    local function spendsLimit(s)
+        return (useOf(s) == "lb-cash") or ((s.attr == ATTR.LB) and (s.kind == "damage"))
+    end
     -- A cheaper damage Limit waits while a higher-cost one on this bar can
     -- still be reached and cannot be paid yet. Each bar is its own.
     local function limitHeld(s)
@@ -4893,7 +4897,8 @@ local function turn(uid, skills, w, phase)
         if best then return { best } end
         return w.enemies
     end
-    local function castDamage(pool, cashing, why)
+    -- only, when given, limits the skills asked to the ones it accepts.
+    local function castDamage(pool, cashing, why, only)
         if not pool or #pool == 0 then return nil end
         local bestS, bestU, bestSpread = nil, nil, false
         local bestKills, bestDamage, bestStagger = -1, -1, -1
@@ -4901,6 +4906,16 @@ local function turn(uid, skills, w, phase)
             if not pay(s) then return end
             local spendLb = (useOf(s) == "lb-cash") or ((s.attr == ATTR.LB) and (s.kind == "damage"))
             if spendLb and limitHeld(s) then return end
+            -- A Limit that marks the gauge goes on before the break. On a
+            -- staggered body the mark is lost, so the bar waits for an open one.
+            if spendLb and s.known and s.known.breakDef then
+                local anyOpen = false
+                for _, u in ipairs(targets) do
+                    local _, _, empty = gaugeOfEnemy(u)
+                    if not (empty or u.broken) then anyOpen = true end
+                end
+                if not anyOpen then return end
+            end
             -- An area Limit hits every living enemy. A nulled element stays off.
             if spendLb and aoeOf(s) and s.known and s.known.element and (#w.enemies > 0) then
                 local blocked = false
@@ -4971,7 +4986,7 @@ local function turn(uid, skills, w, phase)
             end
         end
         for _, s in ipairs(skills) do
-            if isHit(s, cashing) then
+            if isHit(s, cashing) and ((not only) or only(s)) then
                 local safe = {}
                 if aoeOf(s) then
                     local ok = true
@@ -5002,7 +5017,7 @@ local function turn(uid, skills, w, phase)
             Fight.retry = Fight.retry or {}
             for _, s in ipairs(skills) do
                 local spendLb = (useOf(s) == "lb-cash") or ((s.attr == ATTR.LB) and (s.kind == "damage"))
-                if isHit(s, cashing) and pay(s) and not (spendLb and limitHeld(s)) then
+                if isHit(s, cashing) and ((not only) or only(s)) and pay(s) and not (spendLb and limitHeld(s)) then
                     local info = s.known or knownOf(s)
                     local key = (info and info.element) or kindOf(s)
                     if key then
@@ -5060,6 +5075,19 @@ local function turn(uid, skills, w, phase)
             end
         end
         return castDamage(burstTargets(), true, "burst")
+    end
+    -- A staggered foe takes a damage Limit on any turn, not only the bonus
+    -- turn. Only a Limit is asked here. Without one ready, the turn goes on
+    -- as before.
+    if (phase == 0) and limitFight then
+        local staggered = {}
+        for _, u in ipairs(w.enemies) do
+            if u.broken or Fight.down[u.id] then staggered[#staggered + 1] = u end
+        end
+        if #staggered > 0 then
+            local hit = castDamage(staggered, true, "stagger", spendsLimit)
+            if hit then return hit end
+        end
     end
     if #open == 0 and #brokenPool > 0 then
         if phase == PHASE_BONUS then
@@ -5263,6 +5291,37 @@ local function turn(uid, skills, w, phase)
     end
     if (phase == 0) and limitFight and (not dead) then
         local choice = barrierLimit()
+        if choice then return choice end
+    end
+
+    -- A damage Limit that marks the gauge goes on an open foe before the
+    -- break, so the hits after it pour more stagger. The foe with the most
+    -- gauge left takes it. It waits while the break is this round's.
+    local function setupLimit()
+        local best, foe, most = nil, nil, -1
+        for _, s in ipairs(skills) do
+            if spendsLimit(s) and s.known and s.known.breakDef and isHit(s, false)
+                and pay(s) and not limitHeld(s) then
+                for _, u in ipairs(open) do
+                    local _, remain, empty = gaugeOfEnemy(u)
+                    if (not empty) and (not u.broken) and (elementFactor(s, u) > 0) and (remain > most) then
+                        best, foe, most = s, u, remain
+                    end
+                end
+            end
+        end
+        if not best then return nil end
+        local name = best.name or "limit"
+        if aoeOf(best) then
+            for _, u in ipairs(w.enemies) do
+                if elementFactor(best, u) <= 0 then return nil end
+            end
+            return finishChoice(uid, best, "setup lb " .. name .. " " .. #open .. " foes", idsOf(open), true)
+        end
+        return finishChoice(uid, best, "setup lb " .. name .. " " .. (foe.name or "enemy"), { foe.id }, false)
+    end
+    if (phase == 0) and limitFight and (not dead) and (not allyCritical()) and (not breakClose()) then
+        local choice = setupLimit()
         if choice then return choice end
     end
 
@@ -6077,7 +6136,11 @@ Known.repDecide = function(uid, choice, phase)
         if cost <= mp then
             if s.kind == "heal" and s.attr ~= ATTR.ITEM then canHeal = true end
             if s.kind == "revive" then canRaise = true end
-            if s.attr == ATTR.LB and s.kind == "damage" then limitReady = limitReady or s.name end
+            -- A Limit that marks the gauge waits for an open foe, so it is
+            -- not a Limit left unused on a stagger.
+            if s.attr == ATTR.LB and s.kind == "damage" and not (s.known and s.known.breakDef) then
+                limitReady = limitReady or s.name
+            end
             if s.kind == "damage" and next(brokenFoes) then
                 local v = hitValue(s)
                 if (not bestValue) or v > bestValue then bestValue, bestName = v, s.name end
@@ -8798,7 +8861,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v0.2.35. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.36. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
