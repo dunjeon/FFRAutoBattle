@@ -2244,7 +2244,7 @@ end
 local Menu = {
     open = false, serial = 0, actor = -1, decided = true, sub = false,
     byMod = false,
-    pace = { held = nil, applied = nil, marks = nil, command = nil, fast = nil, scene = false, fail = false, lib = nil },
+    pace = { held = nil, applied = nil, last = nil, guard = 0, marks = nil, command = nil, fast = nil, scene = false, fail = false, lib = nil },
 }
 
 function Menu.paceLib()
@@ -2258,25 +2258,40 @@ function Menu.paceLib()
     return nil
 end
 
+-- The world the player is in. FindFirstOf("World") can return a world that is
+-- not the one on screen, so a speed written there never reaches the field.
+function Menu.paceWorld()
+    local ok, world = pcall(function()
+        local pc = FindFirstOf("PlayerController")
+        if pc and pc.IsValid and pc:IsValid() then return pc:GetWorld() end
+        return nil
+    end)
+    if ok and world and world.IsValid and world:IsValid() then return world end
+    ok, world = pcall(function() return FindFirstOf("World") end)
+    if ok and world and world.IsValid and world:IsValid() then return world end
+    return nil
+end
+
 function Menu.worldSettings()
+    local world = Menu.paceWorld()
+    if world then
+        local ok, settings = pcall(function() return world:K2_GetWorldSettings() end)
+        if ok and settings and settings.IsValid and settings:IsValid() then return settings end
+    end
     local ok, settings = pcall(function() return FindFirstOf("WorldSettings") end)
     if ok and settings and settings.IsValid and settings:IsValid() then return settings end
     return nil
 end
 
 function Menu.dilation()
-    local settings = Menu.worldSettings()
-    if settings then
-        local n = num(settings.TimeDilation)
-        if n then return n end
-    end
     local lib = Menu.paceLib()
-    if not lib then return nil end
-    local ok, got = pcall(function() return lib:GetGlobalTimeDilation() end)
-    if ok and tonumber(got) then return tonumber(got) end
-    local world = FindFirstOf("World")
-    ok, got = pcall(function() return lib:GetGlobalTimeDilation(world) end)
-    if ok then return tonumber(got) end
+    local world = Menu.paceWorld()
+    if lib and world then
+        local ok, got = pcall(function() return lib:GetGlobalTimeDilation(world) end)
+        if ok and tonumber(got) then return tonumber(got) end
+    end
+    local settings = Menu.worldSettings()
+    if settings then return num(settings.TimeDilation) end
     return nil
 end
 
@@ -2285,12 +2300,9 @@ function Menu.setDilation(rate)
         return now and (math.abs(now - rate) < 0.01)
     end
     local lib = Menu.paceLib()
-    if lib then
-        local ok = pcall(function() lib:SetGlobalTimeDilation(rate) end)
-        if (not ok) or not close(Menu.dilation()) then
-            local world = FindFirstOf("World")
-            pcall(function() lib:SetGlobalTimeDilation(world, rate) end)
-        end
+    local world = Menu.paceWorld()
+    if lib and world then
+        pcall(function() lib:SetGlobalTimeDilation(world, rate) end)
         if close(Menu.dilation()) then return true end
     end
     local settings = Menu.worldSettings()
@@ -2341,13 +2353,13 @@ end
 
 function Menu.applyPace(rate)
     if Menu.pace.applied == rate then return end
-    if Menu.pace.held == nil then
-        local now = Menu.dilation()
-        if (not now) or (now <= 0) or (now < 1) then now = 1 end
-        Menu.pace.held = now
-    end
+    -- held marks that turbo changed the speed. Outside a fight the speed is
+    -- always 1, so the end of a fight puts back 1, not whatever was read
+    -- at the start: that read could be the game's own battle speed.
+    Menu.pace.held = true
     if Menu.setDilation(rate) then
         Menu.pace.applied = rate
+        Menu.pace.last = rate
         return
     end
     if not Menu.pace.fail then
@@ -2357,16 +2369,31 @@ function Menu.applyPace(rate)
 end
 
 function Menu.restorePace()
-    local held = Menu.pace.held
-    if held == nil then return end
-    if not Menu.setDilation(held) then
-        if not Menu.pace.fail then
-            Menu.pace.fail = true
+    local pace = Menu.pace
+    if pace.held == nil then
+        -- After a fight, a rate turbo set is put back to 1 if it shows up
+        -- again. Only turbo's own last rate is undone, so a speed the game
+        -- sets on the field is left alone.
+        if pace.guard and pace.guard > 0 then
+            pace.guard = pace.guard - 1
+            local now = Menu.dilation()
+            if now and pace.last and (math.abs(now - pace.last) < 0.01) and (math.abs(now - 1) >= 0.01) then
+                Menu.setDilation(1)
+            end
+            if pace.guard == 0 then pace.last = nil end
+        end
+        return
+    end
+    if not Menu.setDilation(1) then
+        if not pace.fail then
+            pace.fail = true
             log("turbo failed: could not restore the battle speed")
         end
         return
     end
-    Menu.pace.held, Menu.pace.applied = nil, nil
+    pace.held, pace.applied = nil, nil
+    -- About five seconds of the pace loop.
+    pace.guard = 300
 end
 
 -- The result is the end of the fight. The story after it is not a battle.
