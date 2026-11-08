@@ -8,8 +8,8 @@
 -- no MP and no items. Off is the default. Both choices are remembered.
 -- In a fight, the right trigger fires the F10 action. While auto battle is
 -- on in a fight, the left trigger fires the F9 action. While auto battle is
--- off, or outside a fight, the left trigger stays with the game. With
--- LargeMap on, the right trigger on the field is the large map, as MapKey.
+-- off, or outside a fight, the left trigger stays with the game, except that
+-- with LargeMap on, the left trigger on the field is the large map, as MapKey.
 --
 -- Every fact comes from the game's own tables, read live. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
@@ -8938,7 +8938,7 @@ function Known.pressMap()
     if not ok then log("large map failed: %s", tostring(err)) end
 end
 
--- The right trigger and the middle mouse button. Both are used by the game in
+-- The left trigger and the middle mouse button. Both are used by the game in
 -- some menus and on its world map, so they only act while the field HUD is in front.
 function Known.pressMapField(what)
     if not (cfg.LargeMap and Known.minimap) then return end
@@ -8984,8 +8984,8 @@ local function pollTriggers()
     rightRose, padRight = rose(right, padRight)
     if not (leftRose or rightRose) then return end
     if not inFight() then
-        -- On the field the right trigger is the large map. In a menu it stays with the game.
-        if rightRose then Known.pressMapField("right trigger") end
+        -- On the field the left trigger is the large map. In a menu it stays with the game.
+        if leftRose then Known.pressMapField("left trigger") end
         return
     end
     if leftRose and cfg.Enabled then pressBasic() end
@@ -9003,7 +9003,7 @@ if cfg.LargeMap then
             ExecuteInGameThread(function() Known.pressMapField("middle mouse button") end)
         end)
     end
-    log("large map on. %s toggles it. On the field the right trigger and the middle mouse button toggle it.", tostring(cfg.MapKey))
+    log("large map on. %s toggles it. On the field the left trigger and the middle mouse button toggle it.", tostring(cfg.MapKey))
 end
 -- A conversation resets the map's scale. While the large map is on, it is
 -- read every frame and made large again. A new area's HUD is looked for less often.
@@ -9037,7 +9037,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v0.2.41. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.42. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
