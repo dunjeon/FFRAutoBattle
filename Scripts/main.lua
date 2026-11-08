@@ -6220,7 +6220,9 @@ end
 local flushWarn
 
 -- LevelGate. Enemy catalog ids seen this fight, and the exp to write once
--- the game pays out. hold keeps them after the field is gone.
+-- the game pays out. seen is keyed by slot and catalog id, so a later wave
+-- or an add in a dead monster's slot still counts. cuts marks the characters
+-- whose gain is 0; a kept payout is never rewritten.
 function Growth.install()
 local bflUnit, bflSaveUnit
 local function unitLib()
@@ -6235,7 +6237,7 @@ local function saveUnitLib()
     end
     return bflSaveUnit
 end
-local Gate = { seen = {}, hold = nil, targets = {}, writing = false, missTold = false }
+local Gate = { seen = {}, targets = {}, cuts = {}, writing = false, missTold = false }
 
 local function playableLevel(unitId)
     local lib = unitLib()
@@ -6262,8 +6264,7 @@ end
 local function growthIds()
     local ids = {}
     for _, id in pairs(Gate.seen) do ids[#ids + 1] = id end
-    if #ids > 0 then return ids end
-    return Gate.hold or {}
+    return ids
 end
 
 -- nil when a monster's level was not read. The payout is then left alone.
@@ -6281,10 +6282,10 @@ local function growthMobs()
 end
 
 function Growth.enemy(uid)
-    if not (cfg.LevelGate and Fight and uid and not Gate.seen[uid]) then return end
+    if not (cfg.LevelGate and Fight and uid) then return end
     if Fight.summons and Fight.summons[uid] then return end
     local id = catalogOf(uid)
-    if id then Gate.seen[uid] = id end
+    if id then Gate.seen[tostring(uid) .. ":" .. tostring(id)] = id end
 end
 
 function Growth.field()
@@ -6292,7 +6293,7 @@ function Growth.field()
     local bfl = battleLib()
     if not (bfl and bfl:IsValid()) then return end
     for n = 0, 15 do
-        if not Gate.seen[n] and not (Fight.summons and Fight.summons[n]) then
+        if not (Fight.summons and Fight.summons[n]) then
             local ok, p = pcall(function() return bfl:GetBattleUnitParameter(n, false) end)
             if ok and p and p.IsValid and p:IsValid() then
                 local okR, rel = pcall(function() return p:GetRelation() end)
@@ -6302,14 +6303,15 @@ function Growth.field()
     end
 end
 
-function Growth.hold()
-    local ids = {}
-    for _, id in pairs(Gate.seen) do ids[#ids + 1] = id end
-    if #ids > 0 then Gate.hold = ids end
+-- The payout comes during the result, before the fight closes. After the
+-- close, nothing is held, so exp from an item or a quest is never cut by
+-- the last fight's monsters, including after a loss or an escape.
+function Growth.close()
+    Gate.seen, Gate.targets, Gate.cuts = {}, {}, {}
 end
 
 function Growth.newFight()
-    Gate.seen, Gate.hold, Gate.targets, Gate.missTold, Gate.sigTold = {}, nil, {}, false, false
+    Gate.seen, Gate.targets, Gate.cuts, Gate.missTold, Gate.sigTold = {}, {}, {}, false, false
 end
 
 local function growthTarget(unitId, level, before, after)
@@ -6327,6 +6329,7 @@ local function growthTarget(unitId, level, before, after)
     if keeps == nil then return nil end
     local target = Growth.apply(before, after, keeps)
     Gate.targets[unitId] = target
+    Gate.cuts[unitId] = (target ~= after) or nil
     if target ~= after then
         log("level gate: unit %s level %s gain 0", tostring(unitId), tostring(level))
     end
@@ -6403,7 +6406,8 @@ function Growth.hook()
         if target == nil then
             target = growthTarget(id, playableLevel(id), saveExp(id), incoming)
         end
-        if target ~= nil and incoming ~= target then exp:set(target) end
+        -- Only a cut is written. A kept payout stays as the game sends it.
+        if target ~= nil and Gate.cuts[id] and incoming > target then exp:set(target) end
     end)
     end)
     guard("result", function()
@@ -6419,7 +6423,7 @@ function Growth.hook()
     RegisterHook("/Script/mucha.CPP_BtlDelEventResult:OnExecuteResultEnd", function()
         -- The payout can still be inside this call. Drop the fight after it returns.
         gameDelay(0, function()
-            Gate.seen, Gate.hold, Gate.targets = {}, nil, {}
+            Growth.close()
         end)
     end)
     end)
@@ -6433,7 +6437,7 @@ end
 
 local function finishBattle()
     if not Fight.active then return end
-    if Growth.hold then Growth.hold() end
+    if Growth.close then Growth.close() end
     Known.repRun(Known.repFinish)
     Fight.active = false
     if Menu.stopPace then Menu.stopPace() end
