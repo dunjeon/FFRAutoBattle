@@ -404,6 +404,9 @@ local ItemIdx = nil
 -- Walking these tables while a save is loading crashed the game. The startup
 -- timer must not start the walk. It waits until a command menu is open, or a
 -- fight is already underway. A hook only schedules the walk.
+-- Declared here so battleUp, the row walk and the skill math below read
+-- the fight table and not an unset global. It is filled in further down.
+local Fight
 local hookDepth = 0
 local rowsAllowed = false
 local rowWalkQueued = false
@@ -1088,8 +1091,6 @@ end
 -- Skill math. The skill row names the element. The book fills a missing one.
 --------------------------------------------------------------------------------
 
--- Declared here so the skill math below can read what a fight has learned.
-local Fight
 Known.mobRow = function(enemy)
     if not (Known.unitCards and Fight) then return nil end
     Fight.mobCards = Fight.mobCards or {}
@@ -8797,7 +8798,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v0.2.34. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.35. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
