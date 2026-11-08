@@ -22,7 +22,8 @@
 -- Turbo is off unless set. On, a fight's actions play at twice the battle
 -- speed button's fastest mark. The command menu stays at the game's
 -- command-select speed. A Limit Burst, a Vision finish, and an Esper scene
--- stay at normal speed.
+-- stay at normal speed. The speed stops when the battle result begins, so
+-- the story after the fight is left alone.
 
 local TAG = "[FFRAutoBattle] "
 -- Reporting off: only the startup line and real errors reach UE4SS.log.
@@ -2358,15 +2359,28 @@ end
 function Menu.restorePace()
     local held = Menu.pace.held
     if held == nil then return end
-    Menu.pace.held, Menu.pace.applied = nil, nil
-    if not Menu.setDilation(held) and not Menu.pace.fail then
-        Menu.pace.fail = true
-        log("turbo failed: could not restore the battle speed")
+    if not Menu.setDilation(held) then
+        if not Menu.pace.fail then
+            Menu.pace.fail = true
+            log("turbo failed: could not restore the battle speed")
+        end
+        return
     end
+    Menu.pace.held, Menu.pace.applied = nil, nil
+end
+
+-- The result is the end of the fight. The story after it is not a battle.
+function Menu.stopPace()
+    if not Menu.pace.done then
+        Menu.pace.done = true
+        Menu.pace.scene = false
+        if cfg.Turbo then log("turbo off") end
+    end
+    Menu.restorePace()
 end
 
 function Menu.keepPace()
-    if (not cfg.Turbo) or not (Fight and Fight.active) then
+    if Menu.pace.done or (not cfg.Turbo) or not (Fight and Fight.active) then
         Menu.restorePace()
         return
     end
@@ -2389,11 +2403,18 @@ function Menu.hookPace()
     if not cfg.Turbo then return end
     local ok, err = pcall(function()
         RegisterHook("/Script/mucha.ACPP_BtlGameSpeedManager:SetSequenceGameSpeed", function(_, dilation)
-            if not (cfg.Turbo and Fight and Fight.active and (not Menu.open) and (not Menu.pace.scene)) then return end
+            if not (cfg.Turbo and Fight and Fight.active and (not Menu.pace.done) and (not Menu.open) and (not Menu.pace.scene)) then return end
             local fast = Menu.pace.fast
             local d = num(dilation and dilation:get())
             if not fast or not d then return end
             if (d >= 1) and (d <= (fast + 0.01)) then dilation:set(1) end
+        end)
+        -- Win or loss. Either way the actions are over, and a story scene may follow.
+        RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult", function()
+            Menu.stopPace()
+        end)
+        RegisterHook("/Script/mucha.CPP_BtlDelEventResult:OnExecuteResultEnd", function()
+            Menu.stopPace()
         end)
     end)
     if not ok then log("turbo failed: %s", tostring(err)) end
@@ -6419,6 +6440,7 @@ local function ensureBattle()
     if Fight.active then return end
     if Growth.newFight then Growth.newFight() end
     Fight.active = true
+    if Menu.pace then Menu.pace.done = false end
     Fight.number = Fight.number + 1
     Fight.boss = bossBattle()
     Fight.summoned = false
