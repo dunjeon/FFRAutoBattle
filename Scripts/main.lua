@@ -280,6 +280,9 @@ local function loadIni(path)
     if not f then return out end
     for line in f:lines() do
         local k, v = line:match("^%s*([^;#%[=][^=]-)%s*=%s*(.-)%s*$")
+        -- A note after the value, as in "Enabled = true ; mine", is not the value.
+        -- No setting's value holds ; or #.
+        if v then v = v:gsub("%s*[;#].*$", "") end
         if k then out[k:lower()] = v end
     end
     f:close()
@@ -1204,8 +1207,15 @@ local function elementFactor(skill, enemy, ignoreLearned)
             local learned = Fight and Fight.kindNull and Fight.kindNull[enemy.id]
             if (not ignoreLearned) and learned and learned[kind] then return 0 end
         end
+        -- A skill this foe took twice for no HP stays off while its status
+        -- list is the one those zeros were filed under, the same as a
+        -- learned resist. A barrier or a phase that ends changes the list.
         local zero = Fight and Fight.skillZero and Fight.skillZero[enemy.id]
-        if (not ignoreLearned) and zero and skill and skill.id and ((zero[skill.id] or 0) >= 2) then return 0 end
+        local rec = zero and skill and skill.id and zero[skill.id]
+        if (not ignoreLearned) and (type(rec) == "table") and (rec.n >= 2)
+            and (rec.stamp == statusStamp(enemy.id)) then
+            return 0
+        end
         -- What a hit this fight already showed, whoever swung it. The same
         -- factors as the card: a weakness is 3, a half is 0.5, a null is 0.
         -- A reflect is 0 as well. The foe's status list has to still match.
@@ -3425,7 +3435,17 @@ local function turn(uid, skills, w, phase)
                             -- Only what this hit has really done to this foe. An estimate
                             -- for an untried hit has been off by four times.
                             if s.attr == ATTR.LB then
-                                lbShots[#lbShots + 1] = { skill = s, real = (real and measured) and real or nil, cost = 0 }
+                                -- An area Limit hits every living enemy. One that any of
+                                -- them nulls stays off, the same as everywhere else.
+                                local reaches = true
+                                if aoeOf(s) then
+                                    for _, other in ipairs(w.enemies) do
+                                        if elementFactor(s, other) <= 0 then reaches = false end
+                                    end
+                                end
+                                if reaches then
+                                    lbShots[#lbShots + 1] = { skill = s, real = (real and measured) and real or nil, cost = 0 }
+                                end
                             elseif real and measured then
                                 shots[#shots + 1] = { skill = s, real = real, cost = s.cost or 0 }
                                 if real > bestPlain then bestPlain = real end
@@ -3650,14 +3670,24 @@ local function turn(uid, skills, w, phase)
             end
             list[i] = l
         end
-        -- The largest damage Limit this unit has equipped, ready or not.
+        -- The largest damage Limit this unit has equipped, ready or not, that
+        -- lands on this field: an area one on every foe, a single one on any.
+        -- A larger Limit the field nulls is not worth waiting for. limitHeld
+        -- asks the same.
         local higher = 0
         for _, id in ipairs(equippedIds(uid)) do
             local row = skillOf(id)
             local fact = row and (row.attr == ATTR.LB) and Limits.lookup and Limits.lookup(row.name)
-            if fact and Limits.DAMAGE and Limits.DAMAGE[fact.role] then
-                local g = (Limits.gauges and Limits.gauges(fact.points, Fight.oneGauge)) or tonumber(fact.gauges) or 1
-                if g > higher then higher = g end
+            if fact and Limits.DAMAGE and Limits.DAMAGE[fact.role] and (#w.enemies > 0) then
+                local probe = { known = fact, name = row.name }
+                local any, all = false, true
+                for _, foe in ipairs(w.enemies) do
+                    if elementFactor(probe, foe) > 0 then any = true else all = false end
+                end
+                if (fact.area and all) or ((not fact.area) and any) then
+                    local g = (Limits.gauges and Limits.gauges(fact.points, Fight.oneGauge)) or tonumber(fact.gauges) or 1
+                    if g > higher then higher = g end
+                end
             end
         end
         local up = 0
@@ -7301,18 +7331,25 @@ local function act(serial)
                     end
                     Fight.kindMiss[id][probe.kind] = n
                     -- The same skill twice for no HP on this enemy: the skill is
-                    -- dropped against it for the fight. One zero can be a dodge.
-                    -- Darkness hits the Cursed Slates for 0 but its row lists no
-                    -- element, so only this memory catches it.
+                    -- dropped against it while its status list stays the same.
+                    -- One zero can be a dodge. Darkness hits the Cursed Slates
+                    -- for 0 but its row lists no element, so only this memory
+                    -- catches it.
                     -- TUNE: if fights show a skill shelved that would have
-                    -- landed, raise the count or clear it on a status change.
+                    -- landed, raise the count. If one keeps being retried on a
+                    -- foe whose statuses flicker, key the stamp on fewer statuses.
                     if probe.sid then
                         Fight.skillZero = Fight.skillZero or {}
                         Fight.skillZero[id] = Fight.skillZero[id] or {}
-                        local z = (Fight.skillZero[id][probe.sid] or 0) + 1
-                        Fight.skillZero[id][probe.sid] = z
-                        if z == 2 then
-                            local line = string.format("%s takes no damage from %s, dropped against it", unitName(id), probe.name or tostring(probe.sid))
+                        -- Two zeros count only under the same status list. A new
+                        -- list starts the count again.
+                        local stamp = statusStamp(id)
+                        local rec = Fight.skillZero[id][probe.sid]
+                        if (type(rec) ~= "table") or (rec.stamp ~= stamp) then rec = { n = 0, stamp = stamp } end
+                        rec.n = rec.n + 1
+                        Fight.skillZero[id][probe.sid] = rec
+                        if rec.n == 2 then
+                            local line = string.format("%s takes no damage from %s, dropped against it while its status holds", unitName(id), probe.name or tostring(probe.sid))
                             log("%s", line)
                             appendLog("  " .. line)
                         end
@@ -8593,7 +8630,8 @@ local function watchScene(skillId, name)
     -- until the cinematic manager allows it, and the player is never cut
     -- if that skip does not finish the scene.
     local ticks, askedAt, seen, quiet = 0, nil, false, 0
-    local function finish(text)
+    -- reportOnly: a scene held for turbo is not news in UE4SS.log.
+    local function finish(text, reportOnly)
         if Scene.want == skillId then Scene.want = nil end
         Scene.quietId = skillId
         Scene.quietUntil = os.clock() + 0.5
@@ -8601,12 +8639,14 @@ local function watchScene(skillId, name)
             Menu.pace.scene = false
             if Menu.keepPace then Menu.keepPace() end
         end
-        log("%s", text)
+        if not reportOnly then log("%s", text) end
         appendLog("  " .. text)
     end
     local function step(left)
         if Scene.want ~= skillId then return end
-        if not cfg.SkipScenes then
+        -- Turbo alone only holds the scene at normal speed. Nothing is skipped.
+        local watchOnly = not cfg.SkipScenes
+        if watchOnly and not cfg.Turbo then
             if Menu.pace.scene then
                 Menu.pace.scene = false
                 if Menu.keepPace then Menu.keepPace() end
@@ -8623,7 +8663,7 @@ local function watchScene(skillId, name)
             ticks = ticks + 1
             quiet = 0
             local matched = jobSkillId(job) == skillId
-            if (not askedAt) and Scene.allowed() and (matched or ticks >= 3) then
+            if (not watchOnly) and (not askedAt) and Scene.allowed() and (matched or ticks >= 3) then
                 askedAt = ticks
                 Scene.press()
                 askSkip(job)
@@ -8635,13 +8675,25 @@ local function watchScene(skillId, name)
                 finish(string.format("scene skip: %s", name))
                 return
             end
+        elseif watchOnly then
+            -- The scene played and stopped, or no scene began within three
+            -- seconds. Either way turbo goes back on.
+            -- TUNE: if reports show a Limit sped up because its scene began
+            -- late, raise the 30. If summoned units' plain hits drag, lower it.
+            quiet = quiet + 1
+            if (seen and quiet >= 2) or ((not seen) and quiet >= 30) then
+                finish(string.format("turbo held for %s", name), true)
+                return
+            end
         end
         if Scene.want ~= skillId then return end
         if left > 0 then
             gameDelay(100, function() step(left - 1) end)
             return
         end
-        if askedAt and not still then
+        if watchOnly then
+            finish(string.format("turbo held for %s", name), true)
+        elseif askedAt and not still then
             finish(string.format("scene skip: %s", name))
         elseif askedAt then
             finish(string.format("scene skip failed: %s still playing", name))
@@ -8655,7 +8707,7 @@ local function watchScene(skillId, name)
 end
 
 local function considerScene(skillId, actorId)
-    if not cfg.SkipScenes or not skillId then return end
+    if not (cfg.SkipScenes or cfg.Turbo) or not skillId then return end
     pcall(buildSkillIndex, true)
     local row = skillOf(skillId)
     local scene = row and (row.attr == ATTR.LB or row.attr == ATTR.FINISH or row.attr == ATTR.SUMMON)
@@ -8676,10 +8728,11 @@ local function considerScene(skillId, actorId)
     watchScene(skillId, (row and row.name) or tostring(skillId))
 end
 
+-- Turbo uses the same watch to hold a scene at normal speed, without a skip.
 local function hookScenes()
-    if not cfg.SkipScenes then return end
+    if not (cfg.SkipScenes or cfg.Turbo) then return end
     RegisterHook("/Script/mucha.CPP_VM_BtlMsg:HandleBeginSkill", function(_, delval)
-        if not cfg.SkipScenes then return end
+        if not (cfg.SkipScenes or cfg.Turbo) then return end
         local id, actor = nil, nil
         pcall(function()
             local row = delval:get()
@@ -9093,7 +9146,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v0.2.43. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v1.0-rc1. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,

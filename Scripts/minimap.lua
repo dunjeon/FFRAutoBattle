@@ -114,6 +114,9 @@ local function enlarge(e, fraction)
             saved.set = target
             e.box:SetUserSpecifiedScale(target)
         end
+        -- A new HUD can sit at the old one's address. Turning the map off
+        -- restores the widget that is live now, not the one that is gone.
+        saved.widget = e.layout
         saved.box = e.box
         if e.slot.HorizontalAlignment ~= CENTER then e.slot:SetHorizontalAlignment(CENTER) end
         if e.slot.VerticalAlignment ~= CENTER then e.slot:SetVerticalAlignment(CENTER) end
