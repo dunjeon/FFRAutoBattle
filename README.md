@@ -2,7 +2,7 @@
 
 Plays the battle from the gear, skills, and Vision you already equipped. Saves and pak files are not changed.
 
-Version 0.2.41, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 0.2.42, a work in progress. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 ## Install
 
@@ -125,7 +125,7 @@ Battle speed is the game's own button and marks. `Turbo` is the only thing that 
 ```
 SkipScenes - Skips Limit Burst, Vision finish, and Esper scenes
 Turbo - Speeds up battle actions (experimental)
-LargeMap - Shows the field minimap large in the center (F8 / RT / middle mouse)
+LargeMap - Shows the field minimap large in the center (F8 / left trigger / middle mouse)
 MapSize - Size of the large map, % of screen height (default 80)
 Reporting - Saves the last five fights to battle_report.txt
 ```
