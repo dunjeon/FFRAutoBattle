@@ -1204,6 +1204,8 @@ local function elementFactor(skill, enemy, ignoreLearned)
             local learned = Fight and Fight.kindNull and Fight.kindNull[enemy.id]
             if (not ignoreLearned) and learned and learned[kind] then return 0 end
         end
+        local zero = Fight and Fight.skillZero and Fight.skillZero[enemy.id]
+        if (not ignoreLearned) and zero and skill and skill.id and ((zero[skill.id] or 0) >= 2) then return 0 end
         -- What a hit this fight already showed, whoever swung it. The same
         -- factors as the card: a weakness is 3, a half is 0.5, a null is 0.
         -- A reflect is 0 as well. The foe's status list has to still match.
@@ -2780,8 +2782,12 @@ local function pickFinish(uid, finishes, w)
         local foes = w.enemies or {}
         if #foes == 0 then return pow end
         local factor = nil
+        -- The wheel is one throw. A null learned from misses this fight can be
+        -- wrong, so only the enemy's card rules a finisher out.
+        -- TUNE: if fights show Resonances thrown into enemies that block
+        -- them, let the learned nulls count here too.
         for _, u in ipairs(foes) do
-            local f = elementFactor(s, u)
+            local f = elementFactor(s, u, true)
             if f > 0 and (not factor or f > factor) then factor = f end
         end
         if not factor then return nil end
@@ -2808,12 +2814,27 @@ local function pickFinish(uid, finishes, w)
         local r = rowScore(s)
         if r and r > bestR then best, bestR = s, r end
     end
-    -- No finisher lands on the field: the wheel is left for the player.
-    if not best then return nil end
+    -- The card says no finisher lands. The wheel waits for a pick, and the
+    -- card has been wrong before, so the strongest finisher goes anyway. It
+    -- scores below any finisher that lands, so it never beats one.
+    -- TUNE: if fights show these throws doing nothing, skip the wheel
+    -- instead. Skip is the B button; the mod has no way to send it yet.
+    local forced = false
+    if not best then
+        local pow = -1
+        for _, s in ipairs(list) do
+            local okP, p = pcall(offenseOf, s)
+            p = (okP and type(p) == "number") and p or 0
+            if s.kind == "heal" or s.kind == "buff" or s.kind == "revive" then p = -0.5 end
+            if (not best) or p > pow then best, pow = s, p end
+        end
+        if not best then return nil end
+        forced, bestR = true, -1
+    end
     local support = best.kind == "heal" or best.kind == "buff" or best.kind == "revive"
     local foe = nil
     for _, u in ipairs(w.enemies or {}) do
-        if elementFactor(best, u) > 0 and (not foe or (u.hp or 1) < (foe.hp or 1)) then foe = u end
+        if (forced or elementFactor(best, u, true) > 0) and (not foe or (u.hp or 1) < (foe.hp or 1)) then foe = u end
     end
     local tid = (foe and foe.id) or (Fight and Fight.building) or uid
     local targets, isAll
@@ -2826,6 +2847,7 @@ local function pickFinish(uid, finishes, w)
         targets = isAll and idsOf(w.enemies) or { tid }
     end
     local name = foe and foe.name or "the field"
+    if forced then name = name .. " (no finisher lands, sent anyway)" end
     return emit(best, "resonance " .. name, targets, isAll, bestR)
 end
 
@@ -6709,6 +6731,7 @@ local function ensureBattle()
     Fight.drawSeen, Fight.cureTry, Fight.cureMiss, Fight.drawRound = {}, {}, {}, {}
     Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
     Fight.kindMiss, Fight.kindNull, Fight.kindHit, Fight.hitProbe = {}, {}, {}, nil
+    Fight.kindMissBy, Fight.skillZero = {}, {}
     Fight.learned = {}
     Fight.retry = {}
     Fight.stampCache = {}
@@ -7261,8 +7284,39 @@ local function act(serial)
             if now and (now > 0) then
                 Fight.kindMiss[id] = Fight.kindMiss[id] or {}
                 if now >= (before - 0.0005) then
-                    local n = (Fight.kindMiss[id][probe.kind] or 0) + 1
+                    -- A miss counts once per skill, so two different skills must
+                    -- miss before the kind is ruled out. One skill that does
+                    -- nothing tells about that skill, not every skill of its kind.
+                    -- TUNE: if fights show physical or magic turns wasted on an
+                    -- enemy that blocks them, lower this to one skill again.
+                    Fight.kindMissBy = Fight.kindMissBy or {}
+                    Fight.kindMissBy[id] = Fight.kindMissBy[id] or {}
+                    local by = Fight.kindMissBy[id][probe.kind] or {}
+                    Fight.kindMissBy[id][probe.kind] = by
+                    local n = Fight.kindMiss[id][probe.kind] or 0
+                    local sid = probe.sid or "?"
+                    if not by[sid] then
+                        by[sid] = true
+                        n = n + 1
+                    end
                     Fight.kindMiss[id][probe.kind] = n
+                    -- The same skill twice for no HP on this enemy: the skill is
+                    -- dropped against it for the fight. One zero can be a dodge.
+                    -- Darkness hits the Cursed Slates for 0 but its row lists no
+                    -- element, so only this memory catches it.
+                    -- TUNE: if fights show a skill shelved that would have
+                    -- landed, raise the count or clear it on a status change.
+                    if probe.sid then
+                        Fight.skillZero = Fight.skillZero or {}
+                        Fight.skillZero[id] = Fight.skillZero[id] or {}
+                        local z = (Fight.skillZero[id][probe.sid] or 0) + 1
+                        Fight.skillZero[id][probe.sid] = z
+                        if z == 2 then
+                            local line = string.format("%s takes no damage from %s, dropped against it", unitName(id), probe.name or tostring(probe.sid))
+                            log("%s", line)
+                            appendLog("  " .. line)
+                        end
+                    end
                     -- A kind that already took HP off this enemy in this fight is not a null.
                     local landed = Fight.kindHit[id] and Fight.kindHit[id][probe.kind]
                     if (n >= 2) and (not landed) and not (Fight.kindNull[id] and Fight.kindNull[id][probe.kind]) then
@@ -7274,6 +7328,8 @@ local function act(serial)
                     end
                 elseif not (probe.summon or Fight.summoned) then
                     Fight.kindMiss[id][probe.kind] = 0
+                    if Fight.kindMissBy and Fight.kindMissBy[id] then Fight.kindMissBy[id][probe.kind] = nil end
+                    if probe.sid and Fight.skillZero and Fight.skillZero[id] then Fight.skillZero[id][probe.sid] = nil end
                     Fight.kindHit[id] = Fight.kindHit[id] or {}
                     Fight.kindHit[id][probe.kind] = true
                 end
@@ -7417,7 +7473,7 @@ local function act(serial)
         local kind = kindOf(choice)
         local el = choice.known and choice.known.element
         if kind and (not el) then
-            Fight.hitProbe = { kind = kind, hp = probeHp, summon = Fight.summoned and true or false }
+            Fight.hitProbe = { kind = kind, hp = probeHp, sid = choice.id, name = choice.name, summon = Fight.summoned and true or false }
         end
     end
     if ((choice.kind == "revive") or (choice.itemUse == "revive")) and choice.targets then
@@ -9037,7 +9093,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v0.2.42. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v0.2.43. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
