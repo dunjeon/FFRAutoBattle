@@ -8931,6 +8931,15 @@ local function watchScene(skillId, name)
                 finish(string.format("turbo held for %s", name), true)
                 return
             end
+        elseif seen then
+            -- The scene played and stopped before the game allowed a skip.
+            -- Nothing is left to skip, so turbo goes back on now, not at the
+            -- end of the watch.
+            quiet = quiet + 1
+            if quiet >= 2 then
+                finish(string.format("scene skip: %s not allowed", name))
+                return
+            end
         end
         if Scene.want ~= skillId then return end
         if left > 0 then
