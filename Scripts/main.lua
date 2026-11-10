@@ -20,7 +20,7 @@
 -- LevelGate is off unless set. On, a character gains no experience from a
 -- fight where every monster is under that character's level. A monster at or
 -- above them still pays the game's own amount.
--- Turbo is off unless set. On, a fight's actions play at three times the battle
+-- Turbo is off unless set. On, a fight's actions play at four times the battle
 -- speed button's fastest mark. The command menu stays at the game's
 -- command-select speed. A Limit Burst, a Vision finish, and an Esper scene
 -- stay at normal speed. The speed stops when the battle result begins, so
@@ -2320,7 +2320,15 @@ end
 local Menu = {
     open = false, serial = 0, actor = -1, decided = true, sub = false,
     byMod = false,
-    pace = { held = nil, applied = nil, last = nil, guard = 0, marks = nil, command = nil, fast = nil, scene = false, fail = false, lib = nil },
+    pace = { held = nil, applied = nil, last = nil, guard = 0, marks = nil, command = nil, fast = nil, scene = false, fail = false, lib = nil,
+        -- waitFirst: Turbo stays off until the fight's opening is over. A
+        -- turn the game sent by itself at the start of a fight plays at the
+        -- game's own speed. armed is when the wait ends. See Menu.armPace.
+        -- TUNE: set waitFirst false to test the old start, where Turbo began
+        -- the moment the mod saw the fight.
+        waitFirst = true, armed = false,
+        -- seqHook: hook SetSequenceGameSpeed. See Menu.hookPace.
+        seqHook = false },
 }
 
 function Menu.paceLib()
@@ -2427,13 +2435,29 @@ function Menu.readMarks()
     return true
 end
 
+-- The opening is over: the planner sent its first command, or a command
+-- menu opened after the fight was set up. The game's own Auto can take the
+-- first turn (an Esuna after an opening blind) before the mod sees the fight,
+-- and that turn crashed the game under Turbo.
+function Menu.armPace(why)
+    if Menu.pace.armed or not cfg.Turbo then return end
+    Menu.pace.armed = true
+    log("turbo armed by %s", why)
+end
+
 function Menu.applyPace(rate)
     if Menu.pace.applied == rate then return end
+    -- Before the call, so a crash inside it still leaves this line.
+    log("turbo setting %s", tostring(rate))
     -- held marks that turbo changed the speed. Outside a fight the speed is
     -- always 1, so the end of a fight puts back 1, not whatever was read
     -- at the start: that read could be the game's own battle speed.
     Menu.pace.held = true
     if Menu.setDilation(rate) then
+        -- Each change of speed, so a crash log shows what turbo did last.
+        local why = (Menu.pace.scene == true and "scene held") or (Menu.open == true and "command menu") or "actions"
+        log("turbo set %s for %s (was %s, boss %s)", tostring(rate), why, tostring(Menu.pace.applied),
+            tostring(Fight and Fight.boss))
         Menu.pace.applied = rate
         Menu.pace.last = rate
         return
@@ -2467,6 +2491,7 @@ function Menu.restorePace()
         end
         return
     end
+    log("turbo set 1 to restore (was %s)", tostring(pace.applied))
     pace.held, pace.applied = nil, nil
     -- About five seconds of the pace loop.
     pace.guard = 300
@@ -2488,6 +2513,7 @@ function Menu.keepPace()
         return
     end
     if not Known.pace then return end
+    if Menu.pace.waitFirst and not Menu.pace.armed then return end
     if not Menu.readMarks() then
         if not Menu.pace.fail then
             Menu.pace.fail = true
@@ -2518,7 +2544,10 @@ function Menu.hookPace()
         return false
     end
     -- An object path names a class without its A prefix.
-    hook("sequence speed", {
+    -- TUNE: off to test the boss-start crash. Four crashes came with this hook
+    -- live and Turbo setting no speed, and the hook never logged a change.
+    -- Off, a sequence's own battle-speed mark can stack on the Turbo rate.
+    if Menu.pace.seqHook then hook("sequence speed", {
         "/Script/mucha.CPP_BtlGameSpeedManager:SetSequenceGameSpeed",
         "/Script/mucha.ACPP_BtlGameSpeedManager:SetSequenceGameSpeed",
     }, function(_, dilation)
@@ -2526,8 +2555,15 @@ function Menu.hookPace()
         local fast = Menu.pace.fast
         local d = num(dilation and dilation:get())
         if not fast or not d then return end
-        if (d >= 1) and (d <= (fast + 0.01)) then dilation:set(1) end
-    end)
+        if (d >= 1) and (d <= (fast + 0.01)) then
+            -- Logged once per new value, not on every call.
+            if Menu.pace.seqTold ~= d then
+                Menu.pace.seqTold = d
+                log("turbo held a sequence speed of %s at 1", tostring(d))
+            end
+            dilation:set(1)
+        end
+    end) end
     -- Win or loss. Either way the actions are over, and a story scene may follow.
     hook("result begin", { "/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult" }, function()
         Menu.stopPace()
@@ -6980,7 +7016,7 @@ local function ensureBattle()
     if Fight.active then return end
     if Growth.newFight then Growth.newFight() end
     Fight.active = true
-    if Menu.pace then Menu.pace.done = false end
+    if Menu.pace then Menu.pace.done, Menu.pace.seqTold, Menu.pace.armed = false, nil, false end
     Fight.number = Fight.number + 1
     Fight.boss = bossBattle()
     Fight.summoned = false
@@ -7648,6 +7684,7 @@ local function act(serial)
     local phase = finishing and PHASE_FINISH or currentPhase()
     local mpNow = stat(uid, PARAM.MP, false)
     local line = string.format("%s p%d mp%s: %s -> %s", who, phase, tostring(mpNow or "?"), choice.name, choice.reason)
+    if Menu.armPace then Menu.armPace("the first planned command") end
     if not cfg.Submit then
         appendLog("  (not sent) " .. line)
         log("(not sent) %s", line)
@@ -7886,8 +7923,20 @@ end
 
 local function noteHand(v)
     if not (Fight and v) then return end
-    pcall(ensureBattle)
-    if not Fight.active then return end
+    if not Fight.active then
+        -- The game's own Auto sent the fight's first command (an Esuna after
+        -- an opening blind) before the mod saw the fight. Any read of the
+        -- battle while that command plays crashed the game at a boss start,
+        -- in this hook and on the next tick alike, with Turbo on or off.
+        -- With the mod off it did not crash. So the mod stays idle, as it is
+        -- through the opening, and the fight is set up when the next command
+        -- menu opens. This one command is not recorded.
+        if not Fight.waitMenu then
+            Fight.waitMenu = true
+            log("fight waits for the next command menu: the game sent the opening command")
+        end
+        return
+    end
     pcall(function() noteChanges(livingSnapshot()) end)
     pcall(settleGauges)
     -- A pick from an open menu, or on the Resonance wheel, belongs to that
@@ -8699,6 +8748,13 @@ local function hookMenu()
             end
             Menu.actor = actor
             Menu.decided = false
+            -- The game's own opening command is done. See noteHand.
+            if Fight and Fight.waitMenu then
+                Fight.waitMenu = nil
+                gameDelay(0, function() pcall(ensureBattle) end)
+            end
+            -- A menu after the fight was set up: the turn before it is done.
+            if Fight and Fight.active and Menu.armPace then Menu.armPace("a command menu") end
             Menu.open = true
             Menu.serial = Menu.serial + 1
             gameDelay(0, function() if Menu.keepPace then Menu.keepPace() end end)

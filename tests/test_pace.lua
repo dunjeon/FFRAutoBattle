@@ -14,7 +14,7 @@ check(P.fastest({}) == nil, "an empty list has no mark")
 check(P.fastest(nil) == nil, "a missing list has no mark")
 check(P.fastest({ 0, -1 }) == nil, "a non-positive mark is not a speed")
 
-check(P.rate(marks, 0.2, false, false) == 6, "actions run at three times the fastest mark")
+check(P.rate(marks, 0.2, false, false) == 8, "actions run at four times the fastest mark")
 check(P.rate(marks, 0.2, true, false) == 0.2, "the menu stays at the command-select speed")
 check(P.rate(marks, nil, true, false) == 1, "a missing command speed does not crawl the menu")
 check(P.rate(marks, 0.2, true, true) == 1, "a watched scene stays unsped even while a menu is open")

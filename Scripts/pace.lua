@@ -15,7 +15,7 @@ function M.fastest(marks)
     return best
 end
 
--- Actions run at three times the fastest mark, past the last button.
+-- Actions run at four times the fastest mark, past the last button.
 -- The command menu uses the game's command-select speed, so the plan still
 -- has the wait it has now. A scene the skip is watching stays at 1, the
 -- unsped rate, the same way the game holds a Limit, a Vision finish, and a
@@ -29,7 +29,7 @@ function M.rate(marks, command, menuOpen, scene)
     end
     local fast = M.fastest(marks)
     if not fast then return nil end
-    return fast * 3
+    return fast * 4
 end
 
 return M

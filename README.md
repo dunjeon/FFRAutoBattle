@@ -135,7 +135,7 @@ Each of these is off until you turn it on.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `SkipScenes` | `false` | Skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the hit still lands and the battle camera comes back. Other attacks and story scenes play as normal. |
-| `Turbo` | `false` | Experimental. Plays a fight's actions at three times the speed of the battle speed button's fastest mark. The command menu, Limit Bursts, Vision finishes, and Esper scenes stay at normal speed. Speed goes back to normal when the battle result begins. If anything looks wrong, turn it off. |
+| `Turbo` | `false` | Experimental. Plays a fight's actions at four times the speed of the battle speed button's fastest mark. It starts with the first command, so the opening of a fight plays at normal speed. The command menu, Limit Bursts, Vision finishes, and Esper scenes stay at normal speed. Speed goes back to normal when the battle result begins. If anything looks wrong, turn it off. |
 | `LargeMap` | `false` | Lets F8, the left trigger, and the middle mouse button show the field minimap large in the middle of the screen. The game draws it at the bigger size, so it stays sharp. It only turns on outside a fight, and it comes back large on its own after a conversation or a new area. |
 | `MapKey` | `F8` | The large map key. |
 | `MapSize` | `80` | Size of the large map, as a percent of the screen height, from 20 to 100. |
