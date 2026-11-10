@@ -20,7 +20,7 @@
 -- LevelGate is off unless set. On, a character gains no experience from a
 -- fight where every monster is under that character's level. A monster at or
 -- above them still pays the game's own amount.
--- Turbo is off unless set. On, a fight's actions play at twice the battle
+-- Turbo is off unless set. On, a fight's actions play at three times the battle
 -- speed button's fastest mark. The command menu stays at the game's
 -- command-select speed. A Limit Burst, a Vision finish, and an Esper scene
 -- stay at normal speed. The speed stops when the battle result begins, so
