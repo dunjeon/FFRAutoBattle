@@ -265,7 +265,7 @@ local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
     LevelGate = false, Turbo = false, LargeMap = false, MapKey = "F8", MapSize = 80,
-    EsperLevelGap = 3,
+    EsperLevelGap = 3, ResonanceLevelGap = 3,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -6832,6 +6832,7 @@ local function ensureBattle()
     Fight.scanned, Fight.elemRun, Fight.seenAlly = {}, {}, {}
     Fight.resonanceSent = false
     Fight.resonanceMiss = false
+    Fight.wheelTicks, Fight.wheelSkips = 0, 0
     Fight.poured, Fight.down, Fight.downTold, Fight.relax, Fight.gaugeScale, Fight.brokeOn, Fight.gaugeSure, Fight.gaugeWas = {}, {}, {}, {}, {}, {}, {}, {}
     Fight.downSince, Fight.phaseSeen, Fight.bonusSeen, Fight.lastHit = nil, 0, false, nil
     Fight.line = false
@@ -8531,6 +8532,13 @@ local function hookDecide()
 end
 
 local function hookMenu()
+    -- Any cancel while the wheel is up ends the mod's part in it. See
+    -- Known.skipWheel.
+    pcall(function()
+        RegisterHook("/Script/mucha.CPP_VM_BtlCmd:CancelCommand", function()
+            if Fight and Fight.wheelUp then Fight.wheelCancelled = true end
+        end)
+    end)
     RegisterHook("/Script/mucha.CPP_MuchaEventDispatcher:ExecuteEvent", function(_, tag)
         local ok, name = pcall(function() return tag:get().TagName:ToString() end)
         if not ok then return end
@@ -8960,6 +8968,44 @@ local function watchField()
     pcall(settleGauges)
 end
 
+-- The wheel's skip, as a hand skip sends it: CancelCommand on the battle
+-- command menu (seen 2026-11-10; the game then clears the command stack).
+-- Nothing in the battle is read here. Ticks are resonanceWatch's 400 ms:
+-- the call waits for the wheel to take input. It goes once. Any cancel,
+-- the player's or this one, ends the mod's part in that wheel (see
+-- hookMenu), so a late call can't land on the next command menu.
+-- TUNE: if the first call comes before the wheel takes input, raise 3.
+function Known.skipWheel()
+    Fight.wheelTicks = (Fight.wheelTicks or 0) + 1
+    if Fight.wheelTicks ~= 3 then return end
+    local vm, from = nil, nil
+    pcall(function()
+        local lib = StaticFindObject("/Script/mucha.Default__CPP_BFL_UI_Btl")
+        if lib and lib:IsValid() then
+            local got = lib:FindBtlCmdVM()
+            if got and got.IsValid and got:IsValid() then vm, from = got, "FindBtlCmdVM" end
+        end
+    end)
+    if not vm then
+        pcall(function()
+            for _, o in ipairs(FindAllOf("CPP_VM_BtlCmd") or {}) do
+                if o:IsValid() and ((not vm) or o.bDisplayCmd == true) then vm, from = o, "object list" end
+            end
+        end)
+    end
+    if not vm then
+        local line = "wheel skip: no command menu found"
+        log("%s", line)
+        appendLog("  " .. line)
+        return
+    end
+    vm:CancelCommand()
+    Fight.wheelSkips = (Fight.wheelSkips or 0) + 1
+    local line = string.format("wheel skip: CancelCommand sent (menu from %s)", from)
+    log("%s", line)
+    appendLog("  " .. line)
+end
+
 local function resonanceWatch()
     if not (Fight and Fight.active) then return end
     if not cfg.Enabled then
@@ -8969,11 +9015,23 @@ local function resonanceWatch()
     local okPhase, phase = pcall(inFinishPhase)
     local finishing = okPhase and phase == true
     if not finishing then
+        if Fight.wheelCancelled and (Fight.wheelSkips or 0) == 0 then
+            log("wheel skipped by hand")
+            appendLog("  wheel skipped by hand")
+        end
+        Fight.wheelUp, Fight.wheelCancelled = nil, nil
         Fight.resonanceSent = false
         Fight.resonanceMiss = false
         Fight.resonanceWait = false
         Fight.wheelLogged = false
         Fight.attackWheel = false
+        if Fight.wheelLeft and Fight.wheelSkip and (Fight.wheelSkips or 0) > 0 then
+            local line = string.format("wheel skipped (%d call%s)", Fight.wheelSkips, (Fight.wheelSkips == 1) and "" or "s")
+            log("%s", line)
+            appendLog("  " .. line)
+        end
+        Fight.wheelLeft, Fight.wheelSkip = nil, nil
+        Fight.wheelTicks, Fight.wheelSkips = 0, 0
         return
     end
     if cfg.AttacksOnly then
@@ -8983,7 +9041,37 @@ local function resonanceWatch()
         end
         return
     end
+    Fight.wheelUp = true
     if Fight.resonanceSent then return end
+    -- A cancel while the wheel is up, by hand or by the mod: the wheel is
+    -- done. Nothing more is picked or sent for it.
+    if Fight.wheelCancelled then
+        Fight.wheelLate = (Fight.wheelLate or 0) + 1
+        if Fight.wheelLate == 10 then
+            log("wheel still up 4 s after a cancel; the wheel is yours")
+            appendLog("  wheel still up 4 s after a cancel; the wheel is yours")
+        end
+        return
+    end
+    Fight.wheelLate = 0
+    -- A wheel left to the player is not read again. A skip ends the battle,
+    -- and a read while the game takes it down crashed the game.
+    -- A wheel already decided: -1 leaves it to the player untouched; a
+    -- level gap skips it.
+    if Fight.wheelLeft then
+        if Fight.wheelSkip then
+            local okSkip, errSkip = pcall(Known.skipWheel)
+            if not okSkip then log("wheel skip failed: %s", tostring(errSkip)) end
+        end
+        return
+    end
+    if (tonumber(cfg.ResonanceLevelGap) or 0) < 0 then
+        Fight.wheelLeft = "ResonanceLevelGap is -1"
+        local line = "wheel left to you: " .. Fight.wheelLeft
+        log("%s", line)
+        appendLog("  " .. line)
+        return
+    end
     if not Fight.resonanceWait then
         Fight.resonanceWait = true
         return
@@ -8993,13 +9081,19 @@ local function resonanceWatch()
     local careUid, careChoice = nil, nil
     local names = {}
     local wheelNotes, wheelFoes = {}, nil
+    local standing, hurting = {}, false
     for _, uid in ipairs(friendIds()) do
         local ratio = hpRatio(uid)
         local down = (Fight.unitDown and Fight.unitDown(uid)) or (ratio == nil) or (ratio <= 0)
+        if down then hurting = true end
         if (not down) and not outOfControl(uid) then
             names[#names + 1] = unitName(uid)
+            standing[#standing + 1] = uid
             local okW, w = pcall(worldOf, uid, Fight.boss, Fight.summoned)
             if okW and w then
+                for _, a in ipairs(w.allies or {}) do
+                    if a.exposed then hurting = true end
+                end
                 local skills = {}
                 local okS, got = pcall(finishList, uid)
                 if okS and type(got) == "table" then skills = got end
@@ -9043,6 +9137,31 @@ local function resonanceWatch()
             log("%s", line)
             appendLog("  " .. line)
         end)
+    end
+    -- ResonanceLevelGap 1 or more: a fight whose every foe is that many
+    -- levels under every standing ally gets no pick, and the wheel is
+    -- skipped, unless it is a boss or an ally is down or exposed (the
+    -- wheel's heal case). -1 is handled above: the wheel is the player's.
+    -- TUNE: if under-level fights drag on without the finisher, raise the gap.
+    local why = nil
+    pcall(function()
+        local gap = tonumber(cfg.ResonanceLevelGap) or 0
+        if (gap >= 1) and (not Fight.boss) and (not hurting) and Espers.outLeveled and (#standing > 0) then
+            local foes = {}
+            for i, u in ipairs(wheelFoes or {}) do foes[i] = Known.foeLevel(u.id) or false end
+            local all = true
+            for _, uid in ipairs(standing) do
+                if not Espers.outLeveled(Known.allyLevel(uid), foes, gap) then all = false end
+            end
+            if all then why = string.format("every foe is %d or more levels under", gap) end
+        end
+    end)
+    if why then
+        Fight.wheelLeft, Fight.wheelSkip = why, true
+        local line = string.format("wheel skip: %s", why)
+        log("%s", line)
+        appendLog("  " .. line)
+        return
     end
     if careChoice then
         bestUid, bestChoice = careUid, careChoice

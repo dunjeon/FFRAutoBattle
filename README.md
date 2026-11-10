@@ -127,6 +127,7 @@ Settings are in `config.ini` in the mod folder. Edit the file, then restart the 
 | `MenuKey` | `F9` | The No Mercy / Take it Easy key. |
 | `ItemPrice` | `5000` | An item whose buy price is above this stays in the bag. Raise it to let the party spend more expensive items. |
 | `EsperLevelGap` | `3` | An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. `-1` never calls an Esper; you can still call one by hand. |
+| `ResonanceLevelGap` | `3` | The same as `EsperLevelGap`, for the Resonance wheel. The wheel is skipped when every foe is at least this many levels under every standing ally, unless it is a boss or an ally is down or about to die. `0` turns this off. `-1` leaves every wheel to you; the mod never picks or skips. |
 
 ### Optional settings
 
@@ -154,6 +155,7 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 - **A foe that can die this turn dies this turn.** A measured killing blow comes before heals and raises. A Limit Burst can be that blow on a boss or a dangerous fight, but another hit that kills goes first, so the Limit is kept.
 - **The team prepares for a big hit.** When the game warns of a dangerous move, each character estimates that hit against each ally, then uses whichever guard, Shell, Protect, Cover, heal, item, or Defend saves the most of them. If nothing would save anyone, they keep hitting.
 - **Multicast is a normal choice.** An All cast is its own row, with that row's own magnification.
+- **The Resonance wheel is picked, or skipped in an easy fight.** When every foe is `ResonanceLevelGap` or more levels under every standing ally, the mod skips the wheel, the same as a hand skip. A boss, or an ally who is down or about to die, still gets a pick. At `-1` every wheel is yours, and the mod never picks or skips.
 - **An Esper on a weakness comes early.** It goes ahead of a heal nobody will die without. Raises and critical heals still come first.
 - **Support earns its turn.** Buffs and debuffs go out when they fit the fight. A debuff follows the damage the party and the foe really deal.
 - **Spending goes by need.** Items above `ItemPrice` stay in the bag. A buy price far above every other item is held back, and spent only when no cheaper item covers someone down or about to die. A fight where nothing can hurt the party spends no items.
@@ -163,6 +165,7 @@ An ally who is confused, charmed, or berserk is left to the game. If a fight sta
 ## Known limits
 
 - Commands that hold other picks are left to you, including Dualcast, Double Action, Arms Akimbo, Magic Barrage, Magic Boost, and Reckless Abandonment. Turn auto battle off for that turn to use one. An old `shapes.txt` from 1.0.1-dev is no longer read and can be deleted.
+- If you skip a Resonance wheel by hand while the mod is about to skip it, the mod stops for that wheel and leaves it to you. That case is new and not yet tested in game; `UE4SS.log` shows `wheel skipped by hand` or `wheel skipped` when it happens.
 - It wins some hard Expert fights and loses others. A loss is worth reporting. See below.
 - FFRS QoL's auto-repeat (its F8) presses commands too. Turn it off while auto battle is on, or both mods press the command.
 
