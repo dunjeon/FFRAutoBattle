@@ -25,6 +25,14 @@ local unseen = { seen = false, acted = true }
 check(E.holding(unseen, false) == false, "after it acts, a unit that is not up can be called again")
 check(E.holding(unseen, true) == true, "after it acts, a unit that is still up stays out")
 
+check(E.outLeveled(50, { 30, 35 }, 10) == true, "every foe ten or more under is out-leveled")
+check(E.outLeveled(50, { 30, 41 }, 10) == false, "one foe inside the gap keeps the call open")
+check(E.outLeveled(50, { 40 }, 10) == true, "exactly the gap counts as under")
+check(E.outLeveled(50, { 30 }, 0) == false, "a gap of 0 is off")
+check(E.outLeveled(nil, { 30 }, 10) == false, "an unread caller level keeps the call open")
+check(E.outLeveled(50, { 30, false }, 10) == false, "an unread foe level keeps the call open")
+check(E.outLeveled(50, {}, 10) == false, "no foes is not out-leveled")
+
 local function hits(prefer, other)
     return { { factor = prefer, prefer = true }, { factor = other, prefer = false } }
 end

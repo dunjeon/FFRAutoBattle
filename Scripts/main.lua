@@ -278,6 +278,7 @@ local Defaults = {
     Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
     LevelGate = false, Turbo = false, LargeMap = false, MapKey = "F8", MapSize = 80,
+    EsperLevelGap = 3,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -2575,6 +2576,27 @@ local function catalogOf(id)
     return nil
 end
 
+-- Levels for EsperLevelGap, read the way LevelGate reads them. The live
+-- level parameter reads -1 on allies, so it is not used. An ally's level
+-- comes from its playable unit; a foe's from its catalog row.
+function Known.allyLevel(uid)
+    local lib = Known.levelLib
+    if not (lib and lib:IsValid()) then
+        lib = StaticFindObject("/Script/mucha.Default__CPP_BFL_Unit")
+        Known.levelLib = lib
+    end
+    local unitId = catalogOf(uid)
+    if not (unitId and lib and lib:IsValid()) then return nil end
+    local ok, v = pcall(function() return lib:GetPlayableUnitLevel(unitId) end)
+    v = ok and num(v) or nil
+    if v and v > 0 then return v end
+    return nil
+end
+function Known.foeLevel(uid)
+    local row = Known.growth and Known.growth[catalogOf(uid)]
+    return row and type(row.level) == "number" and row.level or nil
+end
+
 -- The summon test, wherever the party is read. See worldOf.
 Fight.isSummon = function(id, name)
     Fight.summons = Fight.summons or {}
@@ -4762,6 +4784,28 @@ local function turn(uid, skills, w, phase)
         end
         local field = (#w.enemies > 0) and w.enemies or ((#pool > 0) and pool or open)
         if #field == 0 then return nil end
+        -- EsperLevelGap. A danger move on foes far under this unit is not
+        -- worth a call. A boss, or a hit this fight has shown would kill an
+        -- ally, still is.
+        -- TUNE: if under-level fights still go wrong without the call, raise
+        -- the gap; if strong under-level foes kill allies before any hit is
+        -- measured, add a measured-damage check here.
+        local gap = tonumber(cfg.EsperLevelGap) or 0
+        if (gap >= 1) and (not Fight.boss) and Espers.outLeveled then
+            local exposed = false
+            for _, a in ipairs(w.allies or {}) do
+                if a.exposed then exposed = true end
+            end
+            if not exposed then
+                local mine = Known.allyLevel(uid)
+                local foes = {}
+                for i, u in ipairs(field) do foes[i] = Known.foeLevel(u.id) or false end
+                if Espers.outLeveled(mine, foes, gap) then
+                    esperGate(string.format("every foe is %d or more levels under", gap))
+                    return nil
+                end
+            end
+        end
         -- The foe this call is for: a dangerous body, else the largest gauge.
         local preferId, preferGauge, dangerGauge = nil, -1, -1
         for _, u in ipairs(field) do
@@ -6412,7 +6456,7 @@ Known.repCards = function(snap)
             local p = paramOf(id)
             local okU, unitId = pcall(function() return num(p:GetUnitId()) end)
             Known.report:write({
-                string.format("  enemy %s, uid %s, row %s", tostring(u.name), tostring(id), tostring(okU and unitId)),
+                string.format("  enemy %s, uid %s, row %s, level %s", tostring(u.name), tostring(id), tostring(okU and unitId), tostring(Known.foeLevel(id))),
                 string.format("    weak %s; half %s; absorb %s; null %s; immune %s", set(card and card.weak), set(card and card.half),
                     set(card and card.absorb), set(card and card.no), set(card and card.ail)),
                 string.format("    danger %s; hits %s; counter %s; resists %s; hp %s/%s, gauge %s/%s", (card and card.danger and table.concat(card.danger, ",")) or "-",
@@ -6430,7 +6474,7 @@ Known.repCards = function(snap)
             local okU, unitId = pcall(function() return num(p:GetUnitId()) end)
             local okV, vision = pcall(function() return num(p:GetEquipmentId(4, 0)) end)
             local lines = { string.format("  ally %s, uid %s, unit %s, vision %s: level %s, hp %s/%s, mp %s/%s, atk %s def %s int %s mind %s agi %s",
-                tostring(u.name), tostring(id), tostring(okU and unitId), tostring(okV and vision), row(10), tostring(u.hp), tostring(u.maxHp),
+                tostring(u.name), tostring(id), tostring(okU and unitId), tostring(okV and vision), tostring(Known.allyLevel(id)), tostring(u.hp), tostring(u.maxHp),
                 tostring(u.mp), tostring(u.maxMp), row(5), row(6), row(7), row(8), row(9)) }
             for _, s in ipairs(usableOf(id)) do
                 local info = s.known or {}

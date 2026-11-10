@@ -89,6 +89,23 @@ function M.holding(mark, present)
     return false
 end
 
+-- True when every foe is at least `gap` levels under `level`, so a fight that
+-- only looks dangerous is not worth a call. A gap under 1 is off. A level
+-- that was not read, on the caller or on any foe, is not under: the call
+-- stays open.
+function M.outLeveled(level, foes, gap)
+    local g = tonumber(gap)
+    if not g or g < 1 then return false end
+    if type(level) ~= "number" then return false end
+    if type(foes) ~= "table" or #foes == 0 then return false end
+    for i = 1, #foes do
+        local lv = foes[i]
+        if type(lv) ~= "number" then return false end
+        if (level - lv) < g then return false end
+    end
+    return true
+end
+
 -- Higher is a better call. nil means do not call this row.
 -- `prefer` is the foe the turn is about. A weakness there outranks a weakness
 -- on someone else, which outranks a hit that simply lands. A support row is
