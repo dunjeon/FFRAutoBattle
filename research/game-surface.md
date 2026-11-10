@@ -330,16 +330,7 @@ party set is **583**. With them: `DamageMultiplier` 26 (from 16),
 `AddActOnSkill` (1) sit on `DT_PassiveSkillData` effect bundles (Double
 Action (unlimited), Dual Spellblade, Dual Guns, and enemy extra turns).
 
-**Dualcast, Double Action, and Arms Akimbo are commands.** Corrected
-2026-11-09 from a hand cast. Each is an Ability row (400730, 400710,
-400650) with no damage and no effects. `DT_SkillGeneralData` lists the
-commands that hold picks in `hierarchicalSkills`, and the ones picked one
-after another in `sequentialSelectedSkills`. Neither list says how many
-picks or which kinds. A hand Dualcast went to the game as one decide:
-the command under 1/1 (the skill menu) on the caster, then each spell
-under 1/400730, with keys [1/1 1/400730 1/<base spell> 1/<base spell>].
-An All cast's entry is the All row, and its key is the base spell.
-`CanUnitActivateSkill` takes the parent list as its fourth argument. The most common passive
+The most common passive
 effects: `ParameterVariation` 41, `DamageMultiplier` 34,
 `BreakDamageVariation` 30, `AddElementResistance` 24, `Counter` 23.
 

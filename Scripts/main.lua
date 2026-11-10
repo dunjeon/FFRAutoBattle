@@ -35,8 +35,7 @@ local function log(fmt, ...)
     if (not Reporting) and not (text:find("loaded. planner", 1, true) or text:find("failed", 1, true)
         or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)
         or text:find("scene skip", 1, true) or text:find("level gate", 1, true)
-        or text:find("turbo", 1, true) or text:find("large map", 1, true)
-        or text:find("command shape", 1, true)) then
+        or text:find("turbo", 1, true) or text:find("large map", 1, true)) then
         return
     end
     print(TAG .. text .. "\n")
@@ -206,12 +205,6 @@ do
     else
         log("large map unavailable: %s", tostring(loaded))
     end
-    ok, loaded = pcall(dofile, DIR .. "/Scripts/shapes.lua")
-    if ok and type(loaded) == "table" then
-        Known.shapes = loaded
-    else
-        log("command shape module unavailable: %s", tostring(loaded))
-    end
 end
 local function foldName(name)
     local n = (name or ""):lower()
@@ -238,12 +231,6 @@ end
 
 local CONFIG_PATH = DIR .. "/config.ini"
 local STATE_PATH = DIR .. "/state.txt"
--- Commands that hold picks, as the player's own hand casts showed them.
-Known.SHAPES_PATH = DIR .. "/shapes.txt"
--- parents: ids the game's general skill table lists as holding picks.
--- shapeOf: what a hand cast showed for each, by parent id.
-Known.parents = {}
-Known.shapeOf = {}
 
 local ATTR = {
     FIGHT = 1, CHASE = 2, ABILITY = 3, MAGIC = 4, LB = 5,
@@ -325,26 +312,6 @@ local function loadConfig()
     local state = loadIni(STATE_PATH)
     if state.enabled then cfg.Enabled = parseBool(state.enabled) end
     if state.attacks then cfg.AttacksOnly = parseBool(state.attacks) end
-    if Known.shapes then
-        for id, text in pairs(loadIni(Known.SHAPES_PATH)) do
-            local shape = Known.shapes.decode(id, text)
-            if shape then Known.shapeOf[shape.parent] = shape end
-        end
-    end
-end
-
-function Known.saveShapes()
-    if not Known.shapes then return end
-    local ids = {}
-    for id in pairs(Known.shapeOf) do ids[#ids + 1] = id end
-    table.sort(ids)
-    local f = io.open(Known.SHAPES_PATH, "w")
-    if not f then return end
-    f:write("; Commands that hold picks, learned from casts sent by hand. Delete this file to forget them.\n")
-    for _, id in ipairs(ids) do
-        f:write(tostring(id) .. "=" .. Known.shapes.encode(Known.shapeOf[id]) .. "\n")
-    end
-    f:close()
 end
 
 local function saveState()
@@ -487,19 +454,6 @@ local function buildSkillIndex(fromBattle)
                 unitTables[#unitTables + 1] = dt
             elseif struct == "BTL_UNIT_AI_PARAMETER" then
                 aiTables[#aiTables + 1] = dt
-            elseif struct == "SKILL_GENERAL_DATA" then
-                -- The commands whose picks go under them in one decide.
-                pcall(function()
-                    dt:ForEachRow(function(_, row)
-                        local list = field(row, "hierarchicalSkills")
-                        if list and list.ForEach then
-                            list:ForEach(function(_, v)
-                                local id = num(unwrap(v))
-                                if id and id > 0 then Known.parents[id] = true end
-                            end)
-                        end
-                    end)
-                end)
             end
         end)
     end
@@ -744,12 +698,6 @@ local function buildSkillIndex(fromBattle)
             local mobs = 0
             for _ in pairs(Mobs) do mobs = mobs + 1 end
             log("rows read: %d enemy rows, %d bestiary, %d limits", cards, mobs, (function() local n = 0 for _ in pairs(built.limits) do n = n + 1 end return n end)())
-            pcall(function()
-                local parents, learned = 0, 0
-                for _ in pairs(Known.parents) do parents = parents + 1 end
-                for _ in pairs(Known.shapeOf) do learned = learned + 1 end
-                log("command parents: %d listed by the game, %d learned from hand casts", parents, learned)
-            end)
         else
             log("rows failed: %s", tostring(built))
         end
@@ -1454,9 +1402,6 @@ local function tagSkill(uid, id, borrowed)
     if (borrowed == true) and activation(uid, id) ~= true then return nil end
     local s = skillOf(id)
     if not s or SKIP[s.attr] then return nil end
-    -- A command that holds picks is never a turn by itself. Sent alone, its
-    -- decide carries nothing under it. It goes out only with its picks.
-    if Known.parents[id] or Known.shapeOf[id] then return nil end
     local lb = limitSkill(s)
     if not borrowed and sealed(uid, id) and not lb then return nil end
     local copy = {}
@@ -2769,52 +2714,6 @@ local function learn(v)
     }
 end
 
--- A hand decide whose first entry is a command the game lists as holding
--- picks: how many went under it and of what kind. Kept in shapes.txt.
-function Known.learnShape(v)
-    local Sh = Known.shapes
-    if not (Sh and v and v.cmdDecideDataList and v.cmdDecideDataList.ForEach) then return end
-    local items, keys = {}, {}
-    v.cmdDecideDataList:ForEach(function(_, e)
-        local d = unwrap(e)
-        if not d then return end
-        items[#items + 1] = {
-            actionId = num(d.actionId),
-            pCat = d.ParentActionKey and num(d.ParentActionKey.Category) or 1,
-            pId = d.ParentActionKey and num(d.ParentActionKey.ID) or 0,
-            isItem = d.isUseItem and true or false,
-        }
-    end)
-    for _, it in ipairs(items) do
-        if it.isItem then return end
-    end
-    if v.actionKeys and v.actionKeys.ForEach then
-        v.actionKeys:ForEach(function(_, e)
-            local k = unwrap(e)
-            if k then keys[#keys + 1] = { num(k.Category) or 0, num(k.ID) or 0 } end
-        end)
-    end
-    -- The game's list when it was read. Without it, the decide itself says
-    -- so: every pick after the first names the first as its parent.
-    local listed = next(Known.parents) ~= nil
-    local shape = Sh.read(items, keys, num(v.CommandId),
-        function(id) return (not listed) or (Known.parents[id] == true) end,
-        function(id) local row = skillOf(id) return row and row.attr end)
-    if not shape then return end
-    local merged = Sh.merge(Known.shapeOf[shape.parent], shape)
-    if Sh.same(Known.shapeOf[shape.parent], merged) then return end
-    Known.shapeOf[shape.parent] = merged
-    pcall(Known.saveShapes)
-    local row = skillOf(shape.parent)
-    local kinds = {}
-    for a in pairs(merged.attrs) do kinds[#kinds + 1] = tostring(a) end
-    table.sort(kinds)
-    local line = string.format("command shape learned: %s, %d picks, attr %s", (row and row.name) or tostring(shape.parent),
-        merged.picks, table.concat(kinds, ","))
-    log("%s", line)
-    appendLog("  " .. line)
-end
-
 local function send(uid, choice, phase)
     -- A multicast goes out as its own row, under the base spell's menu and keys.
     local row = (not choice.isItem) and skillOf(choice.id) or nil
@@ -2852,48 +2751,6 @@ local function send(uid, choice, phase)
     end
     local obj = StaticConstructObject(cls, disp)
     obj.CmdType = cmdType
-    -- A command that holds picks: the command, then each pick under it, in
-    -- one decide, the way the player's hand cast sent it.
-    local pair = choice.pair
-    if pair and Known.shapes then
-        local picks = {}
-        for i = 1, pair.shape.picks do
-            picks[i] = { id = choice.id, menuId = menuId, isAll = choice.isAll, targets = choice.targets }
-        end
-        local entries, pairKeys = Known.shapes.build(pair.shape, uid, picks)
-        obj.isNotConsume = false
-        obj.doCalcOrder = true
-        obj.CommandId = pair.shape.command
-        for i, e in ipairs(entries) do
-            obj.cmdDecideDataList[i] = { actionId = e.actionId, actionUnitUniqueId = uid }
-            local d = obj.cmdDecideDataList[i]
-            d.actionId = e.actionId
-            d.actionUnitUniqueId = uid
-            d.isUseItem = false
-            d.IsAll = e.isAll and true or false
-            d.ParentActionKey.Category = e.pCat
-            d.ParentActionKey.ID = e.pId
-            for j, tid in ipairs(e.targets) do
-                d.targetUnitUniqueIdList[j] = tid
-            end
-        end
-        for i, k in ipairs(pairKeys) do
-            obj.actionKeys[i] = { Category = k[1], ID = k[2] }
-            obj.actionKeys[i].Category = k[1]
-            obj.actionKeys[i].ID = k[2]
-        end
-        log("%s under %s: %d picks, keys %d", tostring(choice.name), tostring(pair.name), #entries - 1, #pairKeys)
-        Menu.byMod = true
-        local pairOk, pairErr = pcall(function()
-            disp:ExecuteEvent({ TagName = FName("Delegate.Battle.Cmd.Decide") }, obj)
-        end)
-        if not pairOk then
-            Menu.byMod = false
-            log("send failed: %s", tostring(pairErr))
-            return false
-        end
-        return true
-    end
     obj.isNotConsume = isNotConsume
     obj.doCalcOrder = doCalcOrder
     obj.CommandId = commandId
@@ -6172,55 +6029,6 @@ local function kitFallback(uid)
     return finishChoice(uid, best, "kit " .. unitName(tid), { tid }, false)
 end
 
--- A damage turn that a command holding picks can carry more than once, in
--- the same turn. The command's own row changes nothing about its picks,
--- a hand cast showed this kind under it, and the bar pays for the command
--- and every pick. A command whose row changes its picks is left for now.
--- A kill shot goes alone: the next pick would land on a body already gone.
--- TUNE: if fights show the second cast wasted, pair only on a boss or a
--- dangerous fight, the same as a Limit.
-function Known.pairUp(uid, choice, w, phase)
-    local Sh = Known.shapes
-    if not (Sh and choice and next(Known.shapeOf)) then return choice end
-    if phase ~= 0 or choice.isItem or choice.kind ~= "damage" then return choice end
-    if choice.attr == ATTR.LB or choice.attr == ATTR.SUMMON or choice.attr == ATTR.FINISH then return choice end
-    if (choice.reason or ""):find("^kill") then return choice end
-    Fight.pairTold = Fight.pairTold or {}
-    for _, id in ipairs(equippedIds(uid)) do
-        local shape = Known.shapeOf[id]
-        local row = shape and skillOf(id)
-        if row and Sh.fits(shape, choice.attr) and (#(row.effects or {}) == 0)
-            and (not sealed(uid, id)) and commandEnabled(uid, id) then
-            local total = (skillCost(uid, id, false) or 0) + shape.picks * (choice.cost or 0)
-            if total <= (w.mp or 0) then
-                -- The game's own check, asked with the command as the pick's parent.
-                local allowed = nil
-                local bfl = battleLib()
-                if bfl and bfl:IsValid() then
-                    local okA, can = pcall(function()
-                        return bfl:CanUnitActivateSkill(uid, choice.id, false, { id }, choice.isAll and true or false)
-                    end)
-                    if okA and type(can) == "boolean" then allowed = can end
-                end
-                local told = tostring(id) .. ":" .. tostring(choice.id)
-                if not Fight.pairTold[told] then
-                    Fight.pairTold[told] = true
-                    local line = string.format("pick check %s under %s: game says %s", tostring(choice.name),
-                        tostring(row.name), tostring(allowed))
-                    log("%s", line)
-                    appendLog("  " .. line)
-                end
-                if not (allowed == false and ACT.fiveWorks) then
-                    choice.pair = { shape = shape, name = row.name, cost = total }
-                    choice.reason = string.format("%s, %s x%d", choice.reason or "", tostring(row.name), shape.picks)
-                    return choice
-                end
-            end
-        end
-    end
-    return choice
-end
-
 local function consider(uid)
     clearFoeKeep()
     if Fight then Fight.stampCache = {} end
@@ -6328,14 +6136,7 @@ local function consider(uid)
         log("choice failed: %s", tostring(choice))
         choice = nil
     end
-    if choice then
-        local okPair, paired = pcall(Known.pairUp, uid, choice, w, phase)
-        if not okPair then
-            log("pairing failed: %s", tostring(paired))
-            choice.pair = nil
-        end
-        return choice
-    end
+    if choice then return choice end
     -- The fallback swing is a payable hit that can land, on a body it lands
     -- on. A hit every enemy nulls is not swung.
     local foe = w.enemies and w.enemies[1]
@@ -7041,7 +6842,6 @@ local function ensureBattle()
     Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
     Fight.kindMiss, Fight.kindNull, Fight.kindHit, Fight.hitProbe = {}, {}, {}, nil
     Fight.kindMissBy, Fight.skillZero = {}, {}
-    Fight.pairTold = {}
     Fight.learned = {}
     Fight.retry = {}
     Fight.stampCache = {}
@@ -8712,8 +8512,6 @@ local function hookDecide()
                 Menu.fromMenu = Menu.open and (not Menu.decided) and true or false
                 learn(v)
                 if not fromMod then
-                    local okShape, errShape = pcall(Known.learnShape, v)
-                    if not okShape then log("command shape was not recorded: %s", tostring(errShape)) end
                     local okTrace, errTrace = pcall(Menu.traceHand, v)
                     if not okTrace then log("hand trace failed: %s", tostring(errTrace)) end
                 end

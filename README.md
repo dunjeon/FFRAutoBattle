@@ -57,7 +57,7 @@ When this step is done, this file exists:
 
 `FFRS\Binaries\Win64\ue4ss\Mods\FFRAutoBattle\Scripts\main.lua`
 
-The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, `pace.lua`, `minimap.lua`, and `shapes.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
+The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, `pace.lua`, and `minimap.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
 **Upgrading from an earlier version:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again.
 
@@ -154,7 +154,6 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 - **A foe that can die this turn dies this turn.** A measured killing blow comes before heals and raises. A Limit Burst can be that blow on a boss or a dangerous fight, but another hit that kills goes first, so the Limit is kept.
 - **The team prepares for a big hit.** When the game warns of a dangerous move, each character estimates that hit against each ally, then uses whichever guard, Shell, Protect, Cover, heal, item, or Defend saves the most of them. If nothing would save anyone, they keep hitting.
 - **Multicast is a normal choice.** An All cast is its own row, with that row's own magnification.
-- **Dualcast, Double Action, and Arms Akimbo double a damage turn.** The game lists which commands hold more than one pick, but not how many or which kinds. Cast one of them by hand once, with auto battle off, and the mod learns its shape from that turn and keeps it in `shapes.txt`. After that, a damage turn whose spell or skill fits goes out twice under that command when the bar pays for both. A killing blow goes alone. Delete `shapes.txt` to forget what it learned.
 - **An Esper on a weakness comes early.** It goes ahead of a heal nobody will die without. Raises and critical heals still come first.
 - **Support earns its turn.** Buffs and debuffs go out when they fit the fight. A debuff follows the damage the party and the foe really deal.
 - **Spending goes by need.** Items above `ItemPrice` stay in the bag. A buy price far above every other item is held back, and spent only when no cheaper item covers someone down or about to die. A fight where nothing can hurt the party spends no items.
@@ -163,7 +162,7 @@ An ally who is confused, charmed, or berserk is left to the game. If a fight sta
 
 ## Known limits
 
-- Commands that change their picks are not used yet, including Magic Barrage, Magic Boost, and Reckless Abandonment. Dualcast, Double Action, and Arms Akimbo are used only after one hand cast, and only on damage turns.
+- Commands that hold other picks are left to you, including Dualcast, Double Action, Arms Akimbo, Magic Barrage, Magic Boost, and Reckless Abandonment. Turn auto battle off for that turn to use one. An old `shapes.txt` from 1.0.1-dev is no longer read and can be deleted.
 - It wins some hard Expert fights and loses others. A loss is worth reporting. See below.
 - FFRS QoL's auto-repeat (its F8) presses commands too. Turn it off while auto battle is on, or both mods press the command.
 
