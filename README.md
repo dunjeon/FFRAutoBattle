@@ -126,7 +126,7 @@ Settings are in `config.ini` in the mod folder. Edit the file, then restart the 
 | `TakeOverKey` | `F10` | The auto battle key. |
 | `MenuKey` | `F9` | The No Mercy / Take it Easy key. |
 | `ItemPrice` | `5000` | An item whose buy price is above this stays in the bag. Raise it to let the party spend more expensive items. |
-| `EsperLevelGap` | `3` | An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. |
+| `EsperLevelGap` | `3` | An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. `-1` never calls an Esper; you can still call one by hand. |
 
 ### Optional settings
 

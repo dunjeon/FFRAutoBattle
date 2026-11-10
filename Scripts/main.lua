@@ -1402,6 +1402,8 @@ local function tagSkill(uid, id, borrowed)
     if (borrowed == true) and activation(uid, id) ~= true then return nil end
     local s = skillOf(id)
     if not s or SKIP[s.attr] then return nil end
+    -- EsperLevelGap -1: no Esper is ever called. The player can still call one by hand.
+    if s.attr == ATTR.SUMMON and (tonumber(cfg.EsperLevelGap) or 0) < 0 then return nil end
     local lb = limitSkill(s)
     if not borrowed and sealed(uid, id) and not lb then return nil end
     local copy = {}
