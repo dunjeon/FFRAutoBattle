@@ -32,4 +32,15 @@ function M.rate(marks, command, menuOpen, scene)
     return fast * 4
 end
 
+-- The game put its own speed back over the rate turbo holds. The battle
+-- speed manager writes the world speed itself after a hit pause and a
+-- sequence, and turbo only wrote when its own rate changed, so the game's
+-- mark won. A slow under 1, a hit pause, is the game's to keep.
+function M.taken(now, rate)
+    now, rate = tonumber(now), tonumber(rate)
+    if not (now and rate) then return false end
+    if math.abs(now - rate) < 0.01 then return false end
+    return now >= 0.99
+end
+
 return M

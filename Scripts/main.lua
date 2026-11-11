@@ -2398,6 +2398,7 @@ end
 function Menu.armPace(why)
     if Menu.pace.armed or not cfg.Turbo then return end
     Menu.pace.armed = true
+    Menu.pace.retaken, Menu.pace.seen, Menu.pace.since = 0, nil, os.time()
     log("turbo armed by %s", why)
 end
 
@@ -2458,7 +2459,10 @@ function Menu.stopPace()
     if not Menu.pace.done then
         Menu.pace.done = true
         Menu.pace.scene = false
-        if cfg.Turbo then log("turbo off") end
+        if cfg.Turbo then
+            Menu.tellRetaken()
+            log("turbo off")
+        end
     end
     Menu.restorePace()
 end
@@ -2479,7 +2483,36 @@ function Menu.keepPace()
     end
     local rate = Known.pace.rate(Menu.pace.marks, Menu.pace.command, Menu.open == true, Menu.pace.scene == true)
     if not rate then return end
+    if (Menu.pace.applied == rate) and Known.pace.taken then
+        local now = Menu.dilation()
+        if Known.pace.taken(now, rate) then
+            -- Quiet on purpose: this can run many times a fight. The count
+            -- and the speeds the game wrote go to the log when the fight ends.
+            local pace = Menu.pace
+            pace.retaken = (pace.retaken or 0) + 1
+            pace.seen = pace.seen or {}
+            local key = string.format("%.2f", now)
+            pace.seen[key] = (pace.seen[key] or 0) + 1
+            if not Menu.setDilation(rate) then pace.applied = nil end
+            return
+        end
+    end
     Menu.applyPace(rate)
+end
+
+-- How often the game put its own speed back while turbo held a rate. A count
+-- near once per tick means the game writes the speed every frame.
+function Menu.tellRetaken()
+    local pace = Menu.pace
+    if (pace.retaken or 0) > 0 then
+        local parts = {}
+        for k, v in pairs(pace.seen or {}) do parts[#parts + 1] = string.format("%s x%d", k, v) end
+        table.sort(parts)
+        local secs = pace.since and (os.time() - pace.since) or nil
+        log("turbo took the speed back %d times in %s s; the game wrote %s", pace.retaken,
+            secs and string.format("%.0f", secs) or "?", table.concat(parts, ", "))
+    end
+    pace.retaken, pace.seen, pace.since = 0, nil, nil
 end
 
 -- A battle-speed mark on a sequence would stack on the world rate.
