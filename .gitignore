@@ -1,6 +1,7 @@
 battle_log.txt
 battle_report.txt
 state.txt
+echo.txt
 *.log
 todo.txt
 sim/out/

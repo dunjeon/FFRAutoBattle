@@ -92,10 +92,12 @@ function M.new(path, clock)
             foes = {}, foeOrder = {}, kinds = {}, flags = {}, flagOrder = {}, hits = {}, hitSeen = {},
             wheels = 0, last = nil, falls = 0, raises = 0, firstFall = nil, cardSeen = {}, barSeen = {},
             breaks = {}, open = {}, total = 0, onBroken = 0, triggers = 0, lastCmd = nil, lastNow = nil,
-            hpTotal = 0, hpOnBroken = 0, drops = {},
+            hpTotal = 0, hpOnBroken = 0, drops = {}, echo = {}, echoOrder = {},
+            wipes = 0, restarts = 0, wipeOpen = false,
         }
-        self:write({ "", string.format("=== FIGHT %s, boss %s, %s, started %s ===", tostring(info.number),
-            tostring(info.boss), tostring(info.difficulty or "difficulty unread"), self.fight.started) })
+        self:write({ "", string.format("=== FIGHT %s, boss %s, %s, %sstarted %s ===", tostring(info.number),
+            tostring(info.boss), tostring(info.difficulty or "difficulty unread"),
+            info.mode and ("mode " .. tostring(info.mode) .. ", ") or "", self.fight.started) })
     end
 
     local function ally(F, name)
@@ -126,6 +128,22 @@ function M.new(path, clock)
         local rec = F.flags[kind]
         rec.n = rec.n + 1
         if #rec.examples < 6 then rec.examples[#rec.examples + 1] = text end
+    end
+
+    -- Echo, counted by what happened: a turn kept, sent, handed back, a target
+    -- changed, a send that failed. Unlike a flag, the player's own turns count.
+    -- Every event is also a line in the fight, where it happened.
+    function R:echo(kind, text)
+        local F = self.fight
+        if not F then return end
+        if not F.echo[kind] then
+            F.echo[kind] = { n = 0, examples = {} }
+            F.echoOrder[#F.echoOrder + 1] = kind
+        end
+        local rec = F.echo[kind]
+        rec.n = rec.n + 1
+        if #rec.examples < 6 then rec.examples[#rec.examples + 1] = text end
+        self:note("echo " .. kind .. ": " .. tostring(text))
     end
 
     -- A stagger opens when a gauge empties and closes when it fills or the body goes.
@@ -242,6 +260,26 @@ function M.new(path, clock)
         end
         compare(snap.allies, false)
         compare(snap.foes, true)
+        -- Every ally down at once is a loss. Nobody is left to raise anyone,
+        -- so an ally standing again after it means the game started the
+        -- fight over in the same battle.
+        local allies, standing = 0, 0
+        for _, u in pairs(snap.allies) do
+            allies = allies + 1
+            if not u.down then standing = standing + 1 end
+        end
+        local wipeLine = nil
+        if allies > 0 then
+            if (standing == 0) and (not F.wipeOpen) then
+                F.wipeOpen = true
+                F.wipes = F.wipes + 1
+                wipeLine = string.format("PARTY WIPED: every ally is down (loss %d) after command %d", F.wipes, F.cmds)
+            elseif (standing > 0) and F.wipeOpen then
+                F.wipeOpen = false
+                F.restarts = F.restarts + 1
+                wipeLine = string.format("FIGHT RESTARTED after the wipe: attempt %d", F.restarts + 1)
+            end
+        end
         if prev then
             for id, was in pairs(prev.foes) do
                 if not snap.foes[id] then
@@ -265,6 +303,7 @@ function M.new(path, clock)
             table.insert(lines, 1, string.format("%s  changed since command %d:", self.clock(), F.cmds))
             self:write(lines)
         end
+        if wipeLine then self:note(wipeLine) end
         F.last = snap
     end
 
@@ -359,7 +398,8 @@ function M.new(path, clock)
         if not F then return end
         self:wheelClose()
         -- The player's own turns count, but aren't flagged: the flags judge the mod.
-        self.quiet = rec.byHand and true or false
+        -- An echo is the player's turn sent again, so it is not flagged either.
+        self.quiet = (rec.byHand or rec.echo) and true or false
         F.cmds = F.cmds + 1
         local n = F.cmds
         local a = ally(F, tostring(rec.who))
@@ -381,7 +421,7 @@ function M.new(path, clock)
             targets[#targets + 1] = tx
         end
         local lines = {
-            string.format("%s #%d%s round %s phase %s %s mp %s lb %s: %s (id %s, %s, attr %s, dmg %s, cost %s) -> %s", self.clock(), n, rec.byHand and " BY HAND" or "",
+            string.format("%s #%d%s round %s phase %s %s mp %s lb %s: %s (id %s, %s, attr %s, dmg %s, cost %s) -> %s", self.clock(), n, (rec.echo and " ECHO") or (rec.byHand and " BY HAND") or "",
                 tostring(rec.round), tostring(rec.phase), tostring(rec.who), tostring(rec.mp), tostring(rec.lb), tostring(rec.name),
                 tostring(rec.id), kind, tostring(rec.attr), tostring(rec.dmgType), tostring(rec.cost), table.concat(targets, ", ")),
             "    why: " .. tostring(rec.reason),
@@ -519,6 +559,10 @@ function M.new(path, clock)
                 (#b.others > 0) and table.concat(b.others, ", ") or "-", b.limitUnused, b.offTask, (#list > 0) and table.concat(list, ", ") or "nothing")
         end
         lines[#lines + 1] = string.format("    at the last reading: %d allies up, %d down; foes up: %s", up, downN, (#foesUp > 0) and table.concat(foesUp, "; ") or "none read")
+        local ending = F.wipeOpen and "ended with the party down" or "ended with the party up"
+        lines[#lines + 1] = string.format("    result: %s; party wiped %d time%s, fight restarted %d time%s",
+            (F.wipes > 0) and ("LOST " .. F.wipes .. " time" .. ((F.wipes == 1) and "" or "s") .. ", " .. ending) or ending,
+            F.wipes, (F.wipes == 1) and "" or "s", F.restarts, (F.restarts == 1) and "" or "s")
         lines[#lines + 1] = string.format("    falls %d, first after command %s; raises %d; wheels opened %d, sent %d",
             F.falls, tostring(F.firstFall), F.raises, tonumber(extra and extra.wheelOpen) or 0, tonumber(extra and extra.wheelSent) or 0)
         local mix = {}
@@ -557,6 +601,13 @@ function M.new(path, clock)
             end
         else
             lines[#lines + 1] = "    worth a look: nothing flagged"
+        end
+        if #F.echoOrder > 0 then
+            lines[#lines + 1] = "    echo:"
+            for _, kind in ipairs(F.echoOrder) do
+                local rec = F.echo[kind]
+                lines[#lines + 1] = string.format("      %s: %d (%s)", kind, rec.n, table.concat(rec.examples, "; "))
+            end
         end
         for _, l in ipairs((extra and extra.lines) or {}) do lines[#lines + 1] = "    " .. l end
         lines[#lines + 1] = "--- END REPORT"

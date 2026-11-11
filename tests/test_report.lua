@@ -149,4 +149,48 @@ check(s2:find("damage by HP readings: 1000 total", 1, true), "HP readings count 
 check(s2:find("drop 500 on Boss", 1, true), "the biggest drops are listed")
 check(s2:find("700 by HP", 1, true), "a stagger shows the HP it really took")
 check(s2:find("Big Wave 1 hits, worst 60, 1 kills", 1, true), "an enemy's moves and kills are listed")
+
+-- Echo: the mode in the header, a turn sent again, and its own section.
+local R3 = Report.new(path, function() return "12:00:00" end)
+R3:begin({ number = 3, boss = false, difficulty = "difficulty 1", mode = "Echo" })
+R3:field({ allies = { [2] = ally(1000, 200, false) }, foes = { [8] = foe(5000, 100) } })
+R3:echo("kept", "Fina's turn, decide 1 (new turn): Fire -> Boss")
+R3:decide({ echo = true, who = "Fina", phase = 0, round = 1, mp = 200, maxMp = 200, name = "Fire", id = 2, kind = "damage", reason = "echo 1/1 of Fina's turn", cost = 5,
+    targets = { { name = "Boss", factor = 0 } } })
+R3:echo("sent", "Fina 1/1: Fire -> Boss")
+R3:echo("retarget", "Fina Fire: foe Boss A can't take it, Boss instead")
+R3:echo("handed back", "Fina: MP 2 of 5")
+R3:echo("handed back", "wheel: no wheel recorded")
+R3:finish({ rounds = 1 })
+R3:flush()
+local f3 = io.open(path); local s3 = f3:read("a"); f3:close()
+check(s3:find("=== FIGHT 3, boss false, difficulty 1, mode Echo, started", 1, true), "the fight header names the mode")
+check(s3:find("#1 ECHO round 1", 1, true), "an echoed turn is marked ECHO")
+check(s3:find("why: echo 1/1 of Fina's turn", 1, true), "an echoed turn says which turn it repeats")
+check(s3:find("12:00:00 echo retarget: Fina Fire", 1, true), "an echo event is a line in the fight")
+check(s3:find("      handed back: 2 (Fina: MP 2 of 5; wheel: no wheel recorded)", 1, true), "echo events are counted in the report")
+check(not s3:find("hit that can't land", 1, true), "an echoed turn is not flagged")
+
+
+-- A wipe, then the game starts the fight over in the same battle.
+local R4 = Report.new(path, function() return "12:00:00" end)
+R4:begin({ number = 4, boss = false, difficulty = "difficulty 2", mode = "Echo" })
+local function two(downA, downB)
+    return { allies = { [1] = { name = "Rain", hp = downA and nil or 900, maxHp = 1000, down = downA, statuses = {} },
+        [2] = { name = "Fina", hp = downB and nil or 900, maxHp = 1000, down = downB, statuses = {} } },
+        foes = { [8] = foe(5000, 100) } }
+end
+R4:field(two(false, false))
+R4:field(two(true, false))
+R4:field(two(true, true))
+R4:field(two(true, true))
+R4:field(two(false, false))
+R4:finish({ rounds = 3 })
+R4:flush()
+local f4 = io.open(path); local s4 = f4:read("a"); f4:close()
+check(select(2, s4:gsub("PARTY WIPED: every ally is down %(loss 1%)", "")) == 1, "a wipe is written once")
+check(s4:find("FIGHT RESTARTED after the wipe: attempt 2", 1, true), "the restart after a wipe is written")
+check(s4:find("result: LOST 1 time, ended with the party up; party wiped 1 time, fight restarted 1 time", 1, true), "the report says the fight was lost")
+check(s3:find("result: ended with the party up; party wiped 0 times", 1, true) ~= nil, "a fight without a wipe says so")
+
 os.exit(fails == 0 and 0 or 1)

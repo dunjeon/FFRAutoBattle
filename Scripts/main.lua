@@ -3,9 +3,9 @@
 -- The characters carry out the next slot. Claims stop a second heal, a second
 -- buff, or a second Ether in the same round.
 -- F10 is on/off and flashes AutoBattle On or Off.
--- F9 is on/off. On flashes AutoBattle: Take it Easy! Off flashes
--- AutoBattle: No Mercy! On is Attack only:
--- no MP and no items. Off is the default. Both choices are remembered.
+-- F9 switches the mode between No Mercy (the default, the full plan) and
+-- Echo (each character's last turn by hand, sent again; see echo.lua).
+-- Both switches are remembered.
 -- In a fight, the right trigger fires the F10 action. While auto battle is
 -- on in a fight, the left trigger fires the F9 action. While auto battle is
 -- off, or outside a fight, the left trigger stays with the game, except that
@@ -35,7 +35,8 @@ local function log(fmt, ...)
     if (not Reporting) and not (text:find("loaded. planner", 1, true) or text:find("failed", 1, true)
         or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)
         or text:find("scene skip", 1, true) or text:find("level gate", 1, true)
-        or text:find("turbo", 1, true) or text:find("large map", 1, true)) then
+        or text:find("turbo", 1, true) or text:find("large map", 1, true)
+        or text:find("echo:", 1, true)) then
         return
     end
     print(TAG .. text .. "\n")
@@ -205,6 +206,14 @@ do
     else
         log("large map unavailable: %s", tostring(loaded))
     end
+    -- Echo's tape lives for the launch, so it carries from fight to fight.
+    ok, loaded = pcall(dofile, DIR .. "/Scripts/echo.lua")
+    if ok and type(loaded) == "table" then
+        Known.echo = loaded
+        Known.echoTape = loaded.new()
+    else
+        log("echo unavailable: %s", tostring(loaded))
+    end
 end
 local function foldName(name)
     local n = (name or ""):lower()
@@ -262,10 +271,10 @@ local PHASE_BONUS, PHASE_FINISH = 1, 2
 local DECIDE_MS = 420
 
 local Defaults = {
-    Enabled = true, Submit = true, AttacksOnly = false, Reporting = false,
+    Enabled = true, Submit = true, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
     LevelGate = false, Turbo = false, LargeMap = false, MapKey = "F8", MapSize = 80,
-    EsperLevelGap = 3, ResonanceLevelGap = 3,
+    EsperLevelGap = 3, ResonanceLevelGap = 3, Echo = false, EchoKeep = true,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -311,14 +320,14 @@ local function loadConfig()
     end
     local state = loadIni(STATE_PATH)
     if state.enabled then cfg.Enabled = parseBool(state.enabled) end
-    if state.attacks then cfg.AttacksOnly = parseBool(state.attacks) end
+    if state.echo then cfg.Echo = parseBool(state.echo) end
 end
 
 local function saveState()
     local f = io.open(STATE_PATH, "w")
     if not f then return end
     f:write("enabled=" .. (cfg.Enabled and "true" or "false") .. "\n")
-    f:write("attacks=" .. (cfg.AttacksOnly and "true" or "false") .. "\n")
+    f:write("echo=" .. (cfg.Echo and "true" or "false") .. "\n")
     f:close()
 end
 
@@ -5911,35 +5920,7 @@ local function noteChanges(now)
     Fight.prev = now
 end
 
-local function basicAttack(uid, skills, w)
-    local attack = nil
-    for _, s in ipairs(skills) do
-        local cost = s.cost or 0
-        local basic = (s.attr == ATTR.FIGHT) and (cost <= 0) and (s.kind ~= "defend") and (not s.isItem)
-        if basic then
-            local named = s.name and (s.name:lower() == "attack")
-            if (not attack) or named then attack = s end
-            if named then break end
-        end
-    end
-    if not attack then return nil end
-    local foe, best = nil, -1
-    for _, e in ipairs(w.enemies or {}) do
-        if not e.broken then
-            local left = e.breakLeft or 0
-            if left > best then
-                foe = e
-                best = left
-            end
-        end
-    end
-    if not foe then foe = w.enemies and w.enemies[1] end
-    if not foe then return nil end
-    return finishChoice(uid, attack, "attack " .. foe.name, { foe.id }, false)
-end
-
 local function kitFallback(uid)
-    if cfg.AttacksOnly then return nil end
     if outOfControl(uid) then return nil end
     local mp = stat(uid, PARAM.MP, false) or 0
     local usable = {}
@@ -6129,10 +6110,6 @@ local function consider(uid)
     end
     local phase = currentPhase()
     if phase ~= PHASE_FINISH and inFinishPhase() then phase = PHASE_FINISH end
-    if cfg.AttacksOnly then
-        if phase == PHASE_FINISH then return nil end
-        return basicAttack(uid, usable, w)
-    end
     local okChoice, choice = pcall(turn, uid, usable, w, phase)
     if not okChoice then
         log("choice failed: %s", tostring(choice))
@@ -6339,6 +6316,7 @@ Known.repBegin = function()
         end
     end)
     Known.report:begin({ number = Fight.number, boss = Fight.boss,
+        mode = (cfg.Echo and "Echo" or "No Mercy") .. (cfg.Enabled and "" or " (auto battle off)"),
         difficulty = "difficulty " .. tostring(diff) .. ((#rates > 0) and (" (" .. table.concat(rates, ", ") .. ")") or "") })
     local names = {}
     for _, e in ipairs(ownedRecovery() or {}) do names[#names + 1] = tostring(e.name) .. " x" .. tostring(e.count) end
@@ -6367,8 +6345,8 @@ Known.repHandFlush = function()
             targets[#targets + 1] = t
         end
         local me = h.uid and snap.allies[h.uid]
-        R:decide({ byHand = true, who = who, uid = h.uid, phase = h.phase, round = Fight.rounds, mp = me and me.mp, maxMp = me and me.maxMp, lb = me and me.lb,
-            name = h.name, id = h.id, kind = kind, reason = "sent by the player", cost = h.cost, attr = h.attr, dmgType = h.dmgType, targets = targets })
+        R:decide({ byHand = not h.echo, echo = h.echo, who = who, uid = h.uid, phase = h.phase, round = Fight.rounds, mp = me and me.mp, maxMp = me and me.maxMp, lb = me and me.lb,
+            name = h.name, id = h.id, kind = kind, reason = h.echo and (h.echoWhy or "echo") or "sent by the player", cost = h.cost, attr = h.attr, dmgType = h.dmgType, targets = targets })
     end
 end
 
@@ -7179,6 +7157,506 @@ local function markSummon(skill, turns, caster, sid)
     Fight.claim.esper = true
 end
 
+--------------------------------------------------------------------------------
+-- Echo. Each character's last turn by hand goes out again, every decide and
+-- every action in it, Dualcast and all. Only a target that can no longer
+-- take it changes. echo.lua keeps the tape. Everything here is on Known:
+-- the main chunk has no locals left.
+--------------------------------------------------------------------------------
+
+-- Every Echo event: one line in UE4SS.log, and with Reporting on, a line in
+-- the fight and a count in its report. The report part waits for the game
+-- thread, since a hook may call this and the report reads the battle.
+function Known.echoEvent(kind, text)
+    text = tostring(text)
+    log("echo: %s: %s", kind, text)
+    if not (Known.report and Fight and Fight.active) then return end
+    gameDelay(0, function()
+        if not (Known.report and Fight and Fight.active) then return end
+        Known.repRun(function()
+            if not Known.report.fight then Known.repBegin() end
+            Known.report:echo(kind, text)
+        end)
+    end)
+end
+
+-- EchoKeep: the tape is echo.txt in the mod folder, written each time a turn
+-- or a wheel is kept, and read once at launch.
+Known.echoPath = DIR .. "/echo.txt"
+-- Fight numbers start over each launch, so a kept turn's fight is tagged with the launch too.
+Known.echoLaunch = tostring(os.time())
+function Known.echoSave()
+    if not (cfg.EchoKeep and Known.echo and Known.echoTape) then return end
+    local ok, err = pcall(function()
+        local f, why = io.open(Known.echoPath, "w")
+        if not f then error(why or "could not open") end
+        f:write(Known.echo.encode(Known.echoTape))
+        f:close()
+    end)
+    if not ok then log("echo: tape not saved: %s", tostring(err)) end
+end
+function Known.echoLoad()
+    if not (cfg.EchoKeep and Known.echo) then return end
+    local f = io.open(Known.echoPath, "r")
+    if not f then
+        log("echo: no tape saved yet")
+        return
+    end
+    local text = f:read("a")
+    f:close()
+    local tape, why = Known.echo.decode(text)
+    if not tape then
+        log("echo: tape not read (%s); starting empty. The file is replaced at the next turn kept.", tostring(why))
+        return
+    end
+    Known.echoTape = tape
+    log("echo: tape loaded: %s", Known.echo.summary(tape))
+end
+
+-- A decide, read into plain data. Only the decide's own value is read.
+function Known.echoRead(v)
+    local out = {
+        cmdType = num(v.CmdType) or 0,
+        notConsume = v.isNotConsume and true or false,
+        calcOrder = v.doCalcOrder ~= false,
+        command = num(v.CommandId) or -1,
+        keys = {}, entries = {},
+    }
+    local list = v.cmdDecideDataList
+    if list and list.ForEach then
+        list:ForEach(function(_, e)
+            local d = unwrap(e)
+            if not d then return end
+            local entry = {
+                id = num(d.actionId), unit = num(d.actionUnitUniqueId),
+                item = d.isUseItem and true or false, all = d.IsAll and true or false,
+                pCat = d.ParentActionKey and num(d.ParentActionKey.Category) or 1,
+                pId = d.ParentActionKey and num(d.ParentActionKey.ID) or 0,
+                params = {}, targets = {},
+            }
+            if d.ParameterList and d.ParameterList.ForEach then
+                d.ParameterList:ForEach(function(_, x)
+                    local n = num(x)
+                    if n then entry.params[#entry.params + 1] = n end
+                end)
+            end
+            local raw = d.targetUnitUniqueIdList
+            if raw and raw.ForEach then
+                raw:ForEach(function(_, x)
+                    local n = num(unwrap(x))
+                    if n and (n >= 0) then entry.targets[#entry.targets + 1] = { id = n } end
+                end)
+            end
+            if entry.id then out.entries[#out.entries + 1] = entry end
+        end)
+    end
+    if v.actionKeys and v.actionKeys.ForEach then
+        v.actionKeys:ForEach(function(_, e)
+            local k = unwrap(e)
+            if k then out.keys[#out.keys + 1] = { num(k.Category) or 0, num(k.ID) or 0 } end
+        end)
+    end
+    return out
+end
+
+-- The unit a decide names, for telling one turn from the next.
+function Known.echoActor(v)
+    local actor = nil
+    local list = v.cmdDecideDataList
+    if list and list.ForEach then
+        list:ForEach(function(_, e)
+            if actor then return end
+            local d = unwrap(e)
+            if d then actor = num(d.actionUnitUniqueId) end
+        end)
+    end
+    return actor
+end
+
+-- Friend or foe, for a fallen unit too.
+function Known.echoRelation(id)
+    local bfl = battleLib()
+    if not (bfl and bfl:IsValid()) then return nil end
+    for _, alive in ipairs({ true, false }) do
+        local ok, p = pcall(function() return bfl:GetBattleUnitParameter(id, alive) end)
+        if ok and p and p.IsValid and p:IsValid() then
+            local okR, rel = pcall(function() return p:GetRelation() end)
+            if okR and num(rel) then return num(rel) end
+        end
+    end
+    return nil
+end
+
+function Known.echoName(id, isItem)
+    if isItem then
+        local row = ItemIdx and ItemIdx[id] or nil
+        return (row and row.name) or ("item " .. tostring(id))
+    end
+    local row = skillOf(id)
+    return (row and row.name) or ("command " .. tostring(id))
+end
+
+-- A command the player picked from that unit's menu, or on the wheel, goes
+-- on the tape. The game closes the menu before the decide arrives, so the
+-- mark is the last menu's unit, not an open menu. A command the game made for
+-- a unit whose status takes the turn, and a summon's turn, are not kept.
+-- Only while Echo is the mode, with auto battle on or off. In any other
+-- mode nothing is taped, and the tape is left as it was.
+function Known.echoKeep(v, uid, onWheel)
+    local E, tape = Known.echo, Known.echoTape
+    if not cfg.Echo then return end
+    if not (E and tape and uid and (uid >= 0)) then return end
+    if not (onWheel or (Menu.actor == uid)) then
+        Known.echoEvent("skipped", string.format("%s: no menu of theirs was open (last menu %s)", Fight.nameOf(uid), tostring(Menu.actor)))
+        return
+    end
+    if outOfControl(uid) then
+        Known.echoEvent("skipped", Fight.nameOf(uid) .. ": not under your control")
+        return
+    end
+    -- A summoned unit's turns are not taped. An ally who joined after the
+    -- fight began is taped like anyone else.
+    if Fight.isSummon and Fight.isSummon(uid) then
+        Known.echoEvent("skipped", Fight.nameOf(uid) .. ": a summon")
+        return
+    end
+    local d = Known.echoRead(v)
+    if #d.entries == 0 then return end
+    d.fight = Known.echoLaunch .. ":" .. tostring(Fight.number)
+    for _, e in ipairs(d.entries) do
+        for _, t in ipairs(e.targets) do
+            if t.id == uid then
+                t.side = "self"
+            elseif Fight.seenFoe and Fight.seenFoe[t.id] then
+                t.side = "foe"
+                t.name = Fight.nameOf(t.id)
+            else
+                local rel = Known.echoRelation(t.id)
+                if rel == REL.ENEMY then
+                    t.side = "foe"
+                    t.name = Fight.nameOf(t.id)
+                elseif rel == REL.FRIEND then
+                    t.side = "ally"
+                    t.name = Fight.nameOf(t.id)
+                else
+                    t.side = "?"
+                end
+            end
+        end
+    end
+    local who = Fight.nameOf(uid)
+    if onWheel then
+        Known.echoEvent("skipped", string.format("wheel, %s by %s: the wheel is never taped", E.describe(d, Known.echoName), who))
+        return
+    end
+    local tapes, what = Known.echoTapes(d)
+    if not tapes then
+        Known.echoEvent("skipped", string.format("%s: %s is not taped; the last turn on record stays", who, tostring(what)))
+        return
+    end
+    local aims = {}
+    for _, e in ipairs(d.entries) do
+        for _, t in ipairs(e.targets) do aims[#aims + 1] = tostring(t.name or t.side) end
+    end
+    local at = (#aims > 0) and (" -> " .. table.concat(aims, ", ")) or ""
+    do
+        -- A normal-phase command starts the turn. Another phase right after
+        -- the same unit's command carries it on.
+        local prev = Known.echoPrev
+        local streak = ((d.cmdType or 0) ~= 0) and prev and (prev.actor == uid) and true or false
+        local keepTo = nil
+        if streak and (not prev.hand) and Known.echoRun and (Known.echoRun.who == who) then keepTo = Known.echoRun.n end
+        local n = E.note(tape, who, d, streak, keepTo)
+        Known.echoEvent("kept", string.format("%s's turn, decide %d%s: %s%s", who, n or 0,
+            streak and " (same turn)" or " (new turn)", E.describe(d, Known.echoName), at))
+    end
+    Known.echoSave()
+end
+
+-- A raise, by the same marks the ledger uses for a hand command: the row's
+-- revive effect or fallen-ally target, its known use, or the item book.
+function Known.echoRaise(e)
+    if e.item then
+        if Items.listed and (Items.listed(Known.echoName(e.id, true)) == "revive") then return true end
+        local irow = ItemIdx and ItemIdx[e.id] or nil
+        local srow = irow and irow.skillId and skillOf(irow.skillId) or nil
+        if not srow then return false end
+        local ok, kind = pcall(classify, srow)
+        return ok and (kind == "revive")
+    end
+    local row = skillOf(e.id)
+    if not row then return false end
+    local info = knownOf(row)
+    if info and ((info.use == "revive") or (info.use == "lb-revive")) then return true end
+    local ok, kind = pcall(classify, row)
+    return ok and (kind == "revive")
+end
+
+-- Items, raises, Limit Bursts, and Esper calls are never taped: each is for
+-- the moment it was used, not a move to repeat. They stay the player's. nil and the action's name when the decide
+-- holds one, true when it can go on the tape.
+function Known.echoTapes(d)
+    for _, e in ipairs((d and d.entries) or {}) do
+        if e.item then return nil, Known.echoName(e.id, true) end
+        if Known.echoRaise(e) then return nil, Known.echoName(e.id, false) end
+        local row = skillOf(e.id)
+        if row and (row.attr == ATTR.SUMMON) then return nil, Known.echoName(e.id, false) end
+        if row and limitSkill(row) then return nil, Known.echoName(e.id, false) end
+    end
+    return true
+end
+
+-- Does this unit still hold every skill in the turn: the command and each
+-- pick under it. A Vision or a
+-- skill change can take one away, and Echo never sends a skill the unit
+-- does not hold. An All cast is held through its base spell. A basic attack
+-- the bar does not list is held when the game says the unit can use it, as
+-- the planner allows. nil and the missing skill's name when one is gone.
+function Known.echoHeld(uid, d)
+    local held, any = {}, false
+    for _, id in ipairs(equippedIds(uid) or {}) do
+        held[id] = true
+        any = true
+    end
+    -- No list read at all is a read that failed, not an empty bar.
+    if not any then return true end
+    for _, e in ipairs((d and d.entries) or {}) do
+        if not e.item then
+            local row = skillOf(e.id)
+            local base = (row and row.multicastOf) or e.id
+            if not (held[e.id] or held[base]) then
+                local fight = row and (row.attr == ATTR.FIGHT) and (activation(uid, e.id) == true)
+                if not fight then return nil, Known.echoName(e.id, false) end
+            end
+        end
+    end
+    return true
+end
+
+-- The ids an entry may take now, best first. A foe the party is already
+-- hitting comes first. An ally is the standing one lowest on HP.
+function Known.echoLook(uid, wheel)
+    local look = {}
+    look.valid = function(e, side)
+        local rel = (side == "foe") and REL.ENEMY or REL.FRIEND
+        local skillId = e.id
+        if e.item then
+            local irow = ItemIdx and ItemIdx[e.id] or nil
+            skillId = irow and irow.skillId or nil
+        end
+        local ids = {}
+        if skillId then ids = targetsFor(uid, { id = skillId }, rel) end
+        if #ids == 0 then ids = (side == "foe") and members(REL.ENEMY) or friendIds() end
+        local out, hp = {}, {}
+        for _, id in ipairs(ids) do
+            local r = hpRatio(id)
+            -- Down is no HP read, as the report marks it.
+            local up = (r ~= nil) and (r > 0)
+            local keep
+            if side == "foe" then
+                -- On the wheel every foe waits at 0 HP for the finisher, so
+                -- the game's own list is the check there.
+                keep = (up or wheel) and (Known.echoRelation(id) ~= REL.FRIEND)
+            else
+                -- Raises are never taped, so an ally target is a standing ally.
+                keep = up and (Known.echoRelation(id) ~= REL.ENEMY) and not (Fight.isSummon and Fight.isSummon(id))
+            end
+            if keep then
+                out[#out + 1] = id
+                hp[id] = r or 0
+            end
+        end
+        if side == "foe" then
+            local focus = Fight.building
+            for i, id in ipairs(out) do
+                if id == focus then
+                    table.remove(out, i)
+                    table.insert(out, 1, id)
+                    break
+                end
+            end
+        else
+            table.sort(out, function(a, b) return hp[a] < hp[b] end)
+        end
+        return out
+    end
+    look.ally = function(name)
+        for _, id in ipairs(friendIds()) do
+            if Fight.nameOf(id) == name then return id end
+        end
+        return nil
+    end
+    return look
+end
+
+-- Can this unit pay for the whole decide now: MP and a seal. Items and
+-- Limit Bursts are never taped. nil and why when it can't.
+function Known.echoPays(uid, d)
+    local _, skills = Known.echo.uses(d)
+    local need = 0
+    for _, s in ipairs(skills) do
+        local row = skillOf(s.id)
+        local base = (row and row.multicastOf) or s.id
+        local name = Known.echoName(s.id, false)
+        need = need + (skillCost(uid, base, s.all) or 0)
+        if s.top and sealed(uid, base) then return nil, name .. " can't be used now" end
+    end
+    local mp = stat(uid, PARAM.MP, false)
+    if mp and (need > mp) then return nil, string.format("MP %d of %d", math.floor(mp), math.floor(need)) end
+    return true
+end
+
+-- The decide, built as the player sent it.
+function Known.echoSend(d)
+    local cls = StaticFindObject("/Script/mucha.CPP_BtlCmdDecideDelegateVal")
+    local disp = FindFirstOf("CPP_MuchaEventDispatcher")
+    if not (cls and cls:IsValid() and disp and disp:IsValid()) then
+        log("could not build a command")
+        return false
+    end
+    local obj = StaticConstructObject(cls, disp)
+    obj.CmdType = d.cmdType
+    obj.isNotConsume = d.notConsume
+    obj.doCalcOrder = d.calcOrder
+    obj.CommandId = d.command
+    for i, e in ipairs(d.entries) do
+        obj.cmdDecideDataList[i] = { actionId = e.id, actionUnitUniqueId = e.unit }
+        local row = obj.cmdDecideDataList[i]
+        row.actionId = e.id
+        row.actionUnitUniqueId = e.unit
+        row.isUseItem = e.item and true or false
+        row.IsAll = e.all and true or false
+        row.ParentActionKey.Category = e.pCat
+        row.ParentActionKey.ID = e.pId
+        for j, tid in ipairs(e.targets or {}) do row.targetUnitUniqueIdList[j] = tid end
+        for j, p in ipairs(e.params or {}) do row.ParameterList[j] = p end
+    end
+    for i, k in ipairs(d.keys or {}) do
+        obj.actionKeys[i] = { Category = k[1], ID = k[2] }
+        obj.actionKeys[i].Category = k[1]
+        obj.actionKeys[i].ID = k[2]
+    end
+    Menu.byMod = true
+    Menu.byEcho = true
+    local ok, err = pcall(function()
+        disp:ExecuteEvent({ TagName = FName("Delegate.Battle.Cmd.Decide") }, obj)
+    end)
+    if not ok then
+        Menu.byMod, Menu.byEcho = false, false
+        log("echo: send failed: %s", tostring(err))
+        return false
+    end
+    return true
+end
+
+-- The targets an echo changed. In the fight the turn was kept in, that is a
+-- retarget. In a later fight the old targets are gone anyway.
+function Known.echoChanges(changes, who, rec)
+    local here = Known.echoLaunch .. ":" .. tostring(Fight.number)
+    local kind = (rec and (rec.fight == here)) and "retarget" or "new fight target"
+    Known.echoNewTold = Known.echoNewTold or {}
+    for _, c in ipairs(changes or {}) do
+        -- A turn from another fight changes targets every time it goes out.
+        -- That is said once per action, per character, per fight.
+        local key = here .. ":" .. tostring(who) .. ":" .. tostring(c.id)
+        local quiet = (kind == "new fight target") and Known.echoNewTold[key]
+        if kind == "new fight target" then Known.echoNewTold[key] = true end
+        if not quiet then
+            local from = (type(c.from) == "number") and ("unit " .. c.from) or tostring(c.from)
+            local to
+            if c.group then
+                local names = {}
+                for _, id in ipairs(c.group) do names[#names + 1] = Fight.nameOf(id) end
+                to = table.concat(names, ", ")
+            else
+                to = Fight.nameOf(c.to)
+            end
+            Known.echoEvent(kind, string.format("%s %s: %s %s can't take it, %s instead", who,
+                Known.echoName(c.id, false), c.side, from, to))
+        end
+    end
+end
+
+-- This menu's turn from the tape, or the menu is left to the player.
+function Known.echoTurn(uid, serial)
+    local E, tape = Known.echo, Known.echoTape
+    if not (E and tape) then return end
+    if outOfControl(uid) then return end
+    local finishing = false
+    pcall(function() finishing = inFinishPhase() end)
+    if finishing then return end
+    local who = Fight.nameOf(uid)
+    local function yours(why)
+        if Menu.echoTold == serial then return end
+        Menu.echoTold = serial
+        Known.echoEvent("handed back", string.format("%s: %s", who, tostring(why)))
+        showToast("Echo: " .. who .. "'s turn is yours")
+    end
+    local turn = E.turn(tape, who)
+    -- A turn taped before items and raises were left off is dropped.
+    if turn then
+        for _, rec in ipairs(turn) do
+            local tapes, what = Known.echoTapes(rec)
+            if not tapes then
+                tape.turns[who] = nil
+                Known.echoSave()
+                Known.echoEvent("dropped", string.format("%s: the turn on record used %s, which is not taped", who, tostring(what)))
+                turn = nil
+                break
+            end
+        end
+    end
+    if not turn then return yours("nothing recorded") end
+    -- The normal phase starts the turn over. Another phase right after this
+    -- unit's command takes the turn's next part.
+    local phase = currentPhase()
+    local run = Known.echoRun
+    local prev = Known.echoPrev
+    local n = 1
+    if (phase ~= 0) and run and (run.who == who) and prev and (prev.actor == uid) then n = run.n + 1 end
+    local step = E.step(n, #turn)
+    local rec = turn[step]
+    local was = rec.entries[1] and rec.entries[1].unit
+    local held, gone = Known.echoHeld(uid, rec)
+    if not held then return yours(tostring(gone) .. " is no longer equipped") end
+    local d, why = E.aim(rec, uid, was, Known.echoLook(uid))
+    if not d then return yours(why) end
+    -- The command goes out in the phase the menu is in, as the mod's own sends do.
+    d.cmdType = phase
+    local changes = why or {}
+    local pays, whyNot = Known.echoPays(uid, d)
+    if not pays then return yours(whyNot) end
+    if (not Menu.open) or (Menu.serial ~= serial) or Menu.decided then return end
+    local aims = {}
+    for _, e in ipairs(d.entries) do
+        for _, tid in ipairs(e.targets) do aims[#aims + 1] = Fight.nameOf(tid) end
+    end
+    local line = string.format("%s %d/%d p%d: %s -> %s", who, step, #turn, phase, E.describe(d, Known.echoName),
+        (#aims > 0) and table.concat(aims, ", ") or "no target")
+    if Menu.armPace then Menu.armPace("the first planned command") end
+    if not cfg.Submit then
+        Known.echoEvent("not sent", line .. " (Submit is false)")
+        return
+    end
+    Known.echoWhy = string.format("echo %d/%d of %s's turn", step, #turn, who)
+    local sent = Known.echoSend(d)
+    Known.echoWhy = nil
+    if not sent then
+        Known.echoEvent("failed", line)
+        return yours("the send failed")
+    end
+    Known.echoRun = { who = who, n = n }
+    Known.echoEvent("sent", line)
+    Known.echoChanges(changes, who, rec)
+end
+
+-- In Echo the Resonance wheel is always the player's. It is never taped.
+function Known.echoWheelTurn()
+    Fight.wheelLeft = "Echo leaves the wheel to you"
+    Known.echoEvent("handed back", "wheel: the wheel is always yours in Echo")
+    showToast("Echo: the wheel is yours")
+end
+
 local function act(serial)
     if not cfg.Enabled then return end
     if (not Menu.open) or (Menu.serial ~= serial) or Menu.sub or Menu.decided then return end
@@ -7458,6 +7936,11 @@ local function act(serial)
             end
         end
     end)
+    if cfg.Echo then
+        local okEcho, errEcho = pcall(Known.echoTurn, uid, serial)
+        if not okEcho then log("echo failed: %s", tostring(errEcho)) end
+        return
+    end
     Fight.deferChip = false
     local okPlan, choice = pcall(consider, uid)
     if not okPlan then
@@ -7785,7 +8268,8 @@ local function noteHand(v)
     -- is the enemy's turn, not the party's: it is not recorded.
     local actorId = nil
     pcall(function() actorId = num(rowObj.actionUnitUniqueId) end)
-    if actorId and (actorId >= 0) and not (Menu.fromMenu or onWheel) then uid = actorId end
+    -- An echo names its own unit, on the wheel too, where the last menu may be someone else's.
+    if actorId and (actorId >= 0) and (Known.echoNow or not (Menu.fromMenu or onWheel)) then uid = actorId end
     if uid and (uid >= 0) then
         local foe = Fight.seenFoe and Fight.seenFoe[uid]
         if not foe then
@@ -7796,6 +8280,10 @@ local function noteHand(v)
             end
         end
         if foe then return end
+    end
+    if (not Known.echoNow) and Known.echoKeep then
+        local okKeep, errKeep = pcall(Known.echoKeep, v, uid, onWheel)
+        if not okKeep then log("echo: turn not kept: %s", tostring(errKeep)) end
     end
     -- A command from a friend who was not in the opening party is the summoned
     -- unit acting. The ally list can omit that unit until this command.
@@ -7832,7 +8320,7 @@ local function noteHand(v)
     if (not kind) and ((use == "break") or (use == "cash")) then kind = "damage" end
     local phase = currentPhase()
     local who = (uid and (uid >= 0)) and Fight.nameOf(uid) or "you"
-    local line = string.format("player %s p%d: %s", who, phase, name)
+    local line = string.format("%s %s p%d: %s", Known.echoNow and "echo" or "player", who, phase, name)
     if #targets > 0 then
         local bits = {}
         for _, tid in ipairs(targets) do bits[#bits + 1] = Fight.nameOf(tid) end
@@ -7848,6 +8336,7 @@ local function noteHand(v)
     if Known.report then
         Fight.repHand = Fight.repHand or {}
         Fight.repHand[#Fight.repHand + 1] = { uid = uid, id = actionId, name = name, kind = kind, targets = targets, phase = phase,
+            echo = Known.echoNow and true or nil, echoWhy = Known.echoWhy,
             isItem = isItem, cost = skill and skill.cost, attr = skill and skill.attr, dmgType = skill and skill.dmgType }
     end
     Fight.prevHit = { who = who, skill = name, kind = kind, id = targets[1] }
@@ -8511,7 +9000,11 @@ local function hookDecide()
             pcall(function()
                 local v = value:get()
                 local fromMod = (Menu.byMod == true)
+                local echoed = (Menu.byEcho == true)
                 Menu.byMod = false
+                Menu.byEcho = false
+                local actorNow = nil
+                pcall(function() actorNow = Known.echoActor(v) end)
                 Menu.fromMenu = Menu.open and (not Menu.decided) and true or false
                 learn(v)
                 if not fromMod then
@@ -8520,10 +9013,15 @@ local function hookDecide()
                 end
                 Menu.decided = true
                 Menu.sub = false
-                if not fromMod then
+                -- An echo is the player's turn sent again: the same ledger, but
+                -- not taped a second time.
+                if (not fromMod) or echoed then
+                    Known.echoNow = echoed
                     local okNote, errNote = pcall(noteHand, v)
+                    Known.echoNow = nil
                     if not okNote then log("player command was not recorded: %s", tostring(errNote)) end
                 end
+                Known.echoPrev = { actor = actorNow, hand = not fromMod }
             end)
         end)
         hookDepth = hookDepth - 1
@@ -9024,7 +9522,6 @@ local function resonanceWatch()
         Fight.resonanceMiss = false
         Fight.resonanceWait = false
         Fight.wheelLogged = false
-        Fight.attackWheel = false
         if Fight.wheelLeft and Fight.wheelSkip and (Fight.wheelSkips or 0) > 0 then
             local line = string.format("wheel skipped (%d call%s)", Fight.wheelSkips, (Fight.wheelSkips == 1) and "" or "s")
             log("%s", line)
@@ -9032,13 +9529,6 @@ local function resonanceWatch()
         end
         Fight.wheelLeft, Fight.wheelSkip = nil, nil
         Fight.wheelTicks, Fight.wheelSkips = 0, 0
-        return
-    end
-    if cfg.AttacksOnly then
-        if not Fight.attackWheel then
-            Fight.attackWheel = true
-            log("resonance phase, your pick")
-        end
         return
     end
     Fight.wheelUp = true
@@ -9063,6 +9553,11 @@ local function resonanceWatch()
             local okSkip, errSkip = pcall(Known.skipWheel)
             if not okSkip then log("wheel skip failed: %s", tostring(errSkip)) end
         end
+        return
+    end
+    if cfg.Echo then
+        local okEcho, errEcho = pcall(Known.echoWheelTurn)
+        if not okEcho then log("echo wheel failed: %s", tostring(errEcho)) end
         return
     end
     if (tonumber(cfg.ResonanceLevelGap) or 0) < 0 then
@@ -9253,15 +9748,18 @@ local function pressAuto()
     saveState()
     local msg = cfg.Enabled and "AutoBattle On" or "AutoBattle Off"
     log(msg)
+    if Fight and Fight.active then appendLog("  switch: " .. msg) end
     showToast(msg)
     if cfg.Enabled then scheduleAct() end
 end
 
+-- No Mercy or Echo.
 local function pressBasic()
-    cfg.AttacksOnly = not cfg.AttacksOnly
+    cfg.Echo = not cfg.Echo
     saveState()
-    local msg = cfg.AttacksOnly and "AutoBattle: Take it Easy!" or "AutoBattle: No Mercy!"
+    local msg = cfg.Echo and "AutoBattle: Echo!" or "AutoBattle: No Mercy!"
     log(msg)
+    if Fight and Fight.active then appendLog("  switch: " .. msg) end
     showToast(msg)
 end
 
@@ -9332,6 +9830,7 @@ local function pollTriggers()
 end
 
 loadConfig()
+pcall(Known.echoLoad)
 
 bind("TakeOverKey", pressAuto)
 bind("MenuKey", pressBasic)
@@ -9376,9 +9875,9 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v1.0.1-dev. %s. %s toggles auto battle. %s basic attacks %s. In a fight, while auto battle is on, the left trigger toggles basic attacks. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v1.0.1-dev. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
-    cfg.AttacksOnly and "on" or "off",
+    cfg.Echo and "Echo" or "No Mercy",
     tostring(cfg.Submit))

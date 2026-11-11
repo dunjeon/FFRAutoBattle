@@ -5,7 +5,7 @@ Auto battle for FINAL FANTASY RESONANCE that plays from the gear, skills, and Vi
 Version 1.0.1-dev, in testing. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 - **Works with any party.** No list of enemies, bosses, or favorite skills. Everything comes from the game's own data and from what happens in the fight.
-- **Two switches.** F10 turns auto battle on or off. F9 switches between the full plan and plain attacks. Both work mid-fight, and both are on the gamepad triggers.
+- **Two switches.** F10 turns auto battle on or off. F9 switches between two modes: No Mercy, the full plan, and Echo, which repeats the turns you played yourself. Both work mid-fight, and both are on the gamepad triggers.
 - **Optional extras.** Skip Limit Burst and Esper scenes, speed up battles, show the minimap large, and save a report of each fight. All of them are off until you turn them on.
 
 ## Install
@@ -57,13 +57,13 @@ When this step is done, this file exists:
 
 `FFRS\Binaries\Win64\ue4ss\Mods\FFRAutoBattle\Scripts\main.lua`
 
-The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, `pace.lua`, and `minimap.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
+The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, `pace.lua`, `minimap.lua`, and `echo.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
-**Upgrading from an earlier version:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again.
+**Upgrading from an earlier version:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again. Take it Easy and its `AttacksOnly` setting are gone: if you used it, you start in No Mercy. To get the same play, switch to Echo and give each character Attack by hand once (see [Echo](#echo)).
 
 ### 4. Start the game and check
 
-Start FINAL FANTASY RESONANCE from Steam. Load a save and enter a battle. The party should take its own commands. Press F10. The screen flashes AutoBattle Off. Press F9. The screen flashes AutoBattle: Take it Easy! The full list of keys and triggers is in Controls, below.
+Start FINAL FANTASY RESONANCE from Steam. Load a save and enter a battle. The party should take its own commands. Press F10. The screen flashes AutoBattle Off. Press F9. The screen flashes AutoBattle: Echo! The full list of keys and triggers is in Controls, below.
 
 To confirm the files loaded, open:
 
@@ -93,21 +93,21 @@ F9 and F10 work any time: on the field, in a menu, and in a fight.
 | Key | What it does | Notice |
 | --- | --- | --- |
 | F10 | Turns auto battle off or back on. It starts on. | AutoBattle Off, or AutoBattle On |
-| F9 | Switches between No Mercy and Take it Easy. It starts on No Mercy. | AutoBattle: No Mercy!, or AutoBattle: Take it Easy! |
+| F9 | Switches between No Mercy and Echo. It starts on No Mercy. | AutoBattle: No Mercy!, or AutoBattle: Echo! |
 | F8 | With `LargeMap` on, moves the field minimap to the middle of the screen and draws it large. Press again to put it back. | None |
 
-**No Mercy** is the full plan. The party uses spells, items, Limit Bursts, and heals when the fight needs them.
+**No Mercy** is the full plan. The party uses spells, items, Limit Bursts, and heals when the fight needs them. See [How a fight is played](#how-a-fight-is-played).
 
-**Take it Easy** is Attack only. No spells, no items, and no MP.
+**Echo** plays your way. Each character repeats the last turn you gave them by hand. See [Echo](#echo).
 
-If you turn auto battle off, play some turns yourself, and turn it back on, the party picks up from the fight as it is.
+In No Mercy, if you turn auto battle off, play some turns yourself, and turn it back on, the party picks up from the fight as it is.
 
 ### Gamepad
 
 | Button | What it does | When |
 | --- | --- | --- |
 | Right trigger | Same as F10. Auto battle on or off. | During a fight |
-| Left trigger | Same as F9. No Mercy or Take it Easy. The game still receives the press. | During a fight, while auto battle is on |
+| Left trigger | Same as F9. No Mercy or Echo. The game still receives the press. | During a fight, while auto battle is on |
 | Left trigger | Same as F8. Large map on or off. | On the field, with `LargeMap` on. Not in a menu. |
 
 Everywhere else, both triggers keep the actions the game gives them. With `LargeMap` on, the middle mouse button also works like F8 on the field. In a menu or on the world map it is left to the game.
@@ -121,13 +121,14 @@ Settings are in `config.ini` in the mod folder. Edit the file, then restart the 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `Enabled` | `true` | Auto battle starts on. After you press F10, `state.txt` remembers your choice instead. |
-| `AttacksOnly` | `false` | Starts in Take it Easy. After you press F9, `state.txt` remembers your choice instead. |
+| `Echo` | `false` | Starts in Echo. After you press F9, `state.txt` remembers your choice instead. |
+| `EchoKeep` | `true` | Saves Echo's record in `echo.txt`, so it lasts from one session to the next. `false` keeps it only until you quit. |
 | `Submit` | `true` | `false` makes the mod choose and log a command but leave the menu for you. See [Reporting a problem](#reporting-a-problem). |
 | `TakeOverKey` | `F10` | The auto battle key. |
-| `MenuKey` | `F9` | The No Mercy / Take it Easy key. |
-| `ItemPrice` | `5000` | An item whose buy price is above this stays in the bag. Raise it to let the party spend more expensive items. |
-| `EsperLevelGap` | `3` | An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. `-1` never calls an Esper; you can still call one by hand. |
-| `ResonanceLevelGap` | `3` | The same as `EsperLevelGap`, for the Resonance wheel. The wheel is skipped when every foe is at least this many levels under every standing ally, unless it is a boss or an ally is down or about to die. `0` turns this off. `-1` leaves every wheel to you; the mod never picks or skips. |
+| `MenuKey` | `F9` | The No Mercy / Echo key. |
+| `ItemPrice` | `5000` | No Mercy only. An item whose buy price is above this stays in the bag. Raise it to let the party spend more expensive items. |
+| `EsperLevelGap` | `3` | No Mercy only. An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. `-1` never calls an Esper; you can still call one by hand. |
+| `ResonanceLevelGap` | `3` | No Mercy only. The same as `EsperLevelGap`, for the Resonance wheel. The wheel is skipped when every foe is at least this many levels under every standing ally, unless it is a boss or an ally is down or about to die. `0` turns this off. `-1` leaves every wheel to you; the mod never picks or skips. |
 
 ### Optional settings
 
@@ -160,11 +161,96 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 - **Support earns its turn.** Buffs and debuffs go out when they fit the fight. A debuff follows the damage the party and the foe really deal.
 - **Spending goes by need.** Items above `ItemPrice` stay in the bag. A buy price far above every other item is held back, and spent only when no cheaper item covers someone down or about to die. A fight where nothing can hurt the party spends no items.
 
-An ally who is confused, charmed, or berserk is left to the game. If a fight stalls for five rounds with no enemy losing HP, the party escapes when the game allows it. Take it Easy never escapes.
+An ally who is confused, charmed, or berserk is left to the game. If a fight stalls for five rounds with no enemy losing HP, the party escapes when the game allows it.
+
+## Echo
+
+Echo repeats your own play. You play a turn for each character once, by hand. After that, every time that character's turn comes up, Echo sends the same turn again, until you play a new one.
+
+### Using it
+
+1. Press F9 until the screen flashes **AutoBattle: Echo!** Echo only records while it is the mode.
+2. Press F10 to turn auto battle off, and play one turn for each character the way you want it repeated. You can also leave auto battle on: a character with nothing on record has their turn handed to you, and the screen flashes **Echo: (name)'s turn is yours**.
+3. Press F10 to turn auto battle back on. From the next turn on, each character repeats what you gave them.
+4. To change the plan, do it again: turn auto battle off, play the new turns, and turn it back on. Whatever you play by hand replaces that character's turn on record.
+
+A turn is everything that character did when their turn came up. A stagger bonus action right after it is part of the same turn, and is repeated in the same order.
+
+### What is repeated exactly
+
+- The same command, with everything in it. Dualcast, Double Action, and the other commands that hold picks are repeated with the same picks, in the same order.
+- The same targets, as long as the game still lets them be targeted. A Cure on someone at full HP, or a buff on someone who already has it, goes out as you sent it. Echo does not judge your choices: it is your turn, repeated.
+
+### What can change
+
+Only a target, and only when the game won't take the one you picked:
+
+- A foe that fell: the foe the party is already hitting, otherwise the game's next pick.
+- An ally who is down: the standing ally lowest on HP.
+- A skill you aimed at a group, or an All cast: every target that is up now.
+- In a later fight the old foes are gone, so a single-target hit goes to the foe the party is already hitting, otherwise the game's first pick.
+
+### Never echoed, by design
+
+Echo leaves these to you on purpose. They are not missing features. Each one is a choice for the moment, not a move to repeat every turn: a raise is for someone who just fell, an item is spent, a Limit Burst waits on its bar, an Esper and the wheel each come once.
+
+| Not echoed | What happens instead |
+| --- | --- |
+| Items | Not recorded. Use them by hand. |
+| Raises, by spell or by item | Not recorded. Raise by hand. |
+| Limit Bursts | Not recorded. Turn auto battle off and use one by hand when the bar is full. |
+| Esper calls | Not recorded. Call an Esper by hand. |
+| A summoned Esper's own turns | Not recorded. It acts on its own, and Echo stays out of it. |
+| The Resonance wheel | Never recorded and never picked or skipped by Echo. Every wheel is yours. The screen flashes **Echo: the wheel is yours**. |
+| A character who is confused, charmed, or berserk | Left to the game. Nothing they do is recorded. |
+
+A turn that uses any of these, including a Dualcast or Double Action with one among its picks, is left off the record. That character keeps repeating the last turn that was recorded. The log shows `skipped` and the reason.
+
+### When the turn comes back to you
+
+Echo never picks a different skill. If a character's turn on record can't go out, the menu is left open for you, and the screen flashes **Echo: (name)'s turn is yours**. That happens when:
+
+- there is no turn on record for them yet,
+- they don't have the MP for it,
+- the game won't let them use it now, for example while silenced,
+- a skill in it is no longer equipped, after a Vision or ability change. That includes a pick inside a Dualcast or Double Action, and the basic Attack, which changes with the Vision,
+- there is nobody it can target.
+
+After a gear change, play the character's new turn by hand once and Echo repeats the new one. The old turn is not deleted until you play a new one, so if you equip the old skills again, it works again.
+
+### The record
+
+- Echo records only while Echo is the mode. Auto battle can be on or off. In No Mercy nothing is recorded, and the record is left as it was.
+- Each character's turn is kept by name, so it carries from fight to fight. With `EchoKeep` on (the default), it is saved in `echo.txt` in the mod folder, so it is still there the next time you play.
+- After a party change, the record is kept. A new member has nothing on record, so their first turn is handed to you, and is repeated from then on. Everyone who stayed keeps their turn. A heal or buff on record for a member who left goes to the standing ally lowest on HP. A member who left keeps their turn on record for when they come back.
+- An ally who joins partway through a fight is recorded like anyone else.
+- To clear the record, quit the game and delete `echo.txt`.
+
+### Settings that don't apply in Echo
+
+`ItemPrice`, `EsperLevelGap`, and `ResonanceLevelGap` are for No Mercy's own choices. In Echo, items, Espers, and the wheel are all yours (see [Never echoed, by design](#never-echoed-by-design)), so these settings have nothing to do. `SkipScenes`, `Turbo`, `LargeMap`, `LevelGate`, `Reporting`, and `Submit` work the same in both modes. With `Submit = false`, Echo logs the turn it would send and leaves the menu to you.
+
+### Tracking Echo
+
+Every Echo event is an `echo:` line in `UE4SS.log`, even with `Reporting` off:
+
+| Line | Meaning |
+| --- | --- |
+| `kept` | A turn you played was recorded. `new turn` starts a character's turn; `same turn` adds a bonus action to it. |
+| `skipped` | A turn you played was not recorded, and why: one of the things [never echoed](#never-echoed-by-design), or a command the game made for the character. |
+| `sent` | A recorded turn went out, with its targets. |
+| `retarget` | A foe or ally fell during this fight, and that action took another target. |
+| `new fight target` | The turn was recorded in another fight, so its targets changed. Written once per action, per character, per fight. |
+| `handed back` | The turn, or the wheel, was left to you, and why. |
+| `dropped` | A turn on record from an older version used something that is never echoed, and was removed. |
+| `failed` | The game refused the command. Worth reporting. |
+
+With `Reporting` on, the same events are lines in `battle_report.txt`. Each repeated turn is marked `ECHO`, each fight's header names the mode, and each fight's report ends with an `echo:` count of each kind. A fight the party lost shows `PARTY WIPED`, then `FIGHT RESTARTED` when the game starts it over, and the report's `result:` line counts both.
 
 ## Known limits
 
-- Commands that hold other picks are left to you, including Dualcast, Double Action, Arms Akimbo, Magic Barrage, Magic Boost, and Reckless Abandonment. Turn auto battle off for that turn to use one. An old `shapes.txt` from 1.0.1-dev is no longer read and can be deleted.
+- In No Mercy, commands that hold other picks are left to you, including Dualcast, Double Action, Arms Akimbo, Magic Barrage, Magic Boost, and Reckless Abandonment. Turn auto battle off for that turn to use one. Echo repeats them as you sent them.
+- Echo is new. Double Action, a group skill, and a foe that falls have been played; Dualcast, a gear change, and the hand-back cases have not yet. See [Tracking Echo](#tracking-echo). A turn saved before you changed your gear may name a skill the character no longer has; that turn should be handed back to you. An old `shapes.txt` from 1.0.1-dev is no longer read and can be deleted.
 - If you skip a Resonance wheel by hand while the mod is about to skip it, the mod stops for that wheel and leaves it to you. That case is new and not yet tested in game; `UE4SS.log` shows `wheel skipped by hand` or `wheel skipped` when it happens.
 - It wins some hard Expert fights and loses others. A loss is worth reporting. See below.
 - FFRS QoL's auto-repeat (its F8) presses commands too. Turn it off while auto battle is on, or both mods press the command.
