@@ -63,7 +63,7 @@ The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua`
 
 ### 4. Start the game and check
 
-Start FINAL FANTASY RESONANCE from Steam. Load a save and enter a battle. The party should take its own commands. Press F10. The screen flashes AutoBattle Off. Press F9. The screen flashes AutoBattle: Echo! The full list of keys and triggers is in Controls, below.
+Start FINAL FANTASY RESONANCE from Steam. Load a save and enter a battle. The party should take its own commands. Press F10. The screen flashes AutoBattle Off. Press F9. The screen flashes AutoBattle: Echo Mode. The full list of keys and triggers is in Controls, below.
 
 To confirm the files loaded, open:
 
@@ -93,7 +93,7 @@ F9 and F10 work any time: on the field, in a menu, and in a fight.
 | Key | What it does | Notice |
 | --- | --- | --- |
 | F10 | Turns auto battle off or back on. It starts on. | AutoBattle Off, or AutoBattle On |
-| F9 | Switches between No Mercy and Echo. It starts on No Mercy. | AutoBattle: No Mercy!, or AutoBattle: Echo! |
+| F9 | Switches between No Mercy and Echo. It starts on No Mercy. | AutoBattle: No Mercy!, or AutoBattle: Echo Mode |
 | F8 | With `LargeMap` on, moves the field minimap to the middle of the screen and draws it large. Press again to put it back. | None |
 
 **No Mercy** is the full plan. The party uses spells, items, Limit Bursts, and heals when the fight needs them. See [How a fight is played](#how-a-fight-is-played).
@@ -169,7 +169,7 @@ Echo repeats your own play. You play a turn for each character once, by hand. Af
 
 ### Using it
 
-1. Press F9 until the screen flashes **AutoBattle: Echo!** Echo only records while it is the mode.
+1. Press F9 until the screen flashes **AutoBattle: Echo Mode**. Echo only records while it is the mode.
 2. Press F10 to turn auto battle off, and play one turn for each character the way you want it repeated. You can also leave auto battle on: a character with nothing on record has their turn handed to you, and the screen flashes **Echo: (name)'s turn is yours**.
 3. Press F10 to turn auto battle back on. From the next turn on, each character repeats what you gave them.
 4. To change the plan, do it again: turn auto battle off, play the new turns, and turn it back on. Whatever you play by hand replaces that character's turn on record.

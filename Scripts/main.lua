@@ -9759,7 +9759,7 @@ end
 local function pressBasic()
     cfg.Echo = not cfg.Echo
     saveState()
-    local msg = cfg.Echo and "AutoBattle: Echo!" or "AutoBattle: No Mercy!"
+    local msg = cfg.Echo and "AutoBattle: Echo Mode" or "AutoBattle: No Mercy!"
     log(msg)
     if Fight and Fight.active then appendLog("  switch: " .. msg) end
     showToast(msg)
