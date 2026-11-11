@@ -2,7 +2,7 @@
 
 Auto battle for FINAL FANTASY RESONANCE that plays from the gear, skills, and Vision you already equipped. Turn it on and the party picks its own commands: it finds what hits hard, builds the stagger, spends Limit Bursts where they count, and guards against the moves the game warns about. Saves and pak files are not changed.
 
-Version 1.0.1-dev, in testing. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 1.1. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 - **Works with any party.** No list of enemies, bosses, or favorite skills. Everything comes from the game's own data and from what happens in the fight.
 - **Two switches.** F10 turns auto battle on or off. F9 switches between two modes: No Mercy, the full plan, and Echo, which repeats the turns you played yourself. Both work mid-fight, and both are on the gamepad triggers.
@@ -69,7 +69,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v1.0.1-dev.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v1.1.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -250,7 +250,7 @@ With `Reporting` on, the same events are lines in `battle_report.txt`. Each repe
 ## Known limits
 
 - In No Mercy, commands that hold other picks are left to you, including Dualcast, Double Action, Arms Akimbo, Magic Barrage, Magic Boost, and Reckless Abandonment. Turn auto battle off for that turn to use one. Echo repeats them as you sent them.
-- Echo is new. Double Action, a group skill, and a foe that falls have been played; Dualcast, a gear change, and the hand-back cases have not yet. See [Tracking Echo](#tracking-echo). A turn saved before you changed your gear may name a skill the character no longer has; that turn should be handed back to you. An old `shapes.txt` from 1.0.1-dev is no longer read and can be deleted.
+- Echo is new in 1.1. It has been played with Dualcast, Double Action, group skills, a foe that falls, a gear change, and the hand-back cases. If a turn goes wrong, see [Tracking Echo](#tracking-echo). An old `shapes.txt` from a 1.0.1 test build is no longer read and can be deleted.
 - If you skip a Resonance wheel by hand while the mod is about to skip it, the mod stops for that wheel and leaves it to you. That case is new and not yet tested in game; `UE4SS.log` shows `wheel skipped by hand` or `wheel skipped` when it happens.
 - It wins some hard Expert fights and loses others. A loss is worth reporting. See below.
 - FFRS QoL's auto-repeat (its F8) presses commands too. Turn it off while auto battle is on, or both mods press the command.
