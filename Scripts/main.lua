@@ -8225,9 +8225,9 @@ local function noteHand(v)
     end
     pcall(function() noteChanges(livingSnapshot()) end)
     pcall(settleGauges)
-    -- A pick from an open menu, or on the Resonance wheel, belongs to that
-    -- menu's ally. A command with no menu is one the game made for the
-    -- unit whose turn it is, such as an ally whose status takes the turn.
+    -- A pick from an open menu belongs to that menu's ally. A command with no
+    -- menu is one the game made for the unit whose turn it is, such as an
+    -- ally whose status takes the turn. A wheel pick names its caster below.
     local onWheel = (currentPhase() == PHASE_FINISH)
     local uid = nil
     if Menu.fromMenu or onWheel then uid = Menu.actor else uid = currentActor() end
@@ -8268,8 +8268,10 @@ local function noteHand(v)
     -- is the enemy's turn, not the party's: it is not recorded.
     local actorId = nil
     pcall(function() actorId = num(rowObj.actionUnitUniqueId) end)
-    -- An echo names its own unit, on the wheel too, where the last menu may be someone else's.
-    if actorId and (actorId >= 0) and (Known.echoNow or not (Menu.fromMenu or onWheel)) then uid = actorId end
+    -- The wheel's last menu can be another ally's, so a wheel pick, like an
+    -- echo, goes by the unit its command names. The hits agree with it
+    -- (seen 2026-11-11: Zantetsuken named unit 0, Rain, after Jake's menu).
+    if actorId and (actorId >= 0) and (Known.echoNow or onWheel or not Menu.fromMenu) then uid = actorId end
     if uid and (uid >= 0) then
         local foe = Fight.seenFoe and Fight.seenFoe[uid]
         if not foe then
