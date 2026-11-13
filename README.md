@@ -2,11 +2,11 @@
 
 Auto battle for FINAL FANTASY RESONANCE that plays from the gear, skills, and Vision you already equipped. Turn it on and the party picks its own commands: it finds what hits hard, builds the stagger, spends Limit Bursts where they count, and guards against the moves the game warns about. Saves and pak files are not changed.
 
-Version 1.2. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 1.2.1. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 - **Works with any party.** No list of enemies, bosses, or favorite skills. Everything comes from the game's own data and from what happens in the fight.
 - **Two switches.** F10 turns auto battle on or off. F9 switches between two modes: No Mercy, the full plan, and Echo, which repeats the turns you played yourself. Both work mid-fight, and both are on the gamepad triggers.
-- **Optional extras.** Skip Limit Burst and Esper scenes, speed up battles, show the minimap large, and save a report of each fight. All of them are off until you turn them on.
+- **Optional extras.** Skip Limit Burst and Esper scenes, speed up battles, show the minimap large, and save a report of each fight. The large minimap is on; the rest are off until you turn them on.
 
 ## Install
 
@@ -69,7 +69,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v1.2.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v1.2.1.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -128,7 +128,7 @@ Settings are in `config.ini` in the mod folder. Edit the file, then restart the 
 | `MenuKey` | `F9` | The No Mercy / Echo key. |
 | `ItemPrice` | `5000` | No Mercy only. An item whose buy price is above this stays in the bag. Raise it to let the party spend more expensive items. |
 | `EsperLevelGap` | `3` | No Mercy only. An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. `-1` never calls an Esper; you can still call one by hand. |
-| `ResonanceLevelGap` | `3` | No Mercy only. The same as `EsperLevelGap`, for the Resonance wheel. The wheel is skipped when every foe is at least this many levels under every standing ally, unless it is a boss or an ally is down or about to die. `0` turns this off. `-1` leaves every wheel to you; the mod never picks or skips. |
+| `ResonanceLevelGap` | `0` | No Mercy only. The same as `EsperLevelGap`, for the Resonance wheel. The wheel is skipped when every foe is at least this many levels under every standing ally, unless it is a boss or an ally is down or about to die. `0` turns this off. `-1` leaves every wheel to you; the mod never picks or skips. |
 
 ### Optional settings
 
@@ -138,7 +138,7 @@ Each of these is off until you turn it on.
 | --- | --- | --- |
 | `SkipScenes` | `false` | Skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the hit still lands and the battle camera comes back. Other attacks and story scenes play as normal. |
 | `Turbo` | `false` | Experimental. Plays a fight's actions at four times the speed of the battle speed button's fastest mark. It starts with the first command, so the opening of a fight plays at normal speed. The command menu, Limit Bursts, Vision finishes, and Esper scenes stay at normal speed. Speed goes back to normal when the battle result begins. The game keeps writing its own speed back during a fight, and Turbo sets its rate again each time; `UE4SS.log` says how often after each fight. If anything looks wrong, turn it off. |
-| `LargeMap` | `false` | Lets F8, the left trigger, and the middle mouse button show the field minimap large in the middle of the screen. The game draws it at the bigger size, so it stays sharp. It only turns on outside a fight, and it comes back large on its own after a conversation or a new area. |
+| `LargeMap` | `true` | Lets F8, the left trigger, and the middle mouse button show the field minimap large in the middle of the screen. The game draws it at the bigger size, so it stays sharp. It only turns on outside a fight, and it comes back large on its own after a conversation or a new area. |
 | `MapKey` | `F8` | The large map key. |
 | `MapSize` | `80` | Size of the large map, as a percent of the screen height, from 20 to 100. |
 | `Reporting` | `false` | Writes each fight to `battle_report.txt` in the mod folder, keeping the last five. Use it to report a problem. |
@@ -156,7 +156,7 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 - **A foe that can die this turn dies this turn.** A measured killing blow comes before heals and raises. A Limit Burst can be that blow on a boss or a dangerous fight, but another hit that kills goes first, so the Limit is kept.
 - **The team prepares for a big hit.** When the game warns of a dangerous move, each character estimates that hit against each ally, then uses whichever guard, Shell, Protect, Cover, heal, item, or Defend saves the most of them. If nothing would save anyone, they keep hitting.
 - **Multicast is a normal choice.** An All cast is its own row, with that row's own magnification.
-- **The Resonance wheel is picked, or skipped in an easy fight.** When every foe is `ResonanceLevelGap` or more levels under every standing ally, the mod skips the wheel, the same as a hand skip. A boss, or an ally who is down or about to die, still gets a pick. At `-1` every wheel is yours, and the mod never picks or skips.
+- **The Resonance wheel is picked, or skipped in an easy fight.** When every foe is `ResonanceLevelGap` or more levels under every standing ally, the mod skips the wheel, the same as a hand skip. A boss, or an ally who is down or about to die, still gets a pick. At `-1` every wheel is yours, and the mod never picks or skips. Otherwise, a wheel that opens after every foe is already at 0 HP is skipped, so no finisher goes to an empty field.
 - **An Esper on a weakness comes early.** It goes ahead of a heal nobody will die without. Raises and critical heals still come first.
 - **Support earns its turn.** Buffs and debuffs go out when they fit the fight. A debuff follows the damage the party and the foe really deal.
 - **Spending goes by need.** Items above `ItemPrice` stay in the bag. A buy price far above every other item is held back, and spent only when no cheaper item covers someone down or about to die. A fight where nothing can hurt the party spends no items.

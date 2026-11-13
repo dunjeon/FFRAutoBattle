@@ -273,8 +273,8 @@ local DECIDE_MS = 420
 local Defaults = {
     Enabled = true, Submit = true, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
-    LevelGate = false, Turbo = false, LargeMap = false, MapKey = "F8", MapSize = 80,
-    EsperLevelGap = 3, ResonanceLevelGap = 3, Echo = false, EchoKeep = true,
+    LevelGate = false, Turbo = false, LargeMap = true, MapKey = "F8", MapSize = 80,
+    EsperLevelGap = 3, ResonanceLevelGap = 0, Echo = false, EchoKeep = true,
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -2946,7 +2946,8 @@ local function pickFinish(uid, finishes, w)
     local support = best.kind == "heal" or best.kind == "buff" or best.kind == "revive"
     local foe = nil
     for _, u in ipairs(w.enemies or {}) do
-        if (forced or elementFactor(best, u, true) > 0) and (not foe or (u.hp or 1) < (foe.hp or 1)) then foe = u end
+        local up = (not u.dead) and (u.hp or 1) > 0
+        if up and (forced or elementFactor(best, u, true) > 0) and (not foe or (u.hp or 1) < (foe.hp or 1)) then foe = u end
     end
     local tid = (foe and foe.id) or (Fight and Fight.building) or uid
     local targets, isAll
@@ -9273,6 +9274,11 @@ local function watchScene(skillId, name)
     -- until the cinematic manager allows it, and the player is never cut
     -- if that skip does not finish the scene.
     local ticks, askedAt, seen, quiet = 0, nil, false, 0
+    -- A command menu that opens after the scene began means the fight has
+    -- moved on. After a Limit skip the sequence can still read as playing
+    -- for up to the full 20 s watch, and turbo stayed at 1 the whole time.
+    -- TUNE: if a scene's start is ever cut by a menu, raise the 5 ticks.
+    local menuAt, watched = Menu.serial, 0
     -- reportOnly: a scene held for turbo is not news in UE4SS.log.
     local function finish(text, reportOnly)
         if Scene.want == skillId then Scene.want = nil end
@@ -9287,6 +9293,11 @@ local function watchScene(skillId, name)
     end
     local function step(left)
         if Scene.want ~= skillId then return end
+        watched = watched + 1
+        if watched > 5 and Menu.serial ~= menuAt then
+            finish(string.format("turbo back on after %s: a command menu opened", name), true)
+            return
+        end
         -- Turbo alone only holds the scene at normal speed. Nothing is skipped.
         local watchOnly = not cfg.SkipScenes
         if watchOnly and not cfg.Turbo then
@@ -9612,6 +9623,7 @@ local function resonanceWatch()
     local names = {}
     local wheelNotes, wheelFoes = {}, nil
     local standing, hurting = {}, false
+    local foesRead, foesUp = false, 0
     for _, uid in ipairs(friendIds()) do
         local ratio = hpRatio(uid)
         local down = (Fight.unitDown and Fight.unitDown(uid)) or (ratio == nil) or (ratio <= 0)
@@ -9623,6 +9635,12 @@ local function resonanceWatch()
             if okW and w then
                 for _, a in ipairs(w.allies or {}) do
                     if a.exposed then hurting = true end
+                end
+                if not foesRead then
+                    foesRead = true
+                    for _, u in ipairs(w.enemies or {}) do
+                        if (not u.dead) and (u.hp or 1) > 0 then foesUp = foesUp + 1 end
+                    end
                 end
                 local skills = {}
                 local okS, got = pcall(finishList, uid)
@@ -9673,8 +9691,11 @@ local function resonanceWatch()
     -- skipped, unless it is a boss or an ally is down or exposed (the
     -- wheel's heal case). -1 is handled above: the wheel is the player's.
     -- TUNE: if under-level fights drag on without the finisher, raise the gap.
+    -- Every foe is at 0 HP: the fight is won, and a finisher would go to
+    -- the empty field. The wheel is skipped instead, at any gap.
     local why = nil
-    pcall(function()
+    if foesRead and foesUp == 0 then why = "no foe has HP left" end
+    if not why then pcall(function()
         local gap = tonumber(cfg.ResonanceLevelGap) or 0
         if (gap >= 1) and (not Fight.boss) and (not hurting) and Espers.outLeveled and (#standing > 0) then
             local foes = {}
@@ -9685,7 +9706,7 @@ local function resonanceWatch()
             end
             if all then why = string.format("every foe is %d or more levels under", gap) end
         end
-    end)
+    end) end
     if why then
         Fight.wheelLeft, Fight.wheelSkip = why, true
         local line = string.format("wheel skip: %s", why)
@@ -9910,7 +9931,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v1.2. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v1.2.1. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
