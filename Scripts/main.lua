@@ -268,7 +268,11 @@ local LOCK = {
     [8] = true, [9] = true, [10] = true, [11] = true,
 }
 local PHASE_BONUS, PHASE_FINISH = 1, 2
-local DECIDE_MS = 420
+-- The wait from a command menu opening to the planner's send. The game runs
+-- at its command-select speed meanwhile, so each turn costs this much.
+-- TUNE: was 420 through v1.2.1. If a command fails to send, or a sub-menu
+-- is taken for a new turn, raise it back toward 420.
+local DECIDE_MS = 250
 
 local Defaults = {
     Enabled = true, Submit = true, Reporting = false,
@@ -9324,8 +9328,11 @@ local function watchScene(skillId, name)
                 Scene.react(job)
             end
         elseif askedAt then
+            -- Three quiet ticks (0.3 s) after the skip: the scene is done.
+            -- TUNE: was 8 through v1.2.1. If a skipped scene comes back or
+            -- plays on at turbo speed, raise it.
             quiet = quiet + 1
-            if quiet >= 8 then
+            if quiet >= 3 then
                 finish(string.format("scene skip: %s", name))
                 return
             end
