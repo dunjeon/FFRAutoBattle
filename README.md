@@ -2,7 +2,7 @@
 
 Auto battle for FINAL FANTASY RESONANCE that plays from the gear, skills, and Vision you already equipped. Turn it on and the party picks its own commands: it finds what hits hard, builds the stagger, spends Limit Bursts where they count, and guards against the moves the game warns about. Saves and pak files are not changed.
 
-Version 1.2.1. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 1.2.3. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 - **Works with any party.** No list of enemies, bosses, or favorite skills. Everything comes from the game's own data and from what happens in the fight.
 - **Two switches.** F10 turns auto battle on or off. F9 switches between two modes: No Mercy, the full plan, and Echo, which repeats the turns you played yourself. Both work mid-fight, and both are on the gamepad triggers.
@@ -69,7 +69,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v1.2.1.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v1.2.3.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -137,7 +137,7 @@ Each of these is off until you turn it on.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `SkipScenes` | `false` | Skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the hit still lands and the battle camera comes back. Other attacks and story scenes play as normal. |
-| `Turbo` | `false` | Experimental. Plays a fight's actions at four times the speed of the battle speed button's fastest mark. It starts with the first command, so the opening of a fight plays at normal speed. The command menu, Limit Bursts, Vision finishes, and Esper scenes stay at normal speed. Speed goes back to normal when the battle result begins. The game keeps writing its own speed back during a fight, and Turbo sets its rate again each time; `UE4SS.log` says how often after each fight. If anything looks wrong, turn it off. |
+| `Turbo` | `false` | Experimental. Plays a fight's actions at four times the speed of the battle speed button's fastest mark. It starts with the first command, so the opening of a fight plays at normal speed. The command menu, Limit Bursts, Vision finishes, and Esper scenes stay at normal speed. Speed goes back to normal when the battle result begins. Turbo only runs while AutoBattle is On. Turn auto battle off in a fight and the speed goes back to normal until you turn it on again. The game keeps writing its own speed back during a fight, and Turbo sets its rate again each time; `UE4SS.log` says how often after each fight. If anything looks wrong, turn it off. |
 | `LargeMap` | `true` | Lets F8, the left trigger, and the middle mouse button show the field minimap large in the middle of the screen. The game draws it at the bigger size, so it stays sharp. It only turns on outside a fight, and it comes back large on its own after a conversation or a new area. |
 | `MapKey` | `F8` | The large map key. |
 | `MapSize` | `80` | Size of the large map, as a percent of the screen height, from 20 to 100. |

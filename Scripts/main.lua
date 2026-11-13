@@ -24,7 +24,9 @@
 -- speed button's fastest mark. The command menu stays at the game's
 -- command-select speed. A Limit Burst, a Vision finish, and an Esper scene
 -- stay at normal speed. The speed stops when the battle result begins, so
--- the story after the fight is left alone.
+-- the story after the fight is left alone. Turbo only runs while auto battle
+-- is on. Switched off in a fight, the speed goes back to normal until it is
+-- switched on again.
 
 local TAG = "[FFRAutoBattle] "
 -- Reporting off: only the startup line and real errors reach UE4SS.log.
@@ -2395,6 +2397,12 @@ function Menu.readMarks()
     return true
 end
 
+-- Turbo is set and auto battle is on. With auto battle off the fight is the
+-- player's, and it plays at the game's own speed.
+function Menu.turboLive()
+    return cfg.Turbo and cfg.Enabled
+end
+
 -- The opening is over: the planner sent its first command, or a command
 -- menu opened after the fight was set up. The game's own Auto can take the
 -- first turn (an Esuna after an opening blind) before the mod sees the fight,
@@ -2472,7 +2480,7 @@ function Menu.stopPace()
 end
 
 function Menu.keepPace()
-    if Menu.pace.done or (not cfg.Turbo) or not (Fight and Fight.active) then
+    if Menu.pace.done or (not Menu.turboLive()) or not (Fight and Fight.active) then
         Menu.restorePace()
         return
     end
@@ -2544,7 +2552,7 @@ function Menu.hookPace()
         "/Script/mucha.CPP_BtlGameSpeedManager:SetSequenceGameSpeed",
         "/Script/mucha.ACPP_BtlGameSpeedManager:SetSequenceGameSpeed",
     }, function(_, dilation)
-        if not (cfg.Turbo and Fight and Fight.active and (not Menu.pace.done) and (not Menu.open) and (not Menu.pace.scene)) then return end
+        if not (Menu.turboLive() and Fight and Fight.active and (not Menu.pace.done) and (not Menu.open) and (not Menu.pace.scene)) then return end
         local fast = Menu.pace.fast
         local d = num(dilation and dilation:get())
         if not fast or not d then return end
@@ -9304,7 +9312,7 @@ local function watchScene(skillId, name)
         end
         -- Turbo alone only holds the scene at normal speed. Nothing is skipped.
         local watchOnly = not cfg.SkipScenes
-        if watchOnly and not cfg.Turbo then
+        if watchOnly and not Menu.turboLive() then
             if Menu.pace.scene then
                 Menu.pace.scene = false
                 if Menu.keepPace then Menu.keepPace() end
@@ -9377,7 +9385,7 @@ local function watchScene(skillId, name)
 end
 
 local function considerScene(skillId, actorId)
-    if not (cfg.SkipScenes or cfg.Turbo) or not skillId then return end
+    if not (cfg.SkipScenes or Menu.turboLive()) or not skillId then return end
     pcall(buildSkillIndex, true)
     local row = skillOf(skillId)
     local scene = row and (row.attr == ATTR.LB or row.attr == ATTR.FINISH or row.attr == ATTR.SUMMON)
@@ -9402,7 +9410,7 @@ end
 local function hookScenes()
     if not (cfg.SkipScenes or cfg.Turbo) then return end
     RegisterHook("/Script/mucha.CPP_VM_BtlMsg:HandleBeginSkill", function(_, delval)
-        if not (cfg.SkipScenes or cfg.Turbo) then return end
+        if not (cfg.SkipScenes or Menu.turboLive()) then return end
         local id, actor = nil, nil
         pcall(function()
             local row = delval:get()
@@ -9938,7 +9946,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v1.2.1. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v1.2.3. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
