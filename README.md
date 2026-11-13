@@ -2,7 +2,7 @@
 
 Auto battle for FINAL FANTASY RESONANCE that plays from the gear, skills, and Vision you already equipped. Turn it on and the party picks its own commands: it finds what hits hard, builds the stagger, spends Limit Bursts where they count, and guards against the moves the game warns about. Saves and pak files are not changed.
 
-Version 1.2.2. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 1.2.3. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 - **Works with any party.** No list of enemies, bosses, or favorite skills. Everything comes from the game's own data and from what happens in the fight.
 - **Two switches.** F10 turns auto battle on or off. F9 switches between two modes: No Mercy, the full plan, and Echo, which repeats the turns you played yourself. Both work mid-fight, and both are on the gamepad triggers.
@@ -69,7 +69,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v1.2.2.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v1.2.3.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
