@@ -9946,7 +9946,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v1.2.3. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v1.2.2. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
