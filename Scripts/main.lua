@@ -4136,7 +4136,43 @@ local function turn(uid, skills, w, phase)
             if (a.hp or 1) < 0.15 then return false, #need, 0 end
         end
         local mpOf = function(id) return stat(id, PARAM.MP, false) or 0 end
-        local covers = 0
+        -- Reflect, on the ally in danger or (for a party spell) on anyone
+        -- living, sends a spell heal to a foe. An ability, a spell that
+        -- passes Reflect, or an HP item in the bag still lands.
+        local anyReflect = false
+        for _, b in ipairs(w.allies) do
+            if (not b.dead) and Reflect.on and Reflect.on(b.statuses) then anyReflect = true end
+        end
+        local bagHeal = false
+        if not potFight(w) then
+            local okItems, owned = pcall(ownedRecovery)
+            if okItems and type(owned) == "table" then
+                for _, it in ipairs(owned) do
+                    -- An item held back by ItemPrice is not counted on.
+                    if (it.hp or (it.kind == "heal")) and ((it.amount or 0) > 0) and (not it.rare) then bagHeal = true break end
+                end
+            end
+        end
+        local function reaches(healer, target)
+            if bagHeal then return true end
+            local kit = unitKit(healer.id)
+            local mp = mpOf(healer.id)
+            for _, sk in ipairs((kit and kit.spells) or {}) do
+                if (sk.kind == "heal") and ((sk.cost or 0) <= mp) then
+                    local blocked = false
+                    if Reflect.bounces and Reflect.bounces(sk) then
+                        if partyOf(sk) then
+                            blocked = anyReflect
+                        else
+                            blocked = (Reflect.on and Reflect.on(target.statuses)) or false
+                        end
+                    end
+                    if not blocked then return true end
+                end
+            end
+            return false
+        end
+        local healers = {}
         for _, a in ipairs(w.allies) do
             if (a.id ~= uid) and (not a.dead) and (a.acts ~= false) and (not heldOut(a))
                 and not (Fight.summons and Fight.summons[a.id]) then
@@ -4144,7 +4180,19 @@ local function turn(uid, skills, w, phase)
                 if kit and ((kit.healScore or 0) > 0) and Health.available
                     and Health.available(a, a.statuses, unitKit, mpOf)
                     and (foeBeforeAlly(a.id) == false) then
+                    healers[#healers + 1] = a
+                end
+            end
+        end
+        -- One healer answers one ally: each ally in danger takes the first
+        -- unused healer whose heal lands on them.
+        local used, covers = {}, 0
+        for _, target in ipairs(need) do
+            for i, h in ipairs(healers) do
+                if (not used[i]) and reaches(h, target) then
+                    used[i] = true
                     covers = covers + 1
+                    break
                 end
             end
         end
