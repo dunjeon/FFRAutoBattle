@@ -23,7 +23,7 @@ local E = {
 -- eUnitStatusCondition, by what the planner's debuffs are called.
 local DEBUFF = { [1] = "poison", [2] = "blind", [4] = "silence", [6] = "confuse", [8] = "charm", [12] = "slow",
     [15] = "debrave", [16] = "deprotect", [17] = "defaith", [18] = "deshell" }
-local ST_HASTE, ST_DEFEND = 33, 36
+local ST_HASTE, ST_DEFEND, ST_REFLECT = 33, 36, 32
 -- The names the planner's ailment checks use.
 local STATUS = { [1] = "poison", [2] = "blind", [3] = "sleep", [4] = "silence", [5] = "paralysis", [6] = "confuse",
     [7] = "petrify", [8] = "charm", [9] = "stop", [10] = "berserk", [11] = "doom", [12] = "slow", [13] = "instant death",
@@ -215,8 +215,34 @@ local function esperOf(row, units, skills)
                 if move.accuracy then info.accuracy = move.accuracy end
             end
             if (move.effect == 1) and (move.varType ~= UP) and (move.attr ~= A_FIGHT) then info.role = "damage" end
+            -- A move that restores the party is a heal. The strongest one is
+            -- the Esper's heal, and its reach is that move's target.
+            if (move.effect == 1) and (move.varType == UP) and (move.rel ~= ENEMY) then
+                local power = move.power or 0
+                if (not info.heal) or (power > (info.healPower or 0)) then
+                    info.heal = true
+                    info.healPower = (power > 0) and power or nil
+                    info.healParty = wide(move) or nil
+                end
+            end
+            -- What its moves leave on the party: Reflect, Regen, the guards.
+            local function mark(st)
+                if st and st > 0 then
+                    info.statuses = info.statuses or {}
+                    info.statuses[st] = true
+                end
+            end
+            -- friendStatus already knows which side each effect lands on. A
+            -- row without it falls back to its effects, on a move not aimed
+            -- at the enemy.
+            if move.friendStatus then
+                for st in pairs(move.friendStatus) do mark(st) end
+            elseif move.rel ~= ENEMY then
+                for _, e in ipairs(move.effects or {}) do mark(e.status) end
+            end
         end
     end
+    if info.statuses and info.statuses[ST_REFLECT] then info.reflect = true end
     return info
 end
 

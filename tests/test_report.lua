@@ -193,4 +193,27 @@ check(s4:find("FIGHT RESTARTED after the wipe: attempt 2", 1, true), "the restar
 check(s4:find("result: LOST 1 time, ended with the party up; party wiped 1 time, fight restarted 1 time", 1, true), "the report says the fight was lost")
 check(s3:find("result: ended with the party up; party wiped 0 times", 1, true) ~= nil, "a fight without a wipe says so")
 
+-- Reflect: the fight-43 bounces. A party heal on the boss, a heal on a summon,
+-- and a party spell sent back at the party.
+os.remove(path)
+local R5 = Report.new(path, function() return "12:00:00" end)
+R5:begin({ number = 5, boss = true, difficulty = "difficulty 1" })
+R5:field({ allies = { [1] = ally(500, 100, false) }, foes = { [6] = foe(44004, 100) } })
+R5:hit({ from = 1, to = 6, skill = 210020, skillName = "Cura", fromName = "Fina", toName = "Ignis", fromFriend = true, toFriend = false,
+    param = 1, vtype = 0, value = 1296, before = 44004, after = 45300, breakValue = 0 })
+R5:hit({ from = 0, to = 10, skill = 215010, skillName = "Cura", fromName = "Rain", toName = "Carbuncle", fromFriend = true, toFriend = false,
+    toSummon = true, param = 1, vtype = 0, value = 390, before = 4266, after = 4266, breakValue = 0 })
+R5:hit({ from = 1, to = 2, skill = 220010, skillName = "Fire", fromName = "Fina", toName = "Jake", fromFriend = true, toFriend = true,
+    param = 1, vtype = 1, value = 120, before = 900, after = 780, breakValue = 0 })
+R5:hit({ from = 1, to = 1, skill = 999, skillName = "Blood Price", fromName = "Fina", toName = "Fina", fromFriend = true, toFriend = true,
+    param = 1, vtype = 1, value = 50, before = 780, after = 730, breakValue = 0 })
+R5:finish({ rounds = 1 })
+R5:flush()
+local f5 = io.open(path); local s5 = f5:read("a"); f5:close()
+check(s5:find("heal that landed on a foe (reflect or absorb): 1 (Fina Cura on Ignis for 1296)", 1, true) ~= nil, "a heal on a foe is flagged")
+check(not s5:find("Cura on Carbuncle", 1, true), "a heal on a summon is not a heal on a foe")
+check(s5:find("hit that landed on an ally (reflect or confuse): 1 (Fina Fire on Jake for 120)", 1, true) ~= nil, "a party hit on an ally is flagged")
+check(not s5:find("Blood Price on Fina", 1, true), "a cost the caster pays on themself is not flagged")
+check(s5:find("healed 390", 1, true) ~= nil and not s5:find("healed 1686", 1, true), "a heal on a foe is not counted as healing")
+
 os.exit(fails == 0 and 0 or 1)

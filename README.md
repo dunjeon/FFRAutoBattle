@@ -2,7 +2,7 @@
 
 Auto battle for FINAL FANTASY RESONANCE that plays from the gear, skills, and Vision you already equipped. Turn it on and the party picks its own commands: it finds what hits hard, builds the stagger, spends Limit Bursts where they count, and guards against the moves the game warns about. Saves and pak files are not changed.
 
-Version 1.2.3. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
+Version 1.2.4. Lead Programmer: Grok, by xAI. Contributor: Claude, by Anthropic. Released under the MIT license.
 
 - **Works with any party.** No list of enemies, bosses, or favorite skills. Everything comes from the game's own data and from what happens in the fight.
 - **Two switches.** F10 turns auto battle on or off. F9 switches between two modes: No Mercy, the full plan, and Echo, which repeats the turns you played yourself. Both work mid-fight, and both are on the gamepad triggers.
@@ -57,7 +57,7 @@ When this step is done, this file exists:
 
 `FFRS\Binaries\Win64\ue4ss\Mods\FFRAutoBattle\Scripts\main.lua`
 
-The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, `pace.lua`, `minimap.lua`, and `echo.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
+The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `reflect.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, `pace.lua`, `minimap.lua`, and `echo.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
 **Upgrading from an earlier version:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again. Take it Easy and its `AttacksOnly` setting are gone: if you used it, you start in No Mercy. To get the same play, switch to Echo and give each character Attack by hand once (see [Echo](#echo)).
 
@@ -69,7 +69,7 @@ To confirm the files loaded, open:
 
 `FFRS\Binaries\Win64\ue4ss\UE4SS.log`
 
-Search for `loaded. planner v1.2.3.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
+Search for `loaded. planner v1.2.4.` If that line is there, the mod is running. It is written when the game starts, so it is near the top of a fresh log.
 
 ### If it does not load
 
@@ -158,6 +158,8 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 - **Multicast is a normal choice.** An All cast is its own row, with that row's own magnification.
 - **The Resonance wheel is picked, or skipped in an easy fight.** When every foe is `ResonanceLevelGap` or more levels under every standing ally, the mod skips the wheel, the same as a hand skip. A boss, or an ally who is down or about to die, still gets a pick. At `-1` every wheel is yours, and the mod never picks or skips. Otherwise, a wheel that opens after every foe is already at 0 HP is skipped, so no finisher goes to an empty field.
 - **An Esper on a weakness comes early.** It goes ahead of a heal nobody will die without. Raises and critical heals still come first.
+- **A healing Esper is a party heal.** When enough of the party is under half that a party heal would be the pick, an Esper whose moves heal the party is called first, on a boss or a dangerous fight. The usual Esper rules still hold: one out at a time, and the caster keeps MP for a heal.
+- **Reflect is read on everyone.** A spell is not cast at an ally or a foe under Reflect, whatever put it there. A heal goes to an ability or an item instead. A heal that lands on a foe is flagged in the report.
 - **Support earns its turn.** Buffs and debuffs go out when they fit the fight. A debuff follows the damage the party and the foe really deal.
 - **Spending goes by need.** Items above `ItemPrice` stay in the bag. A buy price far above every other item is held back, and spent only when no cheaper item covers someone down or about to die. A fight where nothing can hurt the party spends no items.
 

@@ -76,6 +76,35 @@ local twinCaller = { id = 27, name = "Twin Caller", attr = 7, effect = 0, varTyp
 local d5 = R.build({ skills = { [26] = twinHit, [27] = twinCaller }, units = { [72] = { name = "Twin Unit", elements = {}, status = {}, traits = {}, moves = { 26 } } }, items = {} })
 check(d5.espers["twin caller"].power == 33, "a multi-hit signature keeps the row magnification, not magnification times hits")
 
+-- A support Esper whose moves are a party Reflect, a party heal with Regen,
+-- and a party guard, the way Carbuncle's three moves read in fight 43.
+local light = { id = 30, name = "Light", attr = 3, effect = 0, varType = 0, dmgType = 0, target = 2, rel = 1, cost = 0, power = 0, breakPower = 0,
+    friendStatus = { [32] = true }, effects = { { type = 34, status = 32, params = {}, turns = 3 } } }
+local mend = { id = 31, name = "Mend", attr = 3, effect = 1, varType = 0, dmgType = 0, target = 2, rel = 1, cost = 0, power = 120, breakPower = 0,
+    effects = { { type = 3, status = 30, params = {}, turns = 3 } } }
+local shine = { id = 32, name = "Shine", attr = 3, effect = 0, varType = 0, dmgType = 0, target = 2, rel = 1, cost = 0, power = 0, breakPower = 0,
+    friendStatus = { [25] = true, [27] = true }, effects = {} }
+local gem = { id = 33, name = "Gem", attr = 7, effect = 0, varType = 0, dmgType = 0, target = 0, rel = 1, cost = 50, power = 0, breakPower = 0,
+    effects = { { type = 37, status = 0, params = { 2, 73 }, turns = -1 } } }
+local d6 = R.build({ skills = { [30] = light, [31] = mend, [32] = shine, [33] = gem },
+    units = { [73] = { name = "Gem Unit", elements = {}, status = {}, traits = {}, moves = { 30, 31, 32 } } }, items = {} })
+local g = d6.espers["gem"]
+check(g.role == "guard" and not g.element, "a support Esper has no damage role and no element")
+check(g.heal and g.healPower == 120 and g.healParty, "a party heal move makes the Esper a party healer with that power")
+check(g.reflect and g.statuses[32], "a move that puts Reflect on the party is read")
+check(g.statuses[30] and g.statuses[25] and g.statuses[27], "Regen and both guards are read from the moves")
+check(not d2.espers["sprite"].heal and not d2.espers["sprite"].reflect, "a damage Esper is not a healer and casts no Reflect")
+-- A party move whose Blind lands on the enemy: friendStatus says so, and the
+-- raw effect list is not read as a party status.
+local veil = { id = 34, name = "Veil", attr = 3, effect = 0, varType = 0, dmgType = 0, target = 2, rel = 1, cost = 0, power = 0, breakPower = 0,
+    friendStatus = { [25] = true }, effects = { { type = 2, status = 2, params = {}, turns = 3 }, { type = 2, status = 25, params = {}, turns = 3 } } }
+local veiler = { id = 35, name = "Veiler", attr = 7, effect = 0, varType = 0, dmgType = 0, target = 0, rel = 1, cost = 50, power = 0, breakPower = 0,
+    effects = { { type = 37, status = 0, params = { 2, 74 }, turns = -1 } } }
+local d7 = R.build({ skills = { [34] = veil, [35] = veiler },
+    units = { [74] = { name = "Veil Unit", elements = {}, status = {}, traits = {}, moves = { 34 } } }, items = {} })
+check(d7.espers["veiler"].statuses[25] and not d7.espers["veiler"].statuses[2], "an effect friendStatus puts on the enemy is not a party status")
+check(not d7.espers["veiler"].heal, "a move that heals no one does not make a healer")
+
 -- Every Limit's role, from the effect types the game's own rows carry.
 local function lb(id, name, effect, rel, target, cost, effects)
     return { id = id, name = name, attr = 5, effect = effect, varType = 1, dmgType = (effect == 1) and 1 or 0, target = target,

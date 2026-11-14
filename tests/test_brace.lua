@@ -68,6 +68,19 @@ local stance = team()
 stance[1].noSpell, stance[2].noSpell = true, true
 check(#B.rank(stance, { { heal = 900, scope = "one", spell = true } }, 3, false) == 0, "a spell heal doesn't reach an ally who can't take one")
 
+-- Reflect: a spell heal on an ally under it heals a foe. An ability lands.
+local mirrored = team()
+mirrored[1].reflect, mirrored[2].reflect = true, true
+check(#B.rank(mirrored, { { heal = 900, scope = "one", spell = true, bounces = true } }, 3, false) == 0, "a spell heal does not save an ally under Reflect")
+check(#B.rank(mirrored, { { heal = 900, scope = "one" } }, 3, false) == 1, "an ability heal still saves an ally under Reflect")
+-- A heal of a share of max HP: 30% of 2000 is 600, enough at 1000 HP against 1500.
+local share = { heal = true, healOf = function(a) return a.maxHp * 30 / 100 end, scope = "one" }
+check(#B.rank(team(), { share }, 3, false) == 1, "a max-HP share heal is counted on each ally's own max HP")
+local small = team()
+small[1].maxHp, small[2].maxHp = 1200, 1200
+check(#B.rank(small, { share }, 3, false) == 0, "the same share on a smaller max HP is too little")
+check(#B.rank(team(), { { heal = true, healOf = function() return nil end, scope = "one" } }, 3, false) == 0, "a heal with no amount saves no one")
+
 local covered = opt(cover, MAGIC)
 check(#B.rank(team(), { covered }, 3, false) == 0, "cover isn't counted on a group hit")
 r = B.rank(team(), { covered }, 3, true)

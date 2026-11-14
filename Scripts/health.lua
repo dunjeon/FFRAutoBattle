@@ -9,7 +9,10 @@
 -- urgent is waiting. Slow is cleared while the status is on the ally. The
 -- spell's row has to list Slow. A broken stat is still ignored.
 
-local FIXED = 3
+-- eSkillDamageCalcType. A heal's power reads in the unit its calc names:
+-- Fixed is HP, the two ratios are a percent of the target's HP, and the rest
+-- scale with the caster's stats (what this fight measures as a rate).
+local FIXED, MAX_RATIO, CUR_RATIO = 3, 5, 6
 local POISON, BLIND = 1, 2
 local SLEEP, SILENCE = 3, 4
 local PARALYSIS, CONFUSE, PETRIFY, CHARM = 5, 6, 7, 8
@@ -127,35 +130,62 @@ function M.reviewClaims(claims, marks, ids, hpOf)
     return freed
 end
 
-function M.spellRank(skill, missing, hurtN, party, need, rate)
+M.MAX_RATIO, M.CUR_RATIO = MAX_RATIO, CUR_RATIO
+
+-- The HP this heal restores on this target, or nil when nothing says.
+-- target: { hp, maxHp }. rate: HP per point of power this caster's
+-- stat-scaled heals have shown. A ratio or Fixed heal does not use the rate.
+function M.healAmount(skill, rate, target)
+    local power = (skill and skill.power) or 0
+    if power <= 0 then return nil end
+    local calc = skill.calc
+    if calc == FIXED then return power end
+    if calc == MAX_RATIO then
+        local maxHp = target and tonumber(target.maxHp)
+        if maxHp and maxHp > 0 then return maxHp * power / 100 end
+        return nil
+    end
+    if calc == CUR_RATIO then
+        local hp = target and tonumber(target.hp)
+        if hp and hp > 0 then return hp * power / 100 end
+        return nil
+    end
+    if rate and rate > 0 then return power * rate end
+    return nil
+end
+
+-- True when this heal's power is a stat scale the rate is learned on.
+function M.scaled(skill)
+    local calc = skill and skill.calc
+    return (calc ~= FIXED) and (calc ~= MAX_RATIO) and (calc ~= CUR_RATIO)
+end
+
+function M.spellRank(skill, missing, hurtN, party, need, rate, target)
     need = need or 3
     -- With most of the party hurt, a party heal wins over every single heal,
     -- including a party row with no magnification. Among party heals the
     -- usual rank decides.
     if party and ((hurtN or 0) >= need) then
-        local inner = M.spellRank(skill, missing, 0, false, need, rate)
+        local inner = M.spellRank(skill, missing, 0, false, need, rate, target)
         return 1000 + inner
     end
     local cost = skill.cost or 0
     if cost < 1 then cost = 1 end
     local power = skill.power or 0
-    local amount = nil
-    if (skill.calc == FIXED) and (power > 0) then amount = power end
-    if (not amount) and rate and (rate > 0) and (power > 0) and missing and (missing > 0) then
-        local seen = power * rate
-        if seen >= missing then return 2 + (missing / seen) + (0.01 / cost) end
-        return 1 + (seen / (seen + missing)) + (0.01 / cost)
-    end
+    -- What it restores, by its calc: from the row for a Fixed or ratio heal,
+    -- from this caster's measured rate for a stat-scaled one. Every heal with
+    -- an amount is judged the same way: one that covers what is missing
+    -- beats one that does not, the closest cover first; short of that, the
+    -- larger share. Cost breaks a tie.
+    local amount = M.healAmount(skill, rate, target)
     if amount and missing and (missing > 0) then
-        local r
-        if amount >= missing then
-            r = 2 + (missing / amount)
-        else
-            r = amount / (amount + missing)
-        end
-        if (hurtN >= need) and party then r = r * 3 end
-        return r + (0.01 / cost)
+        if amount >= missing then return 2 + (missing / amount) + (0.01 / cost) end
+        return 1 + (amount / (amount + missing)) + (0.01 / cost)
     end
+    -- No amount yet: a stat-scaled heal before this fight has measured one.
+    -- Its power and cost are all the row gives, and that power per MP
+    -- usually outranks a heal with an amount, so the first cast teaches the
+    -- rate.
     if power > 0 then
         local r = power / cost
         if (hurtN >= need) and party then r = r * 3 end

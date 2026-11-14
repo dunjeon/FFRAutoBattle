@@ -141,6 +141,29 @@ function M.score(fact, hits)
     return 20
 end
 
+-- The Esper that answers a hurt party, from rows whose fact has a heal. A
+-- heal that reaches the whole party comes first, then the stronger heal,
+-- then the cheaper call. nil when no row heals.
+function M.healPick(cands)
+    local best = nil
+    for _, c in ipairs(cands or {}) do
+        local f = c.fact
+        if f and f.heal then
+            local function ahead()
+                if not best then return true end
+                local bf = best.fact
+                local cp, bp = f.healParty and true or false, bf.healParty and true or false
+                if cp ~= bp then return cp end
+                local cw, bw = f.healPower or 0, bf.healPower or 0
+                if cw ~= bw then return cw > bw end
+                return (c.cost or 0) < (best.cost or 0)
+            end
+            if ahead() then best = c end
+        end
+    end
+    return best
+end
+
 -- The call this fight has measured comes first: a kill, then the damage, the
 -- same order a spell uses. The signature's element breaks a tie, and it picks
 -- the call when nothing has been measured yet. A measured miss leaves that

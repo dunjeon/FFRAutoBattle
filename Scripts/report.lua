@@ -371,7 +371,14 @@ function M.new(path, clock)
         end
         if h.param == 1 and v > 0 then
             if h.vtype == 1 then
-                if h.fromFriend then
+                if h.fromFriend and h.toFriend and (h.from ~= h.to) then
+                    -- A party hit on the party: a foe's Reflect sent it back, or confusion.
+                    self:flag("hit that landed on an ally (reflect or confuse)", string.format("%s %s on %s for %d",
+                        tostring(h.fromName), tostring(h.skillName), tostring(h.toName), v))
+                    local a = ally(F, tostring(h.toName))
+                    a.hitsTaken = a.hitsTaken + 1
+                    a.dmgTaken = a.dmgTaken + v
+                elseif h.fromFriend then
                     ally(F, tostring(h.fromName)).dealt = ally(F, tostring(h.fromName)).dealt + v
                     foe(F, tostring(h.toName)).damage = foe(F, tostring(h.toName)).damage + v
                 elseif h.toFriend then
@@ -379,6 +386,12 @@ function M.new(path, clock)
                     a.hitsTaken = a.hitsTaken + 1
                     a.dmgTaken = a.dmgTaken + v
                 end
+            elseif h.vtype == 0 and h.fromFriend and (not h.toFriend) and (not h.toSummon) then
+                -- A party heal or hit that restored a foe: a Reflect sent it there, or the foe absorbs the element.
+                self:flag("heal that landed on a foe (reflect or absorb)", string.format("%s %s on %s for %d",
+                    tostring(h.fromName), tostring(h.skillName), tostring(h.toName), v))
+                local rec = foe(F, tostring(h.toName))
+                rec.healedBy = (rec.healedBy or 0) + v
             elseif h.vtype == 0 and h.fromFriend then
                 local a = ally(F, tostring(h.fromName))
                 a.healed = a.healed + v

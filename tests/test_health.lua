@@ -37,4 +37,31 @@ check(H.openingTarget(3, needs, nil) == 2, "with no healer, whoever is up takes 
 check(H.openingTarget(1, {}, 1) == nil, "nobody waiting means no opening heal")
 check(H.openingTarget(1, needs, 9) == 1, "someone else's heal still lets a hurt ally drink")
 
+-- Heal amounts by calc, from the fight-43 rows. First Aid is power 15 of
+-- the target's max HP (calc 5): 249 on Fina's 1663, 236 on Jake's 1575.
+-- Cure, Cura and Pray scale with the caster: Fina measured 2.81 HP per power.
+local firstAid = { name = "First Aid", power = 15, cost = 0, calc = H.MAX_RATIO, attr = 3 }
+local pray = { name = "Pray", power = 200, cost = 14, calc = 2, attr = 3 }
+local cure = { name = "Cure", power = 200, cost = 6, calc = 2, attr = 4 }
+local cura = { name = "Cura", power = 500, cost = 18, calc = 2, attr = 4 }
+local fina = { hp = 638, maxHp = 1663 }
+check(math.floor(H.healAmount(firstAid, 2.81, fina)) == 249, "a max-HP share heal is that share of the target's max HP")
+check(H.healAmount(firstAid, nil, fina) ~= nil, "a share heal needs no measured rate")
+check(H.healAmount(firstAid, 2.81, {}) == nil, "a share heal with no max HP read has no amount")
+check(math.floor(H.healAmount(pray, 2.81, fina)) == 562, "a stat-scaled heal is its power times the rate")
+check(H.healAmount(pray, nil, fina) == nil, "a stat-scaled heal with no rate has no amount")
+check(H.healAmount({ power = 300, calc = H.FIXED }, 2.81, fina) == 300, "a Fixed heal is its power")
+check(math.floor(H.healAmount({ power = 10, calc = H.CUR_RATIO }, nil, fina)) == 63, "a current-HP share is that share of current HP")
+
+local function rank(s, missing, rate) return H.spellRank(s, missing, 0, false, 3, rate, fina) end
+-- Fina at 638 of 1663: 1025 missing. Nothing covers it but Cura; Pray gives more than First Aid.
+check(rank(pray, 1025, 2.81) > rank(firstAid, 1025, 2.81), "with a rate, Pray's 562 outranks First Aid's 249 when neither covers")
+check(rank(cura, 1025, 2.81) > rank(pray, 1025, 2.81), "a heal that covers what is missing outranks one that does not")
+-- 200 missing: First Aid covers it for free and overheals least.
+check(rank(firstAid, 200, 2.81) > rank(pray, 200, 2.81), "the closest cover wins: First Aid when it is enough")
+check(rank(firstAid, 200, 2.81) > rank(cure, 200, 2.81), "the closest cover beats a bigger spell")
+-- No rate yet: First Aid's free cost no longer makes it look stronger than Pray.
+check(rank(pray, 1025, nil) > rank(firstAid, 1025, nil), "before a rate, Pray is not passed over for First Aid's cost of 0")
+check(H.spellRank(firstAid, 1025, 4, true, 3, 2.81, fina) > 1000, "a party heal still wins when most of the party is hurt")
+
 os.exit(fails == 0 and 0 or 1)

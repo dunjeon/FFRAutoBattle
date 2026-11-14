@@ -102,4 +102,17 @@ E.load({
 check(E.isUnit(70) and E.isUnit(71) and (not E.isUnit(9)), "the summon row's unit id is the unit on the field")
 check(E.lookup("Sprite").unit == 70, "a lookup keeps the unit id")
 
+
+-- healPick: the Esper for a hurt party.
+local partyHeal = { fact = { role = "guard", heal = true, healParty = true, healPower = 120 }, cost = 50, ref = "party" }
+local oneHeal = { fact = { role = "guard", heal = true, healPower = 300 }, cost = 30, ref = "one" }
+local bigParty = { fact = { role = "guard", heal = true, healParty = true, healPower = 200 }, cost = 80, ref = "big" }
+local cheapParty = { fact = { role = "guard", heal = true, healParty = true, healPower = 120 }, cost = 40, ref = "cheap" }
+local striker = { fact = { role = "damage", element = "wind", power = 40 }, cost = 50, ref = "wind" }
+check(E.healPick({ striker }) == nil, "a damage Esper is never the heal pick")
+check(E.healPick({}) == nil, "no rows, no heal pick")
+check(E.healPick({ oneHeal, partyHeal }).ref == "party", "a heal that reaches the party beats a stronger single heal")
+check(E.healPick({ partyHeal, bigParty }).ref == "big", "between party heals, the stronger one")
+check(E.healPick({ partyHeal, cheapParty }).ref == "cheap", "an even tie goes to the cheaper call")
+check(E.healPick({ striker, partyHeal }).ref == "party", "the healer is found among damage Espers")
 os.exit(fails == 0 and 0 or 1)

@@ -83,8 +83,10 @@ local function dies(hp, hit)
 end
 
 -- team: { id, hp, maxHp, hit (full size against this ally), share (what gets
--- through now), statuses, actsFirst (acts again before the hit), noSpell }.
--- option: { key, through, cover, status, turns, heal, scope, spell, cost }.
+-- through now), statuses, actsFirst (acts again before the hit), noSpell,
+-- reflect (under Reflect) }.
+-- option: { key, through, cover, status, turns, heal (HP, or true with
+-- healOf(ally) giving it per ally), scope, spell, bounces, cost }.
 -- Returns the options that save someone, best first, each with its targets.
 function M.rank(team, options, selfId, singleTarget)
     local me = nil
@@ -97,7 +99,13 @@ function M.rank(team, options, selfId, singleTarget)
         local hp, after = a.hp, before
         if opt.heal then
             if opt.spell and a.noSpell then return false, 0 end
-            hp = math.min(a.hp + opt.heal, a.maxHp or (a.hp + opt.heal))
+            -- Reflect on this ally sends a spell heal to a foe.
+            if opt.bounces and a.reflect then return false, 0 end
+            -- A number is the same on everyone; healOf gives it per ally.
+            local amount = (type(opt.heal) == "number") and opt.heal or nil
+            if opt.healOf then amount = opt.healOf(a) end
+            if not amount then return false, 0 end
+            hp = math.min(a.hp + amount, a.maxHp or (a.hp + amount))
         else
             if opt.status and a.statuses and a.statuses[opt.status] then return false, 0 end
             -- An effect that ends at the target's next action has to outlast it.
