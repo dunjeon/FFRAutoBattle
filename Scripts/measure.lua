@@ -181,16 +181,25 @@ end
 -- to this ally. Nil with nothing to go on. foeBook: this foe's hit book. rowOf:
 -- skill id to its row.
 -- eSkillDamageCalcType TargetCurHPRatio: a move that takes a share of the
--- target's current HP. Its size follows the HP it finds, so it is no
--- warned hit to brace against and no rate for another move's size.
+-- target's current HP. Its size follows the HP it finds: what it did before
+-- is no guide, and it is no rate for another move's size. Warned, it takes
+-- power% of the HP the ally has now (allyHp). At 100% or more no heal
+-- outruns it, so it is a hit no HP can stand (math.huge).
 M.CUR_RATIO = 6
 local function share(row) return row and (row.calc == M.CUR_RATIO) end
 
-function M.warnedCast(foeBook, risk, rowOf, ally)
+function M.warnedCast(foeBook, risk, rowOf, ally, allyHp)
     local worst, worstRow = nil, nil
     for _, id in ipairs(risk or {}) do
         local row = rowOf(id)
         local amount = (not share(row)) and foeBook[id] and foeBook[id].fullTo and foeBook[id].fullTo[ally] or nil
+        if share(row) and ((row.power or 0) > 0) then
+            if row.power >= 100 then
+                amount = math.huge
+            elseif allyHp and allyHp > 0 then
+                amount = allyHp * row.power / 100
+            end
+        end
         if (not amount) and row and (not share(row)) and ((row.power or 0) > 0) then
             -- The middle of what its moves did per point of power, so one critical
             -- doesn't set the size of a move that hasn't landed yet.

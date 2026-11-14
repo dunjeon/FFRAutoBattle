@@ -3308,7 +3308,7 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch, held)
         if (not a.dead) and not (Fight.isSummon and Fight.isSummon(a.id)) then
             local hp, maxHp = stat(a.id, PARAM.HP, false), stat(a.id, PARAM.HP, true)
             if hp and (hp > 0) then
-                local hit, row = Known.measure.warnedCast(foeBook, risk, skillOf, a.id)
+                local hit, row = Known.measure.warnedCast(foeBook, risk, skillOf, a.id, hp)
                 if row and ((not move) or ((row.power or 0) > (move.power or 0))) then move = row end
                 local unit = {
                     id = a.id, name = a.name, hp = hp, maxHp = maxHp, hit = hit, statuses = a.statuses,
@@ -3387,7 +3387,10 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch, held)
     local isSingle = move and (move.target == TGT.SINGLE) or false
     local parts = {}
     for _, unit in ipairs(team) do
-        parts[#parts + 1] = string.format("%s %d/%d", unit.name or "?", math.floor(unit.hp), math.floor(unit.hit * unit.share))
+        local size = unit.hit * unit.share
+        -- A share of current HP at 100% or more reads as no HP standing it.
+        local sizeText = (size == math.huge) and "all" or tostring(math.floor(size))
+        parts[#parts + 1] = string.format("%s %d/%s", unit.name or "?", math.floor(unit.hp), sizeText)
     end
     say(string.format("%s, HP/hit: %s, %d would fall", (move and move.name) or "unknown move", table.concat(parts, ", "), lethal))
     for _, entry in ipairs(Brace.rank(team, options, uid, isSingle)) do
@@ -4011,8 +4014,9 @@ local function turn(uid, skills, w, phase)
         for fid, foeBook in pairs(Fight.hitSeen or {}) do
             if keepFoe(fid) then
                 for sid, sk in pairs(foeBook) do
-                    -- A share of current HP is no line a heal can clear.
-                    local amount = Known.curShareHit(sid) and 0 or (sk.cast or 0)
+                  -- A share of current HP is no line a heal can clear.
+                  if not Known.curShareHit(sid) then
+                    local amount = sk.cast or 0
                     local guarded = false
                     if sk.dtype == 2 then guarded = mag and true or false
                     elseif sk.dtype == 1 then guarded = phys and true or false
@@ -4031,6 +4035,7 @@ local function turn(uid, skills, w, phase)
                         amount = amount * (((sk.castTo[ally.id]) or low) / top)
                     end
                     if amount > best then best = amount end
+                  end
                 end
             end
         end

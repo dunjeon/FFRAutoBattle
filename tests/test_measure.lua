@@ -40,7 +40,11 @@ check(M.warnedCast(seen, { 4 }, rowOf, 7) == nil, "a move with no power gives no
 rows[5] = { power = 99, dmgType = 1, calc = M.CUR_RATIO }
 rows[6] = { power = 40, dmgType = 1 }
 local claw = { [5] = { fullTo = { [7] = 2524 } } }
-check(M.warnedCast(claw, { 5 }, rowOf, 7) == nil, "a current-HP share hit is not a warned hit to brace against")
+check(M.warnedCast(claw, { 5 }, rowOf, 7) == nil, "a current-HP share hit with no HP read gives no number")
+check(math.abs(M.warnedCast(claw, { 5 }, rowOf, 7, 2550) - 2524.5) < 0.01, "a warned share hit takes its share of the HP the ally has now")
+check(M.warnedCast({}, { 5 }, rowOf, 7, 2550) < 2550, "a 99% share leaves the ally standing, seen before or not")
+rows[7] = { power = 100, dmgType = 1, calc = M.CUR_RATIO }
+check(M.warnedCast({}, { 7 }, rowOf, 7, 2550) == math.huge, "a share of 100% or more is a hit no HP stands")
 check(M.warnedCast(claw, { 6 }, rowOf, 7) == nil, "a current-HP share hit sets no rate for another move")
 local both = { [5] = { fullTo = { [7] = 2524 } }, [3] = { fullTo = { [7] = 500 } } }
 check(math.abs(M.warnedCast(both, { 6 }, rowOf, 7) - 400) < 0.01, "the other moves still set the rate")
