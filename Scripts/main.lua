@@ -4070,14 +4070,12 @@ local function turn(uid, skills, w, phase)
     Fight.killHold = (ranged ~= nil)
     -- True when a living foe's slot is before the main healer's next one.
     -- No Timeline read leaves today's wait in place.
-    local function foeBeforeHealer()
+    -- For any ally: true when a living foe's slot comes before that ally's
+    -- next one, false when it does not, nil when the Timeline does not say.
+    local function foeBeforeAlly(hid)
         local order = Fight.order
-        if not order or not order.current then return false end
-        if not Health.mainHealer then return false end
-        local healer = Health.mainHealer(w.allies, unitKit)
-        if not healer then return false end
-        local hid = healer.id
-        if hid == uid then return false end
+        if not order or not order.current then return nil end
+        if (not hid) or (hid == uid) then return nil end
         local cur = order.current or {}
         local nxt = order.next or {}
         local function find(list, id)
@@ -4103,8 +4101,54 @@ local function turn(uid, skills, w, phase)
         local from = (at and (at + 1)) or 1
         if foeIn(cur, from, #cur) then return true end
         local healNext = find(nxt, hid)
-        if not healNext then return false end
+        if not healNext then return nil end
         return foeIn(nxt, 1, healNext - 1)
+    end
+    local function foeBeforeHealer()
+        if not Health.mainHealer then return false end
+        local healer = Health.mainHealer(w.allies, unitKit)
+        if not healer then return false end
+        return foeBeforeAlly(healer.id) == true
+    end
+    -- True when every exposed ally (and the one this turn would heal) has
+    -- another healer who acts before the next foe and can pay a heal. Then
+    -- this actor's turn is not the only answer to the danger, and an Esper
+    -- call is not held for it. Under 15% is the same urgent line deferHeal
+    -- uses: that ally is healed now. A Timeline that does not say is not
+    -- cover. Returns covered, the exposed count, the healers counted.
+    local function coveredByOthers(hurt)
+        if dead then return false, 0, 0 end
+        local need, seen = {}, {}
+        local function add(a)
+            if (not a) or a.dead or seen[a.id] then return end
+            if Fight.claim.heal[a.id] then return end
+            if Fight.summons and Fight.summons[a.id] then return end
+            seen[a.id] = true
+            need[#need + 1] = a
+        end
+        markExposed(w)
+        for _, a in ipairs(w.allies) do
+            if a.exposed then add(a) end
+        end
+        add(hurt)
+        if #need == 0 then return false, 0, 0 end
+        for _, a in ipairs(need) do
+            if (a.hp or 1) < 0.15 then return false, #need, 0 end
+        end
+        local mpOf = function(id) return stat(id, PARAM.MP, false) or 0 end
+        local covers = 0
+        for _, a in ipairs(w.allies) do
+            if (a.id ~= uid) and (not a.dead) and (a.acts ~= false) and (not heldOut(a))
+                and not (Fight.summons and Fight.summons[a.id]) then
+                local kit = unitKit(a.id)
+                if kit and ((kit.healScore or 0) > 0) and Health.available
+                    and Health.available(a, a.statuses, unitKit, mpOf)
+                    and (foeBeforeAlly(a.id) == false) then
+                    covers = covers + 1
+                end
+            end
+        end
+        return covers >= #need, #need, covers
     end
 
     local function releaseEsper(mark)
@@ -4657,6 +4701,22 @@ local function turn(uid, skills, w, phase)
             if u.broken and (gauge > brokeMost) then brokeMost = gauge end
         end
         if (brokeMost > 0) and (brokeMost >= most) then phase = PHASE_BONUS end
+    end
+    -- An exposed ally holds the Esper call only while this actor is the one
+    -- who has to answer it. With every exposed ally covered by another
+    -- healer who acts before the foe, the call goes ahead of this heal.
+    if hurt and (phase == 0) and (not dead) then
+        local ok, n, c = coveredByOthers(hurt)
+        if ok then
+            local choice = summonChoice()
+            if choice then
+                choice.reason = string.format("%s; %d exposed, %d other healer%s first", choice.reason or "esper",
+                    n, c, (c == 1) and "" or "s")
+                return choice
+            end
+        else
+            esperGate("an ally is exposed and no one else covers")
+        end
     end
     if hurt and (phase ~= PHASE_BONUS) and (not deferHeal()) then
         local choice = healNow(hurt, why, healAt)
