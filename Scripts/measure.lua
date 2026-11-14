@@ -180,19 +180,25 @@ end
 -- its power is scaled by what this foe's other moves of the same damage type did
 -- to this ally. Nil with nothing to go on. foeBook: this foe's hit book. rowOf:
 -- skill id to its row.
+-- eSkillDamageCalcType TargetCurHPRatio: a move that takes a share of the
+-- target's current HP. Its size follows the HP it finds, so it is no
+-- warned hit to brace against and no rate for another move's size.
+M.CUR_RATIO = 6
+local function share(row) return row and (row.calc == M.CUR_RATIO) end
+
 function M.warnedCast(foeBook, risk, rowOf, ally)
     local worst, worstRow = nil, nil
     for _, id in ipairs(risk or {}) do
         local row = rowOf(id)
-        local amount = foeBook[id] and foeBook[id].fullTo and foeBook[id].fullTo[ally]
-        if (not amount) and row and ((row.power or 0) > 0) then
+        local amount = (not share(row)) and foeBook[id] and foeBook[id].fullTo and foeBook[id].fullTo[ally] or nil
+        if (not amount) and row and (not share(row)) and ((row.power or 0) > 0) then
             -- The middle of what its moves did per point of power, so one critical
             -- doesn't set the size of a move that hasn't landed yet.
             local rates = {}
             for sid, sk in pairs(foeBook) do
                 local other = rowOf(sid)
                 local did = sk.fullTo and sk.fullTo[ally]
-                if did and other and ((other.power or 0) > 0) and (other.dmgType == row.dmgType) then
+                if did and other and (not share(other)) and ((other.power or 0) > 0) and (other.dmgType == row.dmgType) then
                     rates[#rates + 1] = did / other.power
                 end
             end

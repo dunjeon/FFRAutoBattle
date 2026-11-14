@@ -34,6 +34,16 @@ check(M.warnedCast(seen, { 2 }, rowOf, 8) == nil, "another ally's numbers don't 
 check(math.abs(M.warnedCast(seen, { 2 }, rowOf, 7) - 1782) < 0.01, "an unseen warned move is scaled by its power")
 check(M.warnedCast(seen, { 3 }, rowOf, 7) == nil, "a move of another damage type isn't a guide")
 check(M.warnedCast(seen, { 4 }, rowOf, 7) == nil, "a move with no power gives no number")
+-- Death Claw, from a real fight: a share of current HP (calc 6). It took 2524
+-- of a full 2550 and 1772 of 1790. It is no hit to brace against, and no
+-- rate for a move that has not landed.
+rows[5] = { power = 99, dmgType = 1, calc = M.CUR_RATIO }
+rows[6] = { power = 40, dmgType = 1 }
+local claw = { [5] = { fullTo = { [7] = 2524 } } }
+check(M.warnedCast(claw, { 5 }, rowOf, 7) == nil, "a current-HP share hit is not a warned hit to brace against")
+check(M.warnedCast(claw, { 6 }, rowOf, 7) == nil, "a current-HP share hit sets no rate for another move")
+local both = { [5] = { fullTo = { [7] = 2524 } }, [3] = { fullTo = { [7] = 500 } } }
+check(math.abs(M.warnedCast(both, { 6 }, rowOf, 7) - 400) < 0.01, "the other moves still set the rate")
 check(math.abs(M.warnedCast(seen, { 1, 2 }, rowOf, 7) - 1782) < 0.01, "the worst warned move counts")
 local both = { [1] = { fullTo = { [7] = 540 } }, [2] = { fullTo = { [7] = 1500 } } }
 check(M.warnedCast(both, { 2 }, rowOf, 7) == 1500, "what the move really did beats the estimate")

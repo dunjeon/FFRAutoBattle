@@ -1755,6 +1755,16 @@ end
 local itemsLogged = false
 local potLogged = false
 
+-- A foe move that takes a share of the target's current HP
+-- (eSkillDamageCalcType TargetCurHPRatio). Its size follows the HP it
+-- finds, so a past hit is no line to heal above: Death Claw took 2524 of a
+-- full 2550 and 1772 of 1790. A heal does not save anyone from it.
+function Known.curShareHit(sid)
+    local row = sid and skillOf(sid)
+    local share = Health.CUR_RATIO or 6
+    return (row and row.calc == share) and true or false
+end
+
 -- True when a hit already recorded this fight would drop this ally.
 local function allyExposed(a)
     if not a or a.dead or not Fight then return false end
@@ -1763,8 +1773,8 @@ local function allyExposed(a)
     local worst = 0
     for fid, foe in pairs(Fight.hitSeen or {}) do
         if keepFoe(fid) then
-            for _, sk in pairs(foe) do
-                local n = sk.fullTo and sk.fullTo[a.id]
+            for sid, sk in pairs(foe) do
+                local n = (not Known.curShareHit(sid)) and sk.fullTo and sk.fullTo[a.id]
                 if n and n > worst then worst = n end
             end
         end
@@ -4000,8 +4010,9 @@ local function turn(uid, skills, w, phase)
         local mag = set[27]
         for fid, foeBook in pairs(Fight.hitSeen or {}) do
             if keepFoe(fid) then
-                for _, sk in pairs(foeBook) do
-                    local amount = sk.cast or 0
+                for sid, sk in pairs(foeBook) do
+                    -- A share of current HP is no line a heal can clear.
+                    local amount = Known.curShareHit(sid) and 0 or (sk.cast or 0)
                     local guarded = false
                     if sk.dtype == 2 then guarded = mag and true or false
                     elseif sk.dtype == 1 then guarded = phys and true or false
@@ -8836,6 +8847,12 @@ function readRisk(hitsOnly)
         if not (list and list.ForEach) then return end
         local friends = {}
         for _, fid in ipairs(friendIds()) do friends[fid] = true end
+        -- The party at the start of the fight stays the party. A charmed or
+        -- confused ally can leave the live ally list, and a hit on them is
+        -- not damage to a foe.
+        if Fight.openIds then
+            for fid in pairs(Fight.openIds) do friends[fid] = true end
+        end
         if Fight.seenAlly then
             for fid in pairs(Fight.seenAlly) do friends[fid] = true end
         end
