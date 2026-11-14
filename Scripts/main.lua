@@ -4136,6 +4136,20 @@ local function turn(uid, skills, w, phase)
             if (a.hp or 1) < 0.15 then return false, #need, 0 end
         end
         local mpOf = function(id) return stat(id, PARAM.MP, false) or 0 end
+        -- The healers who can act, pay a heal, and act before the next foe.
+        local healers = {}
+        for _, a in ipairs(w.allies) do
+            if (a.id ~= uid) and (not a.dead) and (a.acts ~= false) and (not heldOut(a))
+                and not (Fight.summons and Fight.summons[a.id]) then
+                local kit = unitKit(a.id)
+                if kit and ((kit.healScore or 0) > 0) and Health.available
+                    and Health.available(a, a.statuses, unitKit, mpOf)
+                    and (foeBeforeAlly(a.id) == false) then
+                    healers[#healers + 1] = a
+                end
+            end
+        end
+        if #healers < #need then return false, #need, #healers end
         -- Reflect, on the ally in danger or (for a party spell) on anyone
         -- living, sends a spell heal to a foe. An ability, a spell that
         -- passes Reflect, or an HP item in the bag still lands.
@@ -4148,17 +4162,32 @@ local function turn(uid, skills, w, phase)
             local okItems, owned = pcall(ownedRecovery)
             if okItems and type(owned) == "table" then
                 for _, it in ipairs(owned) do
-                    -- An item held back by ItemPrice is not counted on.
+                    -- An item held back by ItemPrice never reaches this list; a
+                    -- rare one is kept for the worst case and not counted on.
                     if (it.hp or (it.kind == "heal")) and ((it.amount or 0) > 0) and (not it.rare) then bagHeal = true break end
                 end
             end
         end
+        -- This actor's turn goes to the call, so it counts as taken when
+        -- asking whether a healer would leave the heal to someone else.
+        local went = {}
+        for id, on in pairs(Fight.went or {}) do went[id] = on end
+        went[uid] = true
         local function reaches(healer, target)
+            -- The label healNow will give this ally, and whether that healer
+            -- would wait for another on it. A healer who waits is not cover.
+            local why = (target.exposed or ((target.hp or 1) < 0.30)) and "critical" or "kill-range"
+            if Health.healerWaiting and Health.healerWaiting(healer.id, why, target.hp, nil, w.allies, unitKit, mpOf, went) then
+                return false
+            end
             if bagHeal then return true end
+            local stance = next((Fight.stance and Fight.stance[target.id]) or {}) ~= nil
             local kit = unitKit(healer.id)
             local mp = mpOf(healer.id)
             for _, sk in ipairs((kit and kit.spells) or {}) do
-                if (sk.kind == "heal") and ((sk.cost or 0) <= mp) then
+                if (sk.kind == "heal") and ((sk.cost or 0) <= mp)
+                    and not (sk.target == TGT.SELF and target.id ~= healer.id)
+                    and not (stance and sk.attr == ATTR.MAGIC) then
                     local blocked = false
                     if Reflect.bounces and Reflect.bounces(sk) then
                         if partyOf(sk) then
@@ -4172,25 +4201,13 @@ local function turn(uid, skills, w, phase)
             end
             return false
         end
-        local healers = {}
-        for _, a in ipairs(w.allies) do
-            if (a.id ~= uid) and (not a.dead) and (a.acts ~= false) and (not heldOut(a))
-                and not (Fight.summons and Fight.summons[a.id]) then
-                local kit = unitKit(a.id)
-                if kit and ((kit.healScore or 0) > 0) and Health.available
-                    and Health.available(a, a.statuses, unitKit, mpOf)
-                    and (foeBeforeAlly(a.id) == false) then
-                    healers[#healers + 1] = a
-                end
-            end
-        end
         -- One healer answers one ally: each ally in danger takes the first
         -- unused healer whose heal lands on them.
         local used, covers = {}, 0
         for _, target in ipairs(need) do
-            for i, h in ipairs(healers) do
-                if (not used[i]) and reaches(h, target) then
-                    used[i] = true
+            for k, h in ipairs(healers) do
+                if (not used[k]) and reaches(h, target) then
+                    used[k] = true
                     covers = covers + 1
                     break
                 end
@@ -4211,17 +4228,19 @@ local function turn(uid, skills, w, phase)
     end
     -- Log only: why a unit holding an Esper did not call one, when that changes.
     local function esperGate(why)
+        -- Only a unit holding an Esper sets or logs the reason, so a unit
+        -- without one does not swallow the next caster's line.
+        local holds = false
+        for _, s in ipairs(skills) do
+            if (s.attr == ATTR.SUMMON) and (useOf(s) ~= "skip") then holds = true break end
+        end
+        if not holds then return end
         if Fight.esperGateWhy == why then return end
         Fight.esperGateWhy = why
         if not why then return end
-        for _, s in ipairs(skills) do
-            if (s.attr == ATTR.SUMMON) and (useOf(s) ~= "skip") then
-                local line = "esper call held: " .. why
-                log("%s", line)
-                appendLog("  " .. line)
-                break
-            end
-        end
+        local line = "esper call held: " .. why
+        log("%s", line)
+        appendLog("  " .. line)
     end
     local function esperStill()
         -- Out until that unit has acted and has then left the ally list.
