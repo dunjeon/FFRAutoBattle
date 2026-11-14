@@ -1776,6 +1776,10 @@ local function allyExposed(a)
             for sid, sk in pairs(foe) do
                 local n = (not Known.curShareHit(sid)) and sk.fullTo and sk.fullTo[a.id]
                 if n and n > worst then worst = n end
+                -- What covering cost counts only while this ally covers again.
+                local set = a.statuses or {}
+                local c = (set[34] or set[35]) and (not Known.curShareHit(sid)) and sk.coverTo and sk.coverTo[a.id]
+                if c and c > worst then worst = c end
             end
         end
     end
@@ -3309,6 +3313,16 @@ local function warnTurn(uid, skills, w, phase, pay, isHit, isPatch, held)
             local hp, maxHp = stat(a.id, PARAM.HP, false), stat(a.id, PARAM.HP, true)
             if hp and (hp > 0) then
                 local hit, row = Known.measure.warnedCast(foeBook, risk, skillOf, a.id, hp)
+                -- An ally covering now takes what covering cost last time.
+                local set = a.statuses or {}
+                if set[34] or set[35] then
+                    for _, rid in ipairs(risk or {}) do
+                        local c = foeBook[rid] and foeBook[rid].coverTo and foeBook[rid].coverTo[a.id]
+                        if c and ((not hit) or (c > hit)) and not Known.curShareHit(rid) then
+                            hit, row = c, skillOf(rid) or row
+                        end
+                    end
+                end
                 if row and ((not move) or ((row.power or 0) > (move.power or 0))) then move = row end
                 local unit = {
                     id = a.id, name = a.name, hp = hp, maxHp = maxHp, hit = hit, statuses = a.statuses,
@@ -9109,28 +9123,41 @@ function readRisk(hitsOnly)
                 sk = { cast = 0, hit = 0, castOpen = 0, castGuard = 0, dtype = rec.dtype }
                 foe[rec.sid] = sk
             end
-            if rec.dmg > (sk.cast or 0) then sk.cast = rec.dmg end
             sk.total = (sk.total or 0) + rec.dmg
-            sk.castTo = sk.castTo or {}
-            if rec.dmg > (sk.castTo[rec.to] or 0) then sk.castTo[rec.to] = rec.dmg end
-            -- The same hit at full size. A hit taken through a guard would make
-            -- the next warning read as safe, and that ally would stop guarding.
-            if Known.brace and Known.statusMap then
-                local share = Known.brace.through(Fight.statusNow and Fight.statusNow[rec.to], rec.dtype, Known.statusMap())
-                share = share * ((Fight.braced and Fight.braced[rec.to]) or 1)
-                local full = (share > 0) and (rec.dmg / share) or rec.dmg
-                sk.fullTo = sk.fullTo or {}
-                if full > (sk.fullTo[rec.to] or 0) then sk.fullTo[rec.to] = full end
-                Fight.borne = Fight.borne or {}
-                if full > (Fight.borne[rec.to] or 0) then Fight.borne[rec.to] = full end
+            -- An ally under Cover (34) or Cover All (35) takes the hits meant
+            -- for the others: one party-wide Aeroga put all 12 hits, 1746, on
+            -- the cover. That cast is filed apart, as what covering costs, and
+            -- is not this ally's own size for the danger line, the kill-range
+            -- heal, or a warned hit.
+            local nowSet = Fight.statusNow and Fight.statusNow[rec.to]
+            local covering = nowSet and (nowSet[34] or nowSet[35]) and true or false
+            if covering then
+                sk.coverTo = sk.coverTo or {}
+                if rec.dmg > (sk.coverTo[rec.to] or 0) then sk.coverTo[rec.to] = rec.dmg end
+            end
+            if not covering then
+                if rec.dmg > (sk.cast or 0) then sk.cast = rec.dmg end
+                sk.castTo = sk.castTo or {}
+                if rec.dmg > (sk.castTo[rec.to] or 0) then sk.castTo[rec.to] = rec.dmg end
+                -- The same hit at full size. A hit taken through a guard would make
+                -- the next warning read as safe, and that ally would stop guarding.
+                if Known.brace and Known.statusMap then
+                    local share = Known.brace.through(Fight.statusNow and Fight.statusNow[rec.to], rec.dtype, Known.statusMap())
+                    share = share * ((Fight.braced and Fight.braced[rec.to]) or 1)
+                    local full = (share > 0) and (rec.dmg / share) or rec.dmg
+                    sk.fullTo = sk.fullTo or {}
+                    if full > (sk.fullTo[rec.to] or 0) then sk.fullTo[rec.to] = full end
+                    Fight.borne = Fight.borne or {}
+                    if full > (Fight.borne[rec.to] or 0) then Fight.borne[rec.to] = full end
+                end
+                if rec.defended and not rec.open then
+                    if rec.dmg > (sk.castGuard or 0) then sk.castGuard = rec.dmg end
+                elseif rec.dmg > (sk.castOpen or 0) then
+                    sk.castOpen = rec.dmg
+                end
             end
             if rec.maxHit > (sk.hit or 0) then sk.hit = rec.maxHit end
             if rec.dtype ~= 0 then sk.dtype = rec.dtype end
-            if rec.defended and not rec.open then
-                if rec.dmg > (sk.castGuard or 0) then sk.castGuard = rec.dmg end
-            elseif rec.dmg > (sk.castOpen or 0) then
-                sk.castOpen = rec.dmg
-            end
         end
     end)
     if hitsOnly then return end
