@@ -64,4 +64,23 @@ check(rank(firstAid, 200, 2.81) > rank(cure, 200, 2.81), "the closest cover beat
 check(rank(pray, 1025, nil) > rank(firstAid, 1025, nil), "before a rate, Pray is not passed over for First Aid's cost of 0")
 check(H.spellRank(firstAid, 1025, 4, true, 3, 2.81, fina) > 1000, "a party heal still wins when most of the party is hurt")
 
+-- A claim ends once its heal landed and the ally is still inside a hit already seen.
+do
+    local hp = { [1] = 375, [2] = 642, [3] = 1500, [4] = 300 }
+    local exposed = { [1] = true, [2] = true, [3] = false, [4] = true }
+    local claims = { [1] = true, [2] = true, [3] = true, [4] = true }
+    -- 1: healed 90 to 375, still exposed. 2: heal not landed yet (642 when sent).
+    -- 3: healed, out of reach. 4: no HP recorded at the send.
+    local from = { [1] = 90, [2] = 642, [3] = 700 }
+    local freed = H.releaseLanded(claims, from, { 1, 2, 3, 4 },
+        function(id) return hp[id] end, function(id) return exposed[id] end)
+    check(#freed == 1 and freed[1] == 1, "only the ally the landed heal left in reach is released")
+    check(claims[1] == nil and from[1] == nil, "a released claim and its send HP are cleared")
+    check(claims[2] == true, "a heal still on its way keeps its claim")
+    check(claims[3] == true, "a heal that took the ally out of reach keeps its claim")
+    check(claims[4] == true, "a claim with no send HP is left as it was")
+    check(#H.releaseLanded({}, { [1] = 90 }, { 1 }, function() return 375 end, function() return true end) == 0,
+        "no claim, nothing to release")
+end
+
 os.exit(fails == 0 and 0 or 1)

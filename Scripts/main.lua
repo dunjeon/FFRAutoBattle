@@ -3531,6 +3531,19 @@ local function turn(uid, skills, w, phase)
         for _, id in ipairs(Health.reviewClaims(Fight.claim.heal, Fight.claimMarks, ids, function(id) return stat(id, PARAM.HP, false) end)) do
             appendLog(string.format("  %s took more since the heal, claim released", tostring(Fight.nameOf and Fight.nameOf(id) or id)))
         end
+        -- The heal landed and left this ally inside a hit already seen: it was
+        -- not enough, so the ally can be healed again this round.
+        if Health.releaseLanded and Fight.claimFrom then
+            local byId = {}
+            for _, a in ipairs(w.allies) do byId[a.id] = a end
+            local freed = Health.releaseLanded(Fight.claim.heal, Fight.claimFrom, ids,
+                function(id) return stat(id, PARAM.HP, false) end,
+                function(id) return byId[id] and allyExposed(byId[id]) or false end)
+            for _, id in ipairs(freed) do
+                if Fight.claimMarks then Fight.claimMarks[id] = nil end
+                appendLog(string.format("  %s still in reach of a hit after the heal, claim released", tostring(Fight.nameOf and Fight.nameOf(id) or id)))
+            end
+        end
     end
     Fight.statusNow = {}
     for _, a in ipairs(w.allies) do Fight.statusNow[a.id] = a.statuses end
@@ -8537,7 +8550,13 @@ local function noteHand(v)
     end
     if (kind == "heal") or (kind == "cure") then
         local ids = (#targets > 0) and targets or eachAlly(function(_, dead) return not dead end)
-        for _, id in ipairs(ids) do Fight.claim.heal[id] = true end
+        -- The HP each target had when the heal was sent, so a heal that has
+        -- landed can be told from one still on its way.
+        Fight.claimFrom = Fight.claimFrom or {}
+        for _, id in ipairs(ids) do
+            Fight.claim.heal[id] = true
+            Fight.claimFrom[id] = stat(id, PARAM.HP, false)
+        end
     end
     if kind == "revive" then
         local ids = (#targets > 0) and targets or eachAlly(function(_, dead) return dead end)

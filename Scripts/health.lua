@@ -130,6 +130,28 @@ function M.reviewClaims(claims, marks, ids, hpOf)
     return freed
 end
 
+-- A claim also ends once its heal has landed (HP is above what it was when
+-- the heal was sent) and the ally is still inside a hit this fight has shown.
+-- The claim was "a heal is coming"; it came, and it was not enough. A heal
+-- still on its way (HP not yet up) keeps its claim. from: id to the HP when
+-- the heal was sent. exposedOf(id): true while a hit already seen would drop
+-- that ally. Returns the ids released.
+function M.releaseLanded(claims, from, ids, hpOf, exposedOf)
+    local freed = {}
+    for _, id in ipairs(ids) do
+        local sent = from and from[id]
+        if claims[id] and sent then
+            local hp = hpOf(id)
+            if hp and (hp > sent) and exposedOf(id) then
+                claims[id] = nil
+                from[id] = nil
+                freed[#freed + 1] = id
+            end
+        end
+    end
+    return freed
+end
+
 M.MAX_RATIO, M.CUR_RATIO = MAX_RATIO, CUR_RATIO
 
 -- The HP this heal restores on this target, or nil when nothing says.
