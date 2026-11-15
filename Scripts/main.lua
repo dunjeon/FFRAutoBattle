@@ -4830,7 +4830,12 @@ local function turn(uid, skills, w, phase)
             return false
         end
         if not pays(skills, w.mp or 0) then return false end
-        -- The payer keeps chipping only while someone else can still heal.
+        -- The payer keeps chipping only while someone else can still heal, and
+        -- that healer acts before the next foe. A healer after the foe is not
+        -- an answer to this turn: the foe swings first. A Timeline that does
+        -- not say is not cover, the same as coveredByOthers. (foeBeforeHealer
+        -- above asks about the main healer, which is this actor on its own
+        -- turn, so it never caught this.)
         local others, otherPays, otherHeals = 0, false, false
         local mpOf = function(id) return stat(id, PARAM.MP, false) or 0 end
         for _, a in ipairs(w.allies) do
@@ -4839,7 +4844,7 @@ local function turn(uid, skills, w, phase)
                 local kit = unitKit(a.id)
                 local mp = mpOf(a.id)
                 if kit and pays(kit.spells or {}, mp) then otherPays = true end
-                if kit and ((kit.healScore or 0) > 0) then
+                if kit and ((kit.healScore or 0) > 0) and (foeBeforeAlly(a.id) == false) then
                     if Health.available then
                         if Health.available(a, a.statuses, unitKit, mpOf) then otherHeals = true end
                     elseif ((kit.healCost or 0) <= 0) or (mp >= (kit.healCost or 0)) then
