@@ -8,12 +8,12 @@
 
 local M = {}
 
-M.NAMES = { "Limits", "Heals", "Raises", "Buffs", "Debuffs", "Guards", "Items", "Scan", "Escape" }
+M.NAMES = { "Limits", "Spellblades", "Heals", "Raises", "Buffs", "Debuffs", "Guards", "Items", "Scan", "Escape" }
 M.VALUES = { auto = true, off = true, hand = true }
 -- hand has no meaning for these: the plan picks them where no one else would.
 M.NO_HAND = { Escape = true }
 
-local A = { FIGHT = 1, LB = 5, ITEM = 6, SUMMON = 7, FINISH = 9, THROW = 11, THROW_MONEY = 12, ESCAPE = 16 }
+local A = { FIGHT = 1, LB = 5, ITEM = 6, SUMMON = 7, FINISH = 9, THROW = 11, THROW_MONEY = 12, SWORD = 15, ESCAPE = 16 }
 local E = { ANALYZE = 29, COVER = 41, HATE = 99, MOGSCAN = 142 }
 local FRIEND, ENEMY = 1, 2
 
@@ -47,6 +47,8 @@ function M.categoryOf(s)
     if type(s) ~= "table" then return nil end
     local a = s.attr
     if a == A.LB then return "Limits" end
+    -- A spellblade is the game's own command type, the same as a Limit.
+    if a == A.SWORD then return "Spellblades" end
     if a == A.SUMMON or a == A.FINISH or a == A.FIGHT then return nil end
     if a == A.ESCAPE then return "Escape" end
     if a == A.ITEM or a == A.THROW or a == A.THROW_MONEY then return "Items" end

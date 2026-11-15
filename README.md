@@ -158,6 +158,7 @@ Attack is never switched off. A Limit Burst is covered only by `Limits`, even on
 | --- | --- | --- |
 | `Limits` | `auto` | Limit Bursts, including ones that heal or raise. |
 | `LimitFights` | `hard` | Which fights the party spends Limits in. `hard`: bosses, and fights with a danger move or a hit that would kill. `any`: every fight. Takes `hard` or `any`, not `off` or `hand`. |
+| `Spellblades` | `auto` | Spellblades: the elemental Blades many Visions give, such as Cloud's, Lightning's, Tidus's and Firion's, and Lasswell's own. |
 | `Heals` | `auto` | HP heals and status cures, from skills or items. |
 | `Raises` | `auto` | Raises, from skills or items. |
 | `Buffs` | `auto` | Support on the party: Haste, Protect, Shell, formations, stances. |
@@ -285,6 +286,7 @@ With `Reporting` on, the same events are lines in `battle_report.txt`. Each repe
 ## Known limits
 
 - In No Mercy, commands that hold other picks are left to you, including Dualcast, Double Action, Arms Akimbo, Magic Barrage, Magic Boost, and Reckless Abandonment. Turn auto battle off for that turn to use one. Echo repeats them as you sent them.
+- In No Mercy, a skill that drains a foe's MP, such as Syphon, is left to you. It takes no HP, and the plan has no use for a foe's MP.
 - Echo is new in 1.1. It has been played with Dualcast, Double Action, group skills, a foe that falls, a gear change, and the hand-back cases. If a turn goes wrong, see [Tracking Echo](#tracking-echo). An old `shapes.txt` from a 1.0.1 test build is no longer read and can be deleted.
 - If you skip a Resonance wheel by hand while the mod is about to skip it, the mod stops for that wheel and leaves it to you. That case is new and not yet tested in game; `UE4SS.log` shows `wheel skipped by hand` or `wheel skipped` when it happens.
 - It wins some hard Expert fights and loses others. A loss is worth reporting. See below.

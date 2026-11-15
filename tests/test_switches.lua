@@ -24,6 +24,8 @@ local v, ok = S.parse("Heals", "maybe")
 check(v == "auto" and ok == false, "an unknown value is auto, and flagged")
 v, ok = S.parse("Escape", "hand")
 check(v == "auto" and ok == false, "Escape takes no hand")
+v, ok = S.parse("Spellblades", "hand")
+check(v == "hand" and ok == true, "Spellblades takes hand")
 v, ok = S.parse("Escape", "off")
 check(v == "off" and ok == true, "Escape takes off")
 
@@ -34,6 +36,10 @@ check(S.categoryOf(row({ attr = ABILITY, rel = ENEMY, power = 0, breakPower = 40
     "a stagger-only hit has no category")
 check(S.categoryOf(row({ attr = LB, rel = ENEMY, power = 500, kind = "damage" })) == "Limits", "a damage Limit is a Limit")
 check(S.categoryOf(row({ attr = LB, rel = FRIEND, kind = "revive" })) == "Limits", "a raise Limit is a Limit")
+check(S.categoryOf(row({ attr = 15, rel = ENEMY, power = 39, breakPower = 30, kind = "damage" })) == "Spellblades",
+    "a spellblade is a Spellblade, not a plain hit")
+check(S.categoryOf(row({ attr = 15, rel = ENEMY, power = 15, kind = "damage", effects = eff(42) })) == "Spellblades",
+    "a spellblade with a rider is still a Spellblade")
 check(S.categoryOf(row({ attr = SUMMON, rel = ENEMY, power = 300, kind = "damage" })) == nil, "an Esper is left to EsperLevelGap")
 check(S.categoryOf(row({ attr = FINISH, rel = ENEMY, power = 300 })) == nil, "a Vision finish is left to ResonanceLevelGap")
 check(S.categoryOf(row({ attr = ESCAPE })) == "Escape", "Escape is Escape")
@@ -95,7 +101,7 @@ check(S.summary(all) == nil, "all auto has no summary")
 check(S.summary({ Heals = "off", Limits = "hand" }) == "Limits hand, Heals off", "the summary lists the changed switches in order")
 
 -- every name has a parse, and the list matches what config.ini documents
-check(#S.NAMES == 9, "nine switches")
+check(#S.NAMES == 10, "ten switches")
 
 if fails > 0 then
     print(fails .. " failed")

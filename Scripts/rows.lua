@@ -10,6 +10,8 @@ local PHYS, MAGIC = 1, 2
 local UP = 0
 local T_SELF, T_GROUP, T_SPREAD, T_ALL = 0, 2, 3, 4
 local FRIEND, ENEMY = 1, 2
+-- eUnitParameterType: what a row's own hit changes.
+local P_MP = 2
 local A_FIGHT, A_LB, A_SUMMON, A_FINISH, A_THROW, A_MONEY, A_MIMIC, A_MECHA = 1, 5, 7, 9, 11, 12, 14, 8
 
 local E = {
@@ -79,6 +81,9 @@ local function useOf(row)
         return hits and "finish" or "buff"
     end
     if has(row, E.ANALYZE) then return "scan" end
+    -- A row aimed at foes that changes MP (Syphon and its kin) takes no HP.
+    -- The planner has no plan for a foe's MP, so the player keeps it.
+    if row.rel == ENEMY and row.paramType == P_MP then return "skip" end
     if row.target == T_ALL and row.rel ~= FRIEND then return "skip" end
     if has(row, E.STEAL) or has(row, E.ESCAPE) or has(row, E.BERSERK) then return "skip" end
     if row.attr == A_THROW or row.attr == A_MONEY or row.attr == A_MIMIC then return "skip" end

@@ -289,7 +289,7 @@ local Defaults = {
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
     Turbo = false, LargeMap = true, MapKey = "F8", MapSize = 80,
     EsperLevelGap = 3, ResonanceLevelGap = 0, Echo = false, EchoKeep = true,
-    Limits = "auto", Heals = "auto", Raises = "auto", Buffs = "auto", Debuffs = "auto",
+    Limits = "auto", Spellblades = "auto", Heals = "auto", Raises = "auto", Buffs = "auto", Debuffs = "auto",
     Guards = "auto", Items = "auto", Scan = "auto", Escape = "auto",
     LimitFights = "hard",
 }

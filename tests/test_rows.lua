@@ -35,6 +35,13 @@ check(ld.limits["cheer"].use == "buff" and ld.limits["cheer"].gauges == 3 and ld
 check(ld.limits["rise"].use == "lb-revive", "a raise row stays a raise")
 check(ld.limits["mend lb"].use == "heal", "a recovery row stays a heal")
 check(d.items.items["sip"] == "hp" and d.items.items["clean"] == "cure" and d.items.clears["clean"][5], "items come from their skill row")
+local syphon = { id = 40, name = "Sip MP", attr = 4, effect = 1, varType = 1, paramType = 2, dmgType = 2, target = 1, rel = 2, cost = 0, power = 10, breakPower = 20, effects = { { type = 36, status = 0, params = { 3, 100 } } } }
+local ether = { id = 41, name = "Tonic", attr = 6, effect = 1, varType = 0, paramType = 2, dmgType = 0, target = 1, rel = 1, cost = 0, power = 50, breakPower = 25, effects = {} }
+local hpHit = { id = 42, name = "Poke", attr = 4, effect = 1, varType = 1, paramType = 1, dmgType = 2, target = 1, rel = 2, cost = 5, power = 10, breakPower = 20, effects = {} }
+local md = R.build({ skills = { syphon, ether, hpHit }, units = {}, items = {} })
+check(md.known["sip mp"].use == "skip", "a hit on a foe's MP is not an HP hit, and the player keeps it")
+check(md.known["tonic"].use ~= "skip", "an MP refill on the party is not skipped")
+check(md.known["poke"].use == "break", "the same hit on HP is still a hit")
 local dear = R.build({ skills = { [6] = potion }, items = {
     [3] = { name = "Token", skillId = 6, price = 6000, scene = 3, held = true },
 } })
