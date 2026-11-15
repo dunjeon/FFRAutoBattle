@@ -57,9 +57,9 @@ When this step is done, this file exists:
 
 `FFRS\Binaries\Win64\ue4ss\Mods\FFRAutoBattle\Scripts\main.lua`
 
-The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `reflect.lua`, `limits.lua`, `kits.lua`, `items.lua`, `growth.lua`, `pace.lua`, `minimap.lua`, and `echo.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
+The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `reflect.lua`, `limits.lua`, `kits.lua`, `items.lua`, `pace.lua`, `minimap.lua`, and `echo.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
-**Upgrading from an earlier version:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, and `catalog.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again. Take it Easy and its `AttacksOnly` setting are gone: if you used it, you start in No Mercy. To get the same play, switch to Echo and give each character Attack by hand once (see [Echo](#echo)).
+**Upgrading from an earlier version:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, `catalog.lua`, and `growth.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again. Take it Easy and its `AttacksOnly` setting are gone: if you used it, you start in No Mercy. To get the same play, switch to Echo and give each character Attack by hand once (see [Echo](#echo)).
 
 ### 4. Start the game and check
 
@@ -114,35 +114,47 @@ Everywhere else, both triggers keep the actions the game gives them. With `Large
 
 ## Settings
 
-Settings are in `config.ini` in the mod folder. Edit the file, then restart the game. A missing line uses its default.
+Settings are in `config.ini` in the mod folder. Edit the file, then restart the game. A missing line uses its default. The file is laid out the same way as the tables below, with the everyday settings at the top.
 
-### Core features
+### Auto Battle
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `Enabled` | `true` | Auto battle starts on. After you press F10, `state.txt` remembers your choice instead. |
 | `Echo` | `false` | Starts in Echo. After you press F9, `state.txt` remembers your choice instead. |
-| `EchoKeep` | `true` | Saves Echo's record in `echo.txt`, so it lasts from one session to the next. `false` keeps it only until you quit. |
-| `Submit` | `true` | `false` makes the mod choose and log a command but leave the menu for you. See [Reporting a problem](#reporting-a-problem). |
 | `TakeOverKey` | `F10` | The auto battle key. |
 | `MenuKey` | `F9` | The No Mercy / Echo key. |
-| `ItemPrice` | `5000` | No Mercy only. An item whose buy price is above this stays in the bag. Raise it to let the party spend more expensive items. |
-| `EsperLevelGap` | `3` | No Mercy only. An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. `-1` never calls an Esper; you can still call one by hand. |
-| `ResonanceLevelGap` | `0` | No Mercy only. The same as `EsperLevelGap`, for the Resonance wheel. The wheel is skipped when every foe is at least this many levels under every standing ally, unless it is a boss or an ally is down or about to die. `0` turns this off. `-1` leaves every wheel to you; the mod never picks or skips. |
 
-### Optional settings
-
-Each of these is off until you turn it on.
+### Speed and Scenes
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `SkipScenes` | `false` | Skips Limit Burst scenes, Vision finish scenes, an Esper's summon, and that Esper's own attack. The skip waits until the game allows it, so the hit still lands and the battle camera comes back. Other attacks and story scenes play as normal. |
-| `Turbo` | `false` | Experimental. Plays a fight's actions at four times the speed of the battle speed button's fastest mark. It starts with the first command, so the opening of a fight plays at normal speed. The command menu, Limit Bursts, Vision finishes, and Esper scenes stay at normal speed. Speed goes back to normal when the battle result begins. Turbo only runs while AutoBattle is On. Turn auto battle off in a fight and the speed goes back to normal until you turn it on again. The game keeps writing its own speed back during a fight, and Turbo sets its rate again each time; `UE4SS.log` says how often after each fight. If anything looks wrong, turn it off. |
+| `Turbo` | `false` | Experimental. Plays a fight's actions at four times the speed of the battle speed button's fastest mark. It starts with the first command, so the opening of a fight plays at normal speed. The command menu, Limit Bursts, Vision finishes, and Esper scenes stay at normal speed. Speed goes back to normal when the battle result begins. Turbo only runs while auto battle is on. The game keeps writing its own speed back during a fight, and Turbo sets its rate again each time; `UE4SS.log` says how often after each fight. If anything looks wrong, turn it off. |
+
+### Field Map
+
+| Setting | Default | What it does |
+| --- | --- | --- |
 | `LargeMap` | `true` | Lets F8, the left trigger, and the middle mouse button show the field minimap large in the middle of the screen. The game draws it at the bigger size, so it stays sharp. It only turns on outside a fight, and it comes back large on its own after a conversation or a new area. |
 | `MapKey` | `F8` | The large map key. |
 | `MapSize` | `80` | Size of the large map, as a percent of the screen height, from 20 to 100. |
+
+### No Mercy Spending
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `ItemPrice` | `5000` | An item whose buy price is above this stays in the bag. Raise it to let the party spend more expensive items. |
+| `EsperLevelGap` | `3` | An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. `-1` never calls an Esper; you can still call one by hand. |
+| `ResonanceLevelGap` | `0` | The same as `EsperLevelGap`, for the Resonance wheel. The wheel is skipped when every foe is at least this many levels under every standing ally, unless it is a boss or an ally is down or about to die. `0` turns this off. `-1` leaves every wheel to you; the mod never picks or skips. |
+
+### Advanced
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `EchoKeep` | `true` | Saves Echo's record in `echo.txt`, so it lasts from one session to the next. `false` keeps it only until you quit. |
+| `Submit` | `true` | `false` makes the mod choose and log a command but leave the menu for you. See [Reporting a problem](#reporting-a-problem). |
 | `Reporting` | `false` | Writes each fight to `battle_report.txt` in the mod folder, keeping the last five. Use it to report a problem. |
-| `LevelGate` | `false` | For development only. Leave it off. |
 
 Battle speed otherwise stays the game's own button and marks. Only `Turbo` goes past the last mark.
 
@@ -230,7 +242,7 @@ After a gear change, play the character's new turn by hand once and Echo repeats
 
 ### Settings that don't apply in Echo
 
-`ItemPrice`, `EsperLevelGap`, and `ResonanceLevelGap` are for No Mercy's own choices. In Echo, items, Espers, and the wheel are all yours (see [Never echoed, by design](#never-echoed-by-design)), so these settings have nothing to do. `SkipScenes`, `Turbo`, `LargeMap`, `LevelGate`, `Reporting`, and `Submit` work the same in both modes. With `Submit = false`, Echo logs the turn it would send and leaves the menu to you.
+`ItemPrice`, `EsperLevelGap`, and `ResonanceLevelGap` are for No Mercy's own choices. In Echo, items, Espers, and the wheel are all yours (see [Never echoed, by design](#never-echoed-by-design)), so these settings have nothing to do. `SkipScenes`, `Turbo`, `LargeMap`, `Reporting`, and `Submit` work the same in both modes. With `Submit = false`, Echo logs the turn it would send and leaves the menu to you.
 
 ### Tracking Echo
 

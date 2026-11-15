@@ -17,9 +17,6 @@
 -- Limit Burst, a Vision finish, an Esper summon, or that Esper's own attack
 -- once that scene allows a skip. The sequence player is never cut.
 -- Other scenes stay.
--- LevelGate is off unless set. On, a character gains no experience from a
--- fight where every monster is under that character's level. A monster at or
--- above them still pays the game's own amount.
 -- Turbo is off unless set. On, a fight's actions play at four times the battle
 -- speed button's fastest mark. The command menu stays at the game's
 -- command-select speed. A Limit Burst, a Vision finish, and an Esper scene
@@ -36,7 +33,7 @@ local function log(fmt, ...)
     if select("#", ...) > 0 then text = string.format(fmt, ...) end
     if (not Reporting) and not (text:find("loaded. planner", 1, true) or text:find("failed", 1, true)
         or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)
-        or text:find("scene skip", 1, true) or text:find("level gate", 1, true)
+        or text:find("scene skip", 1, true)
         or text:find("turbo", 1, true) or text:find("large map", 1, true)
         or text:find("echo:", 1, true)) then
         return
@@ -125,15 +122,6 @@ local function knownOf(skill)
     return Known.skills[key]
 end
 local Mobs = {}
-local Growth = {}
-do
-    local ok, loaded = pcall(dofile, DIR .. "/Scripts/growth.lua")
-    if ok and type(loaded) == "table" then
-        Growth = loaded
-    else
-        log("growth unavailable: %s", tostring(loaded))
-    end
-end
 local Health = {}
 do
     local ok, loaded = pcall(dofile, DIR .. "/Scripts/health.lua")
@@ -288,7 +276,7 @@ local DECIDE_MS = 250
 local Defaults = {
     Enabled = true, Submit = true, Reporting = false,
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
-    LevelGate = false, Turbo = false, LargeMap = true, MapKey = "F8", MapSize = 80,
+    Turbo = false, LargeMap = true, MapKey = "F8", MapSize = 80,
     EsperLevelGap = 3, ResonanceLevelGap = 0, Echo = false, EchoKeep = true,
 }
 local cfg = {}
@@ -639,7 +627,7 @@ local function buildSkillIndex(fromBattle)
     end
     -- Enemy rows, then every fact the planner reads, from what was just walked.
     local units = {}
-    local growthRows = {}
+    local foeLevels = {}
     local function readMap(map, into)
         if not (map and map.ForEach) then return end
         pcall(function()
@@ -669,11 +657,11 @@ local function buildSkillIndex(fromBattle)
                 end
                 units[id] = u
                 local lv = num(field(row, "Level"))
-                if lv ~= nil then growthRows[id] = { level = lv } end
+                if lv ~= nil then foeLevels[id] = { level = lv } end
             end)
         end)
     end
-    if next(growthRows) then Known.growth = growthRows end
+    if next(foeLevels) then Known.foeLevels = foeLevels end
     -- The game's own lists of each enemy's dangerous moves and counters.
     local function idList(list, into)
         if not (list and list.ForEach) then return end
@@ -2284,7 +2272,6 @@ local function worldOf(uid, boss, summoned)
             return
         end
         seenFoe[id] = true
-        if Growth.enemy then Growth.enemy(id) end
         local name = unitName(id)
         local isBroken, left = gaugeOf(id, name)
         enemies[#enemies + 1] = {
@@ -2667,7 +2654,7 @@ local function catalogOf(id)
     return nil
 end
 
--- Levels for EsperLevelGap, read the way LevelGate reads them. The live
+-- Levels for EsperLevelGap and ResonanceLevelGap. The live
 -- level parameter reads -1 on allies, so it is not used. An ally's level
 -- comes from its playable unit; a foe's from its catalog row.
 function Known.allyLevel(uid)
@@ -2684,7 +2671,7 @@ function Known.allyLevel(uid)
     return nil
 end
 function Known.foeLevel(uid)
-    local row = Known.growth and Known.growth[catalogOf(uid)]
+    local row = Known.foeLevels and Known.foeLevels[catalogOf(uid)]
     return row and type(row.level) == "number" and row.level or nil
 end
 
@@ -6836,225 +6823,8 @@ end
 
 local flushWarn
 
--- LevelGate. Enemy catalog ids seen this fight, and the exp to write once
--- the game pays out. seen is keyed by slot and catalog id, so a later wave
--- or an add in a dead monster's slot still counts. cuts marks the characters
--- whose gain is 0; a kept payout is never rewritten.
-function Growth.install()
-local bflUnit, bflSaveUnit
-local function unitLib()
-    if not (bflUnit and bflUnit:IsValid()) then
-        bflUnit = StaticFindObject("/Script/mucha.Default__CPP_BFL_Unit")
-    end
-    return bflUnit
-end
-local function saveUnitLib()
-    if not (bflSaveUnit and bflSaveUnit:IsValid()) then
-        bflSaveUnit = StaticFindObject("/Script/mucha.Default__CPP_BFL_SaveDataUnit")
-    end
-    return bflSaveUnit
-end
-local Gate = { seen = {}, targets = {}, cuts = {}, writing = false, missTold = false }
-
-local function playableLevel(unitId)
-    local lib = unitLib()
-    if not (lib and lib:IsValid()) then return nil end
-    local ok, v = pcall(function() return lib:GetPlayableUnitLevel(unitId) end)
-    return ok and num(v) or nil
-end
-
-local function saveExp(unitId)
-    local lib = saveUnitLib()
-    if not (lib and lib:IsValid()) then return nil end
-    local ok, v = pcall(function() return lib:GetSaveDataUnitExperience(unitId) end)
-    return ok and num(v) or nil
-end
-
-local function writeExp(unitId, exp)
-    local lib = unitLib()
-    if not (lib and lib:IsValid()) then return end
-    Gate.writing = true
-    pcall(function() lib:SetPlayableUnitExperience(unitId, exp, true) end)
-    Gate.writing = false
-end
-
-local function growthIds()
-    local ids = {}
-    for _, id in pairs(Gate.seen) do ids[#ids + 1] = id end
-    return ids
-end
-
--- nil when a monster's level was not read. The payout is then left alone.
-local function growthMobs()
-    local ids = growthIds()
-    if #ids == 0 or not Known.growth then return nil end
-    local mobs, missing = {}, false
-    for _, id in ipairs(ids) do
-        local row = Known.growth[id]
-        if not row or type(row.level) ~= "number" then missing = true
-        else mobs[#mobs + 1] = { level = row.level } end
-    end
-    if missing or #mobs == 0 then return nil end
-    return mobs
-end
-
-function Growth.enemy(uid)
-    if not (cfg.LevelGate and Fight and uid) then return end
-    if Fight.summons and Fight.summons[uid] then return end
-    local id = catalogOf(uid)
-    if id then Gate.seen[tostring(uid) .. ":" .. tostring(id)] = id end
-end
-
-function Growth.field()
-    if not (cfg.LevelGate and Fight and Fight.active) then return end
-    local bfl = battleLib()
-    if not (bfl and bfl:IsValid()) then return end
-    for n = 0, 15 do
-        if not (Fight.summons and Fight.summons[n]) then
-            local ok, p = pcall(function() return bfl:GetBattleUnitParameter(n, false) end)
-            if ok and p and p.IsValid and p:IsValid() then
-                local okR, rel = pcall(function() return p:GetRelation() end)
-                if okR and num(rel) == REL.ENEMY then Growth.enemy(n) end
-            end
-        end
-    end
-end
-
--- The payout comes during the result, before the fight closes. After the
--- close, nothing is held, so exp from an item or a quest is never cut by
--- the last fight's monsters, including after a loss or an escape.
-function Growth.close()
-    Gate.seen, Gate.targets, Gate.cuts = {}, {}, {}
-end
-
-function Growth.newFight()
-    Gate.seen, Gate.targets, Gate.cuts, Gate.missTold, Gate.sigTold = {}, {}, {}, false, false
-end
-
-local function growthTarget(unitId, level, before, after)
-    if Gate.targets[unitId] ~= nil then return Gate.targets[unitId] end
-    if not (cfg.LevelGate and Growth.keeps and unitId and level and before and after) then return nil end
-    local mobs = growthMobs()
-    if not mobs then
-        if #growthIds() > 0 and not Gate.missTold then
-            Gate.missTold = true
-            log("level gate could not read the monsters")
-        end
-        return nil
-    end
-    local keeps = Growth.keeps(level, mobs)
-    if keeps == nil then return nil end
-    local target = Growth.apply(before, after, keeps)
-    Gate.targets[unitId] = target
-    Gate.cuts[unitId] = (target ~= after) or nil
-    if target ~= after then
-        log("level gate: unit %s level %s gain 0", tostring(unitId), tostring(level))
-    end
-    return target
-end
-
-local function wipeGains(row)
-    local function wipe(container)
-        if type(container) ~= "userdata" then return end
-        pcall(function()
-            if container.Empty then container:Empty()
-            elseif container.Clear then container:Clear() end
-        end)
-    end
-    wipe(row.increasedParameters)
-    wipe(row.addSkillList)
-    wipe(row.extraAddSkillList)
-end
-
-local function patchGrowthResult(data)
-    if not (cfg.LevelGate and data and data.unitDataList and data.unitDataList.ForEach) then return end
-    local cut, kept = 0, 0
-    pcall(function()
-        data.unitDataList:ForEach(function(_, entry)
-            local row = unwrap(entry)
-            if type(row) ~= "userdata" and type(row) ~= "table" then return end
-            local id = num(row.UnitId)
-            local level = num(row.beforeBattleLevel)
-            local before = num(row.beforeBattleExp)
-            local after = num(row.afterBattleExp)
-            if not (id and level and before and after) then return end
-            local target = growthTarget(id, level, before, after)
-            if target == nil then return end
-            if target < after then
-                cut = cut + 1
-                pcall(function() row.afterBattleExp = target end)
-                pcall(function() row.afterBattleLevel = level end)
-                wipeGains(row)
-                local now = saveExp(id)
-                if now and now ~= target then writeExp(id, target) end
-            elseif target > before then
-                kept = kept + 1
-            end
-        end)
-    end)
-    if cut > 0 and kept == 0 then
-        pcall(function()
-            data.totalExperience = 0
-            data.baseExperience = 0
-            data.bonusExperience = 0
-        end)
-    end
-end
-
-function Growth.hook()
-    if not Growth.keeps then return end
-    local function guard(label, fn)
-        local ok, err = pcall(fn)
-        if not ok then log("level gate failed: %s: %s", label, tostring(err)) end
-    end
-    guard("payout", function()
-    RegisterHook("/Script/mucha.CPP_BFL_Unit:SetPlayableUnitExperience", function(_, unitId, exp)
-        if Gate.writing or not cfg.LevelGate then return end
-        local id = num(unitId and unitId:get())
-        local incoming = num(exp and exp:get())
-        if not id or incoming == nil then
-            if not Gate.sigTold then
-                Gate.sigTold = true
-                log("level gate could not read the payout")
-            end
-            return
-        end
-        local target = Gate.targets[id]
-        if target == nil then
-            target = growthTarget(id, playableLevel(id), saveExp(id), incoming)
-        end
-        -- Only a cut is written. A kept payout stays as the game sends it.
-        if target ~= nil and Gate.cuts[id] and incoming > target then exp:set(target) end
-    end)
-    end)
-    guard("result", function()
-    RegisterHook("/Script/mucha.CPP_UI_BattleSubsystem:HandleBeginResult", function(_, value)
-        if not cfg.LevelGate then return end
-        pcall(function()
-            local row = value:get()
-            if row and row.resultData then patchGrowthResult(row.resultData) end
-        end)
-    end)
-    end)
-    guard("result end", function()
-    RegisterHook("/Script/mucha.CPP_BtlDelEventResult:OnExecuteResultEnd", function()
-        -- The payout can still be inside this call. Drop the fight after it returns.
-        gameDelay(0, function()
-            Growth.close()
-        end)
-    end)
-    end)
-end
-    if Growth.hook then Growth.hook() end
-end
-do
-    local okGrowth, errGrowth = pcall(Growth.install)
-    if not okGrowth then log("level gate failed: %s", tostring(errGrowth)) end
-end
-
 local function finishBattle()
     if not Fight.active then return end
-    if Growth.close then Growth.close() end
     Known.repRun(Known.repFinish)
     Fight.active = false
     if Menu.stopPace then Menu.stopPace() end
@@ -7086,7 +6856,6 @@ end
 
 local function ensureBattle()
     if Fight.active then return end
-    if Growth.newFight then Growth.newFight() end
     Fight.active = true
     if Menu.pace then Menu.pace.done, Menu.pace.seqTold, Menu.pace.armed = false, nil, false end
     Fight.number = Fight.number + 1
@@ -10047,7 +9816,6 @@ gameLoop(700, function()
         -- A fall between turns is noted here too, so the last one before
         -- the battle ends, such as a wipe, still reaches the log.
         pcall(function() noteChanges(livingSnapshot()) end)
-        if Growth.field then pcall(Growth.field) end
         -- The report opens on the timer too, so a fight's first commands count
         -- even when the player sends them by hand.
         if Known.report and Fight.active then
@@ -10204,7 +9972,6 @@ local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
 
-if cfg.LevelGate then log("level gate on") end
 if cfg.Turbo then
     log("turbo on")
     pcall(Menu.hookPace)
