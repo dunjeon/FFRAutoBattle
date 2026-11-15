@@ -83,4 +83,14 @@ do
         "no claim, nothing to release")
 end
 
+-- The drop check starts at the HP when the heal was sent. Healed to 1469 and hit
+-- to 321 before the first read: below the send's 405, so the heal came and went.
+do
+    local claims, marks = { [2] = true }, { [2] = 405 }
+    local freed = H.reviewClaims(claims, marks, { 2 }, function() return 321 end)
+    check(#freed == 1 and claims[2] == nil, "a hit below the HP at the send ends the claim, even unseen at its peak")
+    local c2, m2 = { [2] = true }, { [2] = 405 }
+    check(#H.reviewClaims(c2, m2, { 2 }, function() return 405 end) == 0 and c2[2], "no change since the send keeps the claim")
+end
+
 os.exit(fails == 0 and 0 or 1)

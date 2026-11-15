@@ -8552,10 +8552,16 @@ local function noteHand(v)
         local ids = (#targets > 0) and targets or eachAlly(function(_, dead) return not dead end)
         -- The HP each target had when the heal was sent, so a heal that has
         -- landed can be told from one still on its way.
+        -- That HP is also where the drop check starts. Its first read can come
+        -- after the heal and a hit both landed (Cure to 1469, Blizzaga to 321),
+        -- and a first read of 321 would never see the drop.
         Fight.claimFrom = Fight.claimFrom or {}
+        Fight.claimMarks = Fight.claimMarks or {}
         for _, id in ipairs(ids) do
             Fight.claim.heal[id] = true
-            Fight.claimFrom[id] = stat(id, PARAM.HP, false)
+            local hp = stat(id, PARAM.HP, false)
+            Fight.claimFrom[id] = hp
+            if hp then Fight.claimMarks[id] = hp end
         end
     end
     if kind == "revive" then
