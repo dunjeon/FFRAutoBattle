@@ -1508,8 +1508,6 @@ local function tagSkill(uid, id, borrowed)
     if info and info.use == "skip" then return nil end
     local okKind, kind = pcall(classify, copy)
     copy.kind = okKind and kind or nil
-    -- A switch set to off: the plan plays as if this unit did not hold it.
-    if Known.switchOff(copy) then return nil end
     if copy.attr == ATTR.SUMMON and Espers.lookup then
         local fact = Espers.lookup(copy.name)
         if fact then
@@ -1618,6 +1616,10 @@ local function tagSkill(uid, id, borrowed)
     if (not copy.kind) and Kits.lookup and Kits.lookup(copy.name) then
         copy.kind = "buff"
     end
+    -- A switch set to off: the plan plays as if this unit did not hold it.
+    -- Read after the row's use has set the final kind, so a status spell that
+    -- also carries stagger (Silence, Deshell) reads as the debuff it is.
+    if Known.switchOff(copy) then return nil end
     if not copy.kind then return nil end
     return copy
 end

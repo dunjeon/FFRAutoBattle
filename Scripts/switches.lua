@@ -56,9 +56,12 @@ function M.categoryOf(s)
     if k == "revive" then return "Raises" end
     if k == "heal" or k == "cure" then return "Heals" end
     if k == "defend" or hasEffect(s, E.COVER) or (hasEffect(s, E.HATE) and not hits(s)) then return "Guards" end
+    -- The row's own use comes before stagger: most status spells carry 25
+    -- stagger, and they are still debuffs and scans, not hits.
+    if k == "debuff" then return "Debuffs" end
+    if k == "scan" or hasEffect(s, E.ANALYZE) or hasEffect(s, E.MOGSCAN) then return "Scan" end
     if hits(s) then return nil end
-    if hasEffect(s, E.ANALYZE) or hasEffect(s, E.MOGSCAN) then return "Scan" end
-    if k == "debuff" or s.rel == ENEMY then return "Debuffs" end
+    if s.rel == ENEMY then return "Debuffs" end
     if k == "buff" or s.rel == FRIEND then return "Buffs" end
     return nil
 end

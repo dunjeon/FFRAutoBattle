@@ -60,6 +60,12 @@ check(S.categoryOf(row({ attr = ABILITY, rel = ENEMY, power = 120, kind = "damag
 check(S.categoryOf(row({ attr = ABILITY, rel = ENEMY, power = 0, effects = eff(29) })) == "Scan", "Scan is Scan")
 check(S.categoryOf(row({ attr = ABILITY, rel = ENEMY, power = 0, effects = eff(142) })) == "Scan", "a Mog scan is Scan")
 check(S.categoryOf(row({ attr = MAGIC, rel = ENEMY, power = 0, kind = "debuff" })) == "Debuffs", "Slow is a Debuff")
+check(S.categoryOf(row({ attr = MAGIC, rel = ENEMY, power = 0, breakPower = 25, kind = "debuff" })) == "Debuffs",
+    "Silence carries 25 stagger and is still a Debuff")
+check(S.categoryOf(row({ attr = ABILITY, rel = ENEMY, power = 0, breakPower = 25, kind = "scan", effects = eff(29) })) == "Scan",
+    "Libra carries stagger and is still Scan")
+check(S.categoryOf(row({ attr = MAGIC, rel = ENEMY, power = 20, breakPower = 20, kind = "damage", enemyStatus = { [1] = true } })) == nil,
+    "Bio deals damage with a status rider and is a hit")
 check(S.categoryOf(row({ attr = ABILITY, rel = ENEMY, power = 0, kind = "damage", effects = eff(27) })) == "Debuffs",
     "a break mark on a foe is a Debuff")
 check(S.categoryOf(row({ attr = MAGIC, rel = FRIEND, kind = "buff" })) == "Buffs", "Haste is a Buff")
