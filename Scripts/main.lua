@@ -253,10 +253,13 @@ local ATTR = {
     MIX = 10, THROW = 11, THROW_MONEY = 12,
     DUAL = 13, MIMIC = 14, SWORD = 15, ESCAPE = 16,
 }
+-- Attrs the planner never picks as a skill. A spellblade (SWORD) is not here:
+-- it is an elemental physical hit on the Abilities command, and many Visions
+-- give one. Its row's power, stagger, element and damage type say what it does.
 local SKIP = {
     [ATTR.CHASE] = true, [ATTR.ITEM] = true, [ATTR.MIX] = true,
     [ATTR.THROW] = true, [ATTR.THROW_MONEY] = true, [ATTR.DUAL] = true,
-    [ATTR.MIMIC] = true, [ATTR.SWORD] = true, [ATTR.ESCAPE] = true,
+    [ATTR.MIMIC] = true, [ATTR.ESCAPE] = true,
 }
 local EFF = { DAMAGE = 1, PARAM = 2, CURE = 19, REVIVE = 20, DEFEND = 26, ANALYZE = 29, SUMMON = 37, COVER = 41, UNSUMMON = 43 }
 local TGT = { SELF = 0, SINGLE = 1, GROUP = 2, SPREAD = 3, ALL = 4 }
