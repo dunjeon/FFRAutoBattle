@@ -254,8 +254,9 @@ local ATTR = {
     DUAL = 13, MIMIC = 14, SWORD = 15, ESCAPE = 16,
 }
 -- Attrs the planner never picks as a skill. A spellblade (SWORD) is not here:
--- it is an elemental physical hit on the Abilities command, and many Visions
--- give one. Its row's power, stagger, element and damage type say what it does.
+-- it is a hit on the Abilities command, and many Visions give one. Its own
+-- row says what it does: power, stagger, element (most have one, some none),
+-- damage type, and any rider. Nothing here assumes those.
 local SKIP = {
     [ATTR.CHASE] = true, [ATTR.ITEM] = true, [ATTR.MIX] = true,
     [ATTR.THROW] = true, [ATTR.THROW_MONEY] = true, [ATTR.DUAL] = true,
@@ -495,6 +496,23 @@ local function buildSkillIndex(fromBattle)
                 unitTables[#unitTables + 1] = dt
             elseif struct == "BTL_UNIT_AI_PARAMETER" then
                 aiTables[#aiTables + 1] = dt
+            elseif struct == "SKILL_GENERAL_DATA" then
+                -- The game's list of commands that hold picks: Dualcast, Arms
+                -- Akimbo, Magic Barrage and the rest. Sent alone, one carries
+                -- nothing under it, so the planner never sends one.
+                pcall(function()
+                    local parents = {}
+                    dt:ForEachRow(function(_, row)
+                        local list = field(row, "hierarchicalSkills")
+                        if list and list.ForEach then
+                            list:ForEach(function(_, v)
+                                local id = num(unwrap(v))
+                                if id and id > 0 then parents[id] = true end
+                            end)
+                        end
+                    end)
+                    Known.parents = parents
+                end)
             end
         end)
     end
@@ -740,6 +758,15 @@ local function buildSkillIndex(fromBattle)
             local mobs = 0
             for _ in pairs(Mobs) do mobs = mobs + 1 end
             log("rows read: %d enemy rows, %d bestiary, %d limits", cards, mobs, (function() local n = 0 for _ in pairs(built.limits) do n = n + 1 end return n end)())
+            pcall(function()
+                local n = 0
+                for _ in pairs(Known.parents or {}) do n = n + 1 end
+                if n > 0 then
+                    log("commands that hold picks: %d listed by the game, left to the player", n)
+                else
+                    log("commands that hold picks could not be read; Dualcast and the rest may be sent alone")
+                end
+            end)
         else
             log("rows failed: %s", tostring(built))
         end
@@ -1465,6 +1492,9 @@ local function tagSkill(uid, id, borrowed)
     if (borrowed == true) and activation(uid, id) ~= true then return nil end
     local s = skillOf(id)
     if not s or SKIP[s.attr] then return nil end
+    -- A command that holds picks is never a turn by itself. It is left to the
+    -- player, and Echo repeats it as the player sent it.
+    if Known.parents and Known.parents[id] then return nil end
     -- EsperLevelGap -1: no Esper is ever called. The player can still call one by hand.
     if s.attr == ATTR.SUMMON and (tonumber(cfg.EsperLevelGap) or 0) < 0 then return nil end
     local lb = limitSkill(s)
@@ -6260,7 +6290,8 @@ local function kitFallback(uid)
     pcall(function() ids = equippedIds(uid) end)
     for _, id in ipairs(ids) do
         local ok, s = pcall(skillOf, id)
-        if ok and s and not SKIP[s.attr] and s.attr ~= ATTR.FINISH and s.attr ~= ATTR.SUMMON and s.attr ~= ATTR.ITEM then
+        if ok and s and not SKIP[s.attr] and s.attr ~= ATTR.FINISH and s.attr ~= ATTR.SUMMON and s.attr ~= ATTR.ITEM
+            and not (Known.parents and Known.parents[id]) then
             local copy = {}
             for k, v in pairs(s) do copy[k] = v end
             copy.known = knownOf(copy)
