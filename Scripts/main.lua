@@ -9943,7 +9943,8 @@ local function bind(name, fn)
     local keyName = cfg[name]
     local key = keyName and Key[keyName]
     if key == nil then
-        log("unknown key %s for %s", tostring(keyName), name)
+        -- "could not" reaches UE4SS.log with Reporting off, so a typo is seen.
+        log("could not bind %s = %s: not a key name. Check the spelling and capitals in config.ini.", name, tostring(keyName))
         return
     end
     RegisterKeyBind(key, function()
