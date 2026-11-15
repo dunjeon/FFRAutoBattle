@@ -9987,28 +9987,56 @@ local function inFight()
     return battleUp()
 end
 
--- The large field map. On only works on the field. Off works anywhere.
+-- The large field map. On only works on the field, with no menu in front
+-- (the last poll's read; before any read, the field counts). Off works anywhere.
 function Known.pressMap()
     local mm = Known.minimap
     if not (mm and cfg.LargeMap) then return end
-    local ok, err = pcall(mm.toggle, mm.fraction(cfg.MapSize), not inFight())
+    local onField = (not inFight()) and (Known.mapFront ~= false)
+    local ok, err = pcall(mm.toggle, mm.fraction(cfg.MapSize), onField)
     if not ok then log("large map failed: %s", tostring(err)) end
 end
 
 -- The left trigger and the middle mouse button. Both are used by the game in
--- some menus and on its world map, so they only act while the field HUD is in front.
-function Known.pressMapField(what)
-    if not (cfg.LargeMap and Known.minimap) then return end
+-- some menus and on its world map, so they only act while the field HUD is in
+-- front, at the read before the press and now. A press made as a menu opens
+-- or closes stays with the menu. wasFront nil: the last poll's read.
+function Known.pressMapField(what, wasFront, front)
+    local mm = Known.minimap
+    if not (cfg.LargeMap and mm) then return end
     if inFight() then return end
-    if Known.minimap.fieldActive() then
+    if wasFront == nil then wasFront = Known.mapFront end
+    if front == nil then front = mm.fieldActive() end
+    if mm.pressCounts(wasFront, front) then
         Known.pressMap()
     else
         log("large map: %s left to the open menu", what)
     end
 end
 
+-- Every poll, with LargeMap on: is the field HUD in front, and the large map
+-- tucked back while it is not. Returns the read before this one and this one.
+function Known.mapPoll()
+    local mm = Known.minimap
+    if not (cfg.LargeMap and mm) then return nil, nil end
+    -- A fight is never the field, so the HUD is not asked then.
+    local front = false
+    if not inFight() then
+        local okF, active = pcall(mm.fieldActive)
+        front = (okF and active) and true or false
+    end
+    local was = Known.mapFront
+    Known.mapFront = front
+    if mm.isOn() then
+        local ok, err = pcall(mm.shade, front, mm.fraction(cfg.MapSize))
+        if not ok then log("large map failed: %s", tostring(err)) end
+    end
+    return was, front
+end
+
 local padTold, padLeft, padRight = false, false, false
 local function pollTriggers()
+    local wasFront, front = Known.mapPoll()
     local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
     if not (okPc and pc and pc.IsValid and pc:IsValid()) then return end
     local function down(name)
@@ -10042,7 +10070,7 @@ local function pollTriggers()
     if not (leftRose or rightRose) then return end
     if not inFight() then
         -- On the field the left trigger is the large map. In a menu it stays with the game.
-        if leftRose then Known.pressMapField("left trigger") end
+        if leftRose then Known.pressMapField("left trigger", wasFront, front) end
         return
     end
     if leftRose and cfg.Enabled then pressBasic() end

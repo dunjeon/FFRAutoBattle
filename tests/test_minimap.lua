@@ -33,4 +33,10 @@ check(base == 1.5 and near(big, 4.8), "a new game scale keeps the same ratio")
 check(M.rescale(saved, nil) == nil, "an unread scale is left alone")
 check(M.rescale({ scale = 0, set = 3 }, 1) == nil, "a broken record is left alone")
 
+check(M.pressCounts(true, true), "a press with the field in front before and now is the map's")
+check(not M.pressCounts(false, true), "a press as a menu closes is the menu's")
+check(not M.pressCounts(true, false), "a press as a menu opens is the menu's")
+check(not M.pressCounts(nil, true), "no read before the press is not in front")
+check(not M.pressCounts(true, nil), "an unread field is not in front")
+
 os.exit(fails == 0 and 0 or 1)

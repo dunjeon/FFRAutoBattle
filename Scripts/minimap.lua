@@ -38,9 +38,18 @@ function M.fraction(percent)
     return p / 100
 end
 
+-- A pad press toggles the map only when the field HUD was in front at the
+-- read before the press and is still in front now. A press made while a menu
+-- opens or closes is the menu's, not the map's. nil (not read) is not in front.
+function M.pressCounts(wasFront, front)
+    return (wasFront == true) and (front == true)
+end
+
 -- Game glue below. It reads UE4SS globals only when called.
 
-local state = { on = false, touched = {}, lib = nil }
+-- hidden: the map is on, but a menu or a fight is in front, so it is back in
+-- its corner until the field is in front again.
+local state = { on = false, hidden = false, touched = {}, lib = nil, fields = nil, fieldReads = 0 }
 
 local function valid(o)
     return o ~= nil and o.IsValid and o:IsValid()
@@ -167,7 +176,7 @@ end
 -- already made large are read here, one number each, so it costs little and
 -- the map is small for a frame at most.
 function M.hold()
-    if not state.on then return end
+    if (not state.on) or state.hidden then return end
     for _, saved in pairs(state.touched) do
         local box = saved.box
         if valid(box) then
@@ -185,7 +194,7 @@ end
 -- own scale back. While the large map is on, both are made large again,
 -- until the player presses again.
 function M.keep(fraction, onField)
-    if not state.on then return end
+    if (not state.on) or state.hidden then return end
     if not onField then return end
     for _, e in ipairs(layouts()) do pcall(enlarge, e, fraction) end
 end
@@ -196,7 +205,7 @@ end
 function M.toggle(fraction, onField)
     if state.on then
         restoreAll()
-        state.on = false
+        state.on, state.hidden = false, false
         return "off"
     end
     if not onField then return nil end
@@ -210,12 +219,50 @@ end
 
 function M.isOn() return state.on end
 
+-- While the map is on: back to its corner when the field is not in front (a
+-- menu, a fight), and large again when it is. The map is still on; the next
+-- press turns it off. A menu never has the large map over it.
+function M.shade(front, fraction)
+    if not state.on then return end
+    if not front then
+        if not state.hidden then
+            restoreAll()
+            state.hidden = true
+        end
+        return
+    end
+    if state.hidden then
+        state.hidden = false
+        for _, e in ipairs(layouts()) do pcall(enlarge, e, fraction) end
+    end
+end
+
 -- True while the field HUD is the screen in front. A menu opened on the field
 -- deactivates it, so a pad button that also switches menu tabs is left to the
 -- menu. If the game cannot be asked, the answer is true, so the button still works.
+-- It is read ten times a second, so the HUD list is found again only every
+-- tenth read, or when one in it is gone. A new area's HUD is found within a second.
 function M.fieldActive()
-    local ok, all = pcall(function() return FindAllOf("WBP_FieldLayout_C") end)
-    if not (ok and type(all) == "table") then return true end
+    state.fieldReads = state.fieldReads + 1
+    local cached = state.fields
+    if cached then
+        for _, w in ipairs(cached) do
+            if not valid(w) then cached = nil break end
+        end
+    end
+    if (not cached) or (state.fieldReads % 10 == 0) then
+        local ok, found = pcall(function() return FindAllOf("WBP_FieldLayout_C") end)
+        if not ok then
+            state.fields = nil
+            return true
+        end
+        -- No field HUD at all (FindAllOf gives nil) is kept as an empty list,
+        -- so it is looked for again on the tenth read, not on every one.
+        if type(found) ~= "table" then found = {} end
+        cached = found
+        state.fields = found
+    end
+    local all = cached
     local asked = false
     for _, w in ipairs(all) do
         local okW, on = pcall(function()
