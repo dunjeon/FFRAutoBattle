@@ -6309,7 +6309,11 @@ local function kitFallback(uid)
                 or (use == "buff") or (use == "lb-setup") or (use == "lb-revive") or (use == "lb-cash")
                 or (use == "lb-break") or (use == "lb-guard")
                 or (copy.attr == ATTR.LB)
-            if damage and not held and (cost <= mp) and not (Fight.deferChip and (cost > 0)) then
+            -- A switch set to off holds here too: a spellblade is a hit, so this
+            -- list would take it, and the send's own check would hand the turn over.
+            copy.kind = okKind and kind or nil
+            if damage and not held and (cost <= mp) and not (Fight.deferChip and (cost > 0))
+                and not Known.switchOff(copy) then
                 copy.kind = "damage"
                 usable[#usable + 1] = copy
             end
