@@ -35,7 +35,7 @@ local function log(fmt, ...)
         or text:find("error", 1, true) or text:find("unavailable", 1, true) or text:find("could not", 1, true)
         or text:find("scene skip", 1, true)
         or text:find("turbo", 1, true) or text:find("large map", 1, true)
-        or text:find("echo:", 1, true)) then
+        or text:find("echo:", 1, true) or text:find("switches:", 1, true)) then
         return
     end
     print(TAG .. text .. "\n")
@@ -213,6 +213,13 @@ do
     else
         log("echo unavailable: %s", tostring(loaded))
     end
+    -- The per-category switches. Without the file, every switch reads auto.
+    ok, loaded = pcall(dofile, DIR .. "/Scripts/switches.lua")
+    if ok and type(loaded) == "table" then
+        Known.switches = loaded
+    else
+        log("switches unavailable: %s", tostring(loaded))
+    end
 end
 local function foldName(name)
     local n = (name or ""):lower()
@@ -278,6 +285,8 @@ local Defaults = {
     TakeOverKey = "F10", MenuKey = "F9", ItemPrice = 5000, SkipScenes = false,
     Turbo = false, LargeMap = true, MapKey = "F8", MapSize = 80,
     EsperLevelGap = 3, ResonanceLevelGap = 0, Echo = false, EchoKeep = true,
+    Limits = "auto", Heals = "auto", Raises = "auto", Buffs = "auto", Debuffs = "auto",
+    Guards = "auto", Items = "auto", Scan = "auto", Escape = "auto",
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -316,6 +325,15 @@ local function loadConfig()
         end
     end
     for name in pairs(Defaults) do take(name) end
+    -- A switch reads auto, off, or hand. Anything else is auto, and the log says so.
+    local sw = Known.switches
+    for _, name in ipairs((sw and sw.NAMES) or {}) do
+        local v, ok = sw.parse(name, cfg[name])
+        if not ok then
+            log("switches: config error, %s = %s is not a setting it takes; using auto", name, tostring(cfg[name]))
+        end
+        cfg[name] = v
+    end
     Reporting = cfg.Reporting
     if Reporting and Known.reportLib and (not Known.report) then
         Known.report = Known.reportLib.new(DIR .. "/battle_report.txt")
@@ -1412,6 +1430,24 @@ local function limitReady(uid, skill)
     return filled >= need
 end
 
+-- True when this skill's category switch is off. The report says so once a
+-- fight for each skill it leaves out.
+function Known.switchOff(copy)
+    local sw = Known.switches
+    if not sw then return false end
+    local cat = sw.categoryOf(copy)
+    if not (cat and cfg[cat] == "off") then return false end
+    if Fight then
+        Fight.switchTold = Fight.switchTold or {}
+        local key = tostring(copy.id)
+        if not Fight.switchTold[key] then
+            Fight.switchTold[key] = true
+            appendLog(string.format("  %s off: %s left out", cat, tostring(copy.name)))
+        end
+    end
+    return true
+end
+
 -- borrowed: true asks the game if this unit can activate a row it hasn't equipped.
 -- "inherited": a multicast row, already cleared by its base spell's checks.
 local function tagSkill(uid, id, borrowed)
@@ -1431,6 +1467,8 @@ local function tagSkill(uid, id, borrowed)
     if info and info.use == "skip" then return nil end
     local okKind, kind = pcall(classify, copy)
     copy.kind = okKind and kind or nil
+    -- A switch set to off: the plan plays as if this unit did not hold it.
+    if Known.switchOff(copy) then return nil end
     if copy.attr == ATTR.SUMMON and Espers.lookup then
         local fact = Espers.lookup(copy.name)
         if fact then
@@ -1668,6 +1706,7 @@ local function finishChoice(uid, skill, reason, targets, isAll, isItem)
         id = skill.id, name = skill.name, score = 1, cost = skill.cost or 0,
         kind = skill.kind, reason = reason, targets = ids, isAll = all and true or false,
         attr = skill.attr, isItem = isItem and true or false, known = skill.known,
+        category = (not isItem) and Known.switches and Known.switches.categoryOf(skill) or nil,
     }
 end
 
@@ -1927,6 +1966,9 @@ end
 
 local function pickRecoveryItem(uid, w, want, focus)
     if potFight(w) then return nil end
+    -- Items off, or Heals or Raises off for an item that heals or raises.
+    local sw = Known.switches
+    if sw and sw.off(cfg, sw.itemCategories(want)) then return nil end
     if not Items.recovery then return nil end
     local owned = ownedRecovery()
     markExposed(w)
@@ -5775,7 +5817,7 @@ local function turn(uid, skills, w, phase)
         local party = 0
         for _ in pairs(Fight.seenAlly or {}) do party = party + 1 end
         if party < 1 then party = 1 end
-        local fleeable = not Fight.noEscape
+        local fleeable = (not Fight.noEscape) and (cfg.Escape ~= "off")
         if ((Fight.hitsSince or 0) >= (party * 5)) and (#w.enemies > 0) and (not fleeable)
             and (not Fight.stalemateTold) and (not potFight(w)) then
             Fight.stalemateTold = true
@@ -6914,6 +6956,7 @@ local function ensureBattle()
     Fight.esperSkip = {}
     Fight.limitUntagged = {}
     Fight.limitSkip = {}
+    Fight.switchTold, Fight.handTold = {}, {}
     Fight.cureHeld = false
     Fight.healLeft = {}
     Fight.hitSeen = Fight.hitHold or {}
@@ -8031,6 +8074,23 @@ local function act(serial)
     local mpNow = stat(uid, PARAM.MP, false)
     local line = string.format("%s p%d mp%s: %s -> %s", who, phase, tostring(mpNow or "?"), choice.name, choice.reason)
     if Menu.armPace then Menu.armPace("the first planned command") end
+    -- A switch set to hand: the plan's pick is shown, and the menu is the player's.
+    -- Whatever the player sends is recorded like any hand turn.
+    local sw = Known.switches
+    if sw then
+        local cats = choice.isItem and sw.itemCategories(choice.itemUse) or { choice.category }
+        local v, by = sw.verdict(cfg, cats)
+        if v ~= "auto" then
+            appendLog(string.format("  (%s %s, yours) %s", by, v, line))
+            log("switches: %s %s, left to you: %s", by, v, line)
+            Fight.handTold = Fight.handTold or {}
+            if not Fight.handTold[serial] then
+                Fight.handTold[serial] = true
+                showToast(string.format("AutoBattle: %s's turn is yours (%s)", who, by))
+            end
+            return
+        end
+    end
     if not cfg.Submit then
         appendLog("  (not sent) " .. line)
         log("(not sent) %s", line)
@@ -9971,6 +10031,9 @@ if not okHook then log("hook failed: %s", tostring(errHook)) end
 local okScene, errScene = pcall(hookScenes)
 if not okScene then log("scene skip failed: %s", tostring(errScene)) end
 if cfg.SkipScenes then log("scene skip on") end
+if Known.switches and Known.switches.summary(cfg) then
+    log("switches: %s", Known.switches.summary(cfg))
+end
 
 if cfg.Turbo then
     log("turbo on")

@@ -57,7 +57,7 @@ When this step is done, this file exists:
 
 `FFRS\Binaries\Win64\ue4ss\Mods\FFRAutoBattle\Scripts\main.lua`
 
-The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `reflect.lua`, `limits.lua`, `kits.lua`, `items.lua`, `pace.lua`, `minimap.lua`, and `echo.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
+The same folder also contains `enabled.txt` and `config.ini`. Next to `main.lua` are `rows.lua`, `measure.lua`, `brace.lua`, `report.lua`, `health.lua`, `debuffs.lua`, `gauges.lua`, `espers.lua`, `reflect.lua`, `limits.lua`, `kits.lua`, `items.lua`, `pace.lua`, `minimap.lua`, `echo.lua`, and `switches.lua`. `enabled.txt` is what turns the mod on. You do not edit `mods.txt` for a normal install.
 
 **Upgrading from an earlier version:** extract over your old copy the same way. The old `known.lua`, `mobs.lua`, `catalog.lua`, and `growth.lua` are no longer used, and you can delete them, along with any old `battle_log.txt`. Your `config.ini` is replaced, so set any changes again. Take it Easy and its `AttacksOnly` setting are gone: if you used it, you start in No Mercy. To get the same play, switch to Echo and give each character Attack by hand once (see [Echo](#echo)).
 
@@ -147,6 +147,26 @@ Settings are in `config.ini` in the mod folder. Edit the file, then restart the 
 | `ItemPrice` | `5000` | An item whose buy price is above this stays in the bag. Raise it to let the party spend more expensive items. |
 | `EsperLevelGap` | `3` | An Esper is not called in a fight that only looks dangerous when every foe is at least this many levels under the character who would call it. A boss, or a hit that would kill an ally, still gets the call. `0` turns this off. `-1` never calls an Esper; you can still call one by hand. |
 | `ResonanceLevelGap` | `0` | The same as `EsperLevelGap`, for the Resonance wheel. The wheel is skipped when every foe is at least this many levels under every standing ally, unless it is a boss or an ally is down or about to die. `0` turns this off. `-1` leaves every wheel to you; the mod never picks or skips. |
+
+### No Mercy Commands
+
+Each of these takes `auto`, `off`, or `hand`. With `auto`, the party uses that kind of command as it sees fit, as it always has. With `off`, the party plays as if nobody held it and picks something else. With `hand`, whenever the party would pick one, that turn is left to you: the screen flashes `AutoBattle: (name)'s turn is yours (Heals)`, and the command menu stays open. What you send is recorded like any turn you play by hand.
+
+Attack is never switched off. A Limit Burst is covered only by `Limits`, even one that heals or raises. Espers are set by `EsperLevelGap` and the Resonance wheel by `ResonanceLevelGap`. An item counts as an Item, and also as a Heal or a Raise when that is what it does, so `Heals = off` keeps Potions in the bag too. If two switches cover the same command, `off` wins over `hand`. Turning off Heals or Raises can lose fights. That is your call.
+
+| Setting | Default | Covers |
+| --- | --- | --- |
+| `Limits` | `auto` | Limit Bursts. |
+| `Heals` | `auto` | HP heals and status cures, from skills or items. |
+| `Raises` | `auto` | Raises, from skills or items. |
+| `Buffs` | `auto` | Support on the party: Haste, Protect, Shell, formations, stances. |
+| `Debuffs` | `auto` | Debuffs and break marks on foes. |
+| `Guards` | `auto` | Defend, Cover, and Provoke. |
+| `Items` | `auto` | Every item: Potions, Ethers, Phoenix Downs, and throws. |
+| `Scan` | `auto` | Scan and other moves that reveal a foe's weaknesses. |
+| `Escape` | `auto` | Running from a stalemate, five rounds with no foe losing HP. Takes `auto` or `off`. |
+
+A command's kind is read from its row in the game's data, by what it does, not by its name. A value the file does not recognize is read as `auto`, and `UE4SS.log` says so. Any switch that is not `auto` is listed in `UE4SS.log` when the game starts.
 
 ### Advanced
 
@@ -242,7 +262,7 @@ After a gear change, play the character's new turn by hand once and Echo repeats
 
 ### Settings that don't apply in Echo
 
-`ItemPrice`, `EsperLevelGap`, and `ResonanceLevelGap` are for No Mercy's own choices. In Echo, items, Espers, and the wheel are all yours (see [Never echoed, by design](#never-echoed-by-design)), so these settings have nothing to do. `SkipScenes`, `Turbo`, `LargeMap`, `Reporting`, and `Submit` work the same in both modes. With `Submit = false`, Echo logs the turn it would send and leaves the menu to you.
+`ItemPrice`, `EsperLevelGap`, `ResonanceLevelGap`, and the [No Mercy Commands](#no-mercy-commands) switches are for No Mercy's own choices. In Echo, items, Espers, and the wheel are all yours (see [Never echoed, by design](#never-echoed-by-design)), and every other turn is your own, so these settings have nothing to do. `SkipScenes`, `Turbo`, `LargeMap`, `Reporting`, and `Submit` work the same in both modes. With `Submit = false`, Echo logs the turn it would send and leaves the menu to you.
 
 ### Tracking Echo
 
