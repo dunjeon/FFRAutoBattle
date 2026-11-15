@@ -287,6 +287,7 @@ local Defaults = {
     EsperLevelGap = 3, ResonanceLevelGap = 0, Echo = false, EchoKeep = true,
     Limits = "auto", Heals = "auto", Raises = "auto", Buffs = "auto", Debuffs = "auto",
     Guards = "auto", Items = "auto", Scan = "auto", Escape = "auto",
+    LimitFights = "hard",
 }
 local cfg = {}
 for k, v in pairs(Defaults) do cfg[k] = v end
@@ -334,6 +335,13 @@ local function loadConfig()
         end
         cfg[name] = v
     end
+    -- LimitFights: hard or any. Anything else is hard.
+    local lf = tostring(cfg.LimitFights or ""):lower():match("^%s*(.-)%s*$")
+    if lf ~= "hard" and lf ~= "any" then
+        log("switches: config error, LimitFights = %s is not hard or any; using hard", tostring(cfg.LimitFights))
+        lf = "hard"
+    end
+    cfg.LimitFights = lf
     Reporting = cfg.Reporting
     if Reporting and Known.reportLib and (not Known.report) then
         Known.report = Known.reportLib.new(DIR .. "/battle_report.txt")
@@ -3636,8 +3644,9 @@ local function turn(uid, skills, w, phase)
     local style = styleOf()
     Fight.threat = hardField
     -- A Limit waits for a danger move, a hit that would kill, or a boss.
-    -- A common fight spends the turn on its own skills.
-    limitFight = hardField or (Fight.boss and true or false)
+    -- A common fight spends the turn on its own skills, unless the player
+    -- set LimitFights = any.
+    limitFight = hardField or (Fight.boss and true or false) or (cfg.LimitFights == "any")
 
     -- A foe this unit can kill right now dies now, ahead of heals and everything
     -- else: a dead foe stops hitting, and a dead boss ends the fight. With more
@@ -10034,6 +10043,7 @@ if cfg.SkipScenes then log("scene skip on") end
 if Known.switches and Known.switches.summary(cfg) then
     log("switches: %s", Known.switches.summary(cfg))
 end
+if cfg.LimitFights == "any" then log("switches: LimitFights any") end
 
 if cfg.Turbo then
     log("turbo on")

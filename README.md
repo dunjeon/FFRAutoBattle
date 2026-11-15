@@ -150,13 +150,14 @@ Settings are in `config.ini` in the mod folder. Edit the file, then restart the 
 
 ### No Mercy Commands
 
-Each of these takes `auto`, `off`, or `hand`. With `auto`, the party uses that kind of command as it sees fit, as it always has. With `off`, the party plays as if nobody held it and picks something else. With `hand`, whenever the party would pick one, that turn is left to you: the screen flashes `AutoBattle: (name)'s turn is yours (Heals)`, and the command menu stays open. What you send is recorded like any turn you play by hand.
+Each switch takes `auto`, `off`, or `hand`, unless its row says otherwise. With `auto`, the party uses that kind of command as it sees fit, as it always has. With `off`, the party plays as if nobody held it and picks something else. With `hand`, whenever the party would pick one, that turn is left to you: the screen flashes `AutoBattle: (name)'s turn is yours (Heals)`, and the command menu stays open. What you send is recorded like any turn you play by hand.
 
 Attack is never switched off. A Limit Burst is covered only by `Limits`, even one that heals or raises. Espers are set by `EsperLevelGap` and the Resonance wheel by `ResonanceLevelGap`. An item counts as an Item, and also as a Heal or a Raise when that is what it does, so `Heals = off` keeps Potions in the bag too. If two switches cover the same command, `off` wins over `hand`. Turning off Heals or Raises can lose fights. That is your call.
 
 | Setting | Default | Covers |
 | --- | --- | --- |
-| `Limits` | `auto` | Limit Bursts. |
+| `Limits` | `auto` | Limit Bursts, including ones that heal or raise. |
+| `LimitFights` | `hard` | Which fights the party spends Limits in. `hard`: bosses, and fights with a danger move or a hit that would kill. `any`: every fight. Takes `hard` or `any`, not `off` or `hand`. |
 | `Heals` | `auto` | HP heals and status cures, from skills or items. |
 | `Raises` | `auto` | Raises, from skills or items. |
 | `Buffs` | `auto` | Support on the party: Haste, Protect, Shell, formations, stances. |
@@ -184,7 +185,7 @@ The goal is short fights and big damage from what you set up, in any battle, wit
 
 - **Find what hits hard, then use it.** The mod measures the real damage of each skill on each enemy, including how often it misses. Weaknesses, gauges, and dangerous moves come from the game's data. A skill that does nothing to an enemy is set aside against it until that enemy's status changes.
 - **Stagger is the main source of damage.** The party builds the gauge, then goes all in while the enemy is staggered, including Limit Bursts. It does not stop to prepare during a stagger.
-- **Every Limit Burst has a job.** On a boss or a dangerous fight, each Limit is read from the game's own row and used for what it does: a party raise when two are down, a barrier before a dangerous move, acting twice or a stagger bonus while the enemy is staggered, a gauge mark or a bar fill before the break, a hit that lands the break, and a full bar spent rather than held. A one-gauge Limit waits for a two-gauge Limit on a long boss fight, if that bigger Limit can land. A common fight saves the bar.
+- **Every Limit Burst has a job.** On a boss or a dangerous fight, each Limit is read from the game's own row and used for what it does: a party raise when two are down, a barrier before a dangerous move, acting twice or a stagger bonus while the enemy is staggered, a gauge mark or a bar fill before the break, a hit that lands the break, and a full bar spent rather than held. A one-gauge Limit waits for a two-gauge Limit on a long boss fight, if that bigger Limit can land. A common fight saves the bar, unless `LimitFights = any`.
 - **A foe that can die this turn dies this turn.** A measured killing blow comes before heals and raises. A Limit Burst can be that blow on a boss or a dangerous fight, but another hit that kills goes first, so the Limit is kept.
 - **The team prepares for a big hit.** When the game warns of a dangerous move, each character estimates that hit against each ally, then uses whichever guard, Shell, Protect, Cover, heal, item, or Defend saves the most of them. If nothing would save anyone, they keep hitting.
 - **Multicast is a normal choice.** An All cast is its own row, with that row's own magnification.
