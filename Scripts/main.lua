@@ -323,6 +323,49 @@ end
 -- and nothing is multiplied twice.
 Known.devXp = { rate = 1, orig = {}, fight = false, told = false }
 
+-- A mod reload in a running game finds the rows already multiplied, and
+-- would take those for the game's own and multiply again. devxp.txt keeps
+-- the game's own values and the last rate applied: a row that reads its
+-- kept value times that rate is the same session, so the kept value stands.
+-- Any other reading (a new game version) is the game's own and is kept.
+Known.devXpPath = DIR .. "/devxp.txt"
+function Known.devXpRead()
+    local out = { rate = nil, orig = {} }
+    local f = io.open(Known.devXpPath, "r")
+    if not f then return out end
+    for line in f:lines() do
+        local k, v = line:match("^%s*(%S+)%s+(%S+)%s*$")
+        v = tonumber(v)
+        if k and v then
+            if k == "rate" then out.rate = v else out.orig[k] = v end
+        end
+    end
+    f:close()
+    return out
+end
+function Known.devXpWrite(rate, orig)
+    local keys = {}
+    for k in pairs(orig) do keys[#keys + 1] = k end
+    table.sort(keys)
+    local lines = { "rate " .. tostring(rate) }
+    for _, k in ipairs(keys) do lines[#lines + 1] = k .. " " .. tostring(orig[k]) end
+    local ok, err = pcall(function()
+        local f = assert(io.open(Known.devXpPath, "w"))
+        f:write("-- FFR:AutoBattle DevXpRate: the game's own rates. Safe to delete with the game closed.\n")
+        f:write(table.concat(lines, "\n") .. "\n")
+        f:close()
+    end)
+    if not ok then log("dev xp: could not save %s: %s", Known.devXpPath, tostring(err)) end
+end
+-- The game's own value for a row, given what it reads now and what was kept.
+-- The rows are floats: a value set reads back a hair off.
+function Known.devXpSame(a, b) return math.abs(a - b) <= 1e-4 * math.max(1, math.abs(b)) end
+function Known.devXpOrig(now, kept, keptRate)
+    local same = Known.devXpSame
+    if kept and (same(now, kept) or (keptRate and same(now, kept * keptRate))) then return kept end
+    return now
+end
+
 local function loadConfig()
     local ini = loadIni(CONFIG_PATH)
     local function take(name)
@@ -793,12 +836,19 @@ end
 -- other row walks wait for. A table walk while a save loads crashed the game.
 function Known.devXpApply()
     local d = Known.devXp
-    if (not d) or (d.rate == 1) then return end
+    if not d then return end
+    -- At 1 the rows are only touched to undo a rate a reload left behind,
+    -- which devxp.txt records. Without that file nothing is read or set.
+    if d.rate == 1 then
+        if not d.kept then d.kept = Known.devXpRead() end
+        if not (d.kept.rate and (d.kept.rate ~= 1)) then return end
+    end
     if not battleUp() then return end
     local tag = (Fight and Fight.number) or true
     if d.fight == tag then return end
     d.fight = tag
-    local set = 0
+    if not d.kept then d.kept = Known.devXpRead() end
+    local set, fresh = 0, false
     for _, dt in ipairs(FindAllOf("DataTable") or {}) do
         pcall(function()
             if type(dt) ~= "userdata" or not dt:IsValid() then return end
@@ -809,9 +859,12 @@ function Known.devXpApply()
                     local v = num(field(row, name))
                     if v then
                         local key = diff .. ":" .. name
-                        if d.orig[key] == nil then d.orig[key] = v end
+                        if d.orig[key] == nil then
+                            d.orig[key] = Known.devXpOrig(v, d.kept.orig[key], d.kept.rate)
+                            if d.kept.orig[key] ~= d.orig[key] then fresh = true end
+                        end
                         local want = d.orig[key] * d.rate
-                        if v ~= want then
+                        if not Known.devXpSame(v, want) then
                             pcall(function() row[name] = want end)
                             set = set + 1
                         end
@@ -819,6 +872,11 @@ function Known.devXpApply()
                 end
             end)
         end)
+    end
+    if fresh or (d.kept.rate ~= d.rate) then
+        d.kept = { rate = d.rate, orig = {} }
+        for k, v in pairs(d.orig) do d.kept.orig[k] = v end
+        Known.devXpWrite(d.rate, d.orig)
     end
     if (set > 0) or (not d.told) then
         d.told = true
@@ -8688,8 +8746,10 @@ local function noteHand(v)
         Fight.repHand[#Fight.repHand + 1] = { uid = uid, id = actionId, name = name, kind = kind, targets = targets, phase = phase,
             echo = Known.echoNow and true or nil, echoWhy = Known.echoWhy,
             -- The game closes the menu before the decide arrives, so the mark
-            -- is the last menu's unit, as Echo's own tape check reads it.
-            forced = ((not Known.echoNow) and (not onWheel) and (Menu.actor ~= uid)) or nil,
+            -- is the last menu's unit, as Echo's own tape check reads it, and
+            -- that menu still undecided: a turn the game takes right after
+            -- the same unit's own menu is forced too.
+            forced = ((not Known.echoNow) and (not onWheel) and ((Menu.actor ~= uid) or (not Menu.handFresh))) or nil,
             isItem = isItem, cost = skill and skill.cost, attr = skill and skill.attr, dmgType = skill and skill.dmgType }
     end
     Fight.prevHit = { who = who, skill = name, kind = kind, id = targets[1] }
@@ -9401,6 +9461,9 @@ local function hookDecide()
                 local actorNow = nil
                 pcall(function() actorNow = Known.echoActor(v) end)
                 Menu.fromMenu = Menu.open and (not Menu.decided) and true or false
+                -- A menu opened since the last decide. Read before decided is
+                -- set below; noteHand runs after that.
+                Menu.handFresh = (not Menu.decided) and true or false
                 learn(v)
                 if not fromMod then
                     local okTrace, errTrace = pcall(Menu.traceHand, v)
