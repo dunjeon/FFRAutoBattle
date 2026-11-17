@@ -434,7 +434,7 @@ function M.new(path, clock)
             targets[#targets + 1] = tx
         end
         local lines = {
-            string.format("%s #%d%s round %s phase %s %s mp %s lb %s: %s (id %s, %s, attr %s, dmg %s, cost %s) -> %s", self.clock(), n, (rec.echo and " ECHO") or (rec.byHand and " BY HAND") or "",
+            string.format("%s #%d%s round %s phase %s %s mp %s lb %s: %s (id %s, %s, attr %s, dmg %s, cost %s) -> %s", self.clock(), n, (rec.echo and " ECHO") or (rec.forced and " FORCED") or (rec.byHand and " BY HAND") or "",
                 tostring(rec.round), tostring(rec.phase), tostring(rec.who), tostring(rec.mp), tostring(rec.lb), tostring(rec.name),
                 tostring(rec.id), kind, tostring(rec.attr), tostring(rec.dmgType), tostring(rec.cost), table.concat(targets, ", ")),
             "    why: " .. tostring(rec.reason),

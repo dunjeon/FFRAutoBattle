@@ -316,6 +316,13 @@ local function loadIni(path)
     return out
 end
 
+-- DevXpRate, for dev tests only. Over 1, the difficulty rows' ExpRate
+-- (character experience) and MRPointRate (Vision mastery points) are set to
+-- the game's own value times this rate, for this session. orig holds the
+-- values the game loaded, by difficulty, so a reloaded table is set again
+-- and nothing is multiplied twice.
+Known.devXp = { rate = 1, orig = {}, fight = false, told = false }
+
 local function loadConfig()
     local ini = loadIni(CONFIG_PATH)
     local function take(name)
@@ -346,6 +353,9 @@ local function loadConfig()
         lf = "hard"
     end
     cfg.LimitFights = lf
+    -- DevXpRate is a dev key. It is not in the shipped config.ini. See Known.devXpApply.
+    local rate = tonumber(ini["devxprate"])
+    Known.devXp.rate = (rate and (rate > 0)) and rate or 1
     Reporting = cfg.Reporting
     if Reporting and Known.reportLib and (not Known.report) then
         Known.report = Known.reportLib.new(DIR .. "/battle_report.txt")
@@ -779,6 +789,54 @@ local function buildSkillIndex(fromBattle)
     end
 end
 
+-- Once a fight, after the first command menu opens: the same moment the
+-- other row walks wait for. A table walk while a save loads crashed the game.
+function Known.devXpApply()
+    local d = Known.devXp
+    if (not d) or (d.rate == 1) then return end
+    if not battleUp() then return end
+    local tag = (Fight and Fight.number) or true
+    if d.fight == tag then return end
+    d.fight = tag
+    local set = 0
+    for _, dt in ipairs(FindAllOf("DataTable") or {}) do
+        pcall(function()
+            if type(dt) ~= "userdata" or not dt:IsValid() then return end
+            if rowStructName(dt) ~= "GAME_DIFFICULTY_PARAM" then return end
+            dt:ForEachRow(function(_, row)
+                local diff = tostring(num(field(row, "difficulty")))
+                for _, name in ipairs({ "ExpRate", "MRPointRate" }) do
+                    local v = num(field(row, name))
+                    if v then
+                        local key = diff .. ":" .. name
+                        if d.orig[key] == nil then d.orig[key] = v end
+                        local want = d.orig[key] * d.rate
+                        if v ~= want then
+                            pcall(function() row[name] = want end)
+                            set = set + 1
+                        end
+                    end
+                end
+            end)
+        end)
+    end
+    if (set > 0) or (not d.told) then
+        d.told = true
+        local now = {}
+        pcall(function()
+            local lib = StaticFindObject("/Script/mucha.Default__CPP_BFL_SaveDataPlayer")
+            if lib and lib:IsValid() then
+                for _, k in ipairs({ "GetCurDifficultyExpRate", "GetCurDifficultyMRPointRate" }) do
+                    local ok, v = pcall(function() return lib[k](lib) end)
+                    now[#now + 1] = (k:gsub("GetCurDifficulty", "")) .. " " .. tostring(ok and (num(v) or v) or "?")
+                end
+            end
+        end)
+        log("dev xp x%s: %d values set; the game now reads %s", tostring(d.rate), set,
+            (#now > 0) and table.concat(now, ", ") or "nothing")
+    end
+end
+
 queueRowWalk = function()
     if SkillIdx or rowWalkQueued then return end
     rowWalkQueued = true
@@ -1140,17 +1198,48 @@ local function members(relation)
     return ids
 end
 
+-- The retreat a Last Resonance ends with. See the hit hook.
+Known.retreatSkill = 400780
+
+-- A Last Resonance: a row whose effect hands its caster the retreat
+-- (DT_SkillEffectData 54216, AddSideJob 400780). The hero leaves the battle
+-- and a reserve member steps in, so it is never picked. The player chooses
+-- when; the game's tutorial says "That's for you to decide."
+function Known.lastStand(s)
+    if not (s and s.effects) then return false end
+    if s.lastStand ~= nil then return s.lastStand end
+    s.lastStand = false
+    for _, e in ipairs(s.effects) do
+        for _, p in pairs(e.params or {}) do
+            if p == Known.retreatSkill then s.lastStand = true end
+        end
+    end
+    return s.lastStand
+end
+
 -- During a command the relation list often contains only the actor.
+-- A reserve member who steps in after a Last Resonance sits past the
+-- opening slots (seen 2026-11-16: units 16, 18, 20, 22), so every friend the
+-- list has ever named in this fight is asked again.
 local function friendIds()
     local ids, seen = {}, {}
+    local retired = Fight and Fight.retired
     local function add(n)
         n = num(n)
-        if n and n >= 0 and not seen[n] then
+        if n and n >= 0 and not seen[n] and not (retired and retired[n]) then
             seen[n] = true
             ids[#ids + 1] = n
         end
     end
-    for _, id in ipairs(members(REL.FRIEND)) do add(id) end
+    local listed = members(REL.FRIEND)
+    for _, id in ipairs(listed) do add(id) end
+    if Fight then
+        Fight.friendSeen = Fight.friendSeen or {}
+        for _, id in ipairs(listed) do
+            local n = num(id)
+            if n and (n >= 0) then Fight.friendSeen[n] = true end
+        end
+    end
     local bfl = battleLib()
     if bfl and bfl:IsValid() then
         local function friendSlot(uid, aliveOnly)
@@ -1162,6 +1251,11 @@ local function friendIds()
         end
         for uid = 0, 7 do
             if not friendSlot(uid, true) then friendSlot(uid, false) end
+        end
+        for uid in pairs((Fight and Fight.friendSeen) or {}) do
+            if (uid > 7) and (not seen[uid]) then
+                if not friendSlot(uid, true) then friendSlot(uid, false) end
+            end
         end
     end
     return ids
@@ -1495,6 +1589,14 @@ local function tagSkill(uid, id, borrowed)
     -- A command that holds picks is never a turn by itself. It is left to the
     -- player, and Echo repeats it as the player sent it.
     if Known.parents and Known.parents[id] then return nil end
+    if Known.lastStand(s) then
+        Known.lastStandTold = Known.lastStandTold or {}
+        if not Known.lastStandTold[id] then
+            Known.lastStandTold[id] = true
+            log("%s (id %s) sends the hero out of the battle: left to the player", tostring(s.name), tostring(id))
+        end
+        return nil
+    end
     -- EsperLevelGap -1: no Esper is ever called. The player can still call one by hand.
     if s.attr == ATTR.SUMMON and (tonumber(cfg.EsperLevelGap) or 0) < 0 then return nil end
     local lb = limitSkill(s)
@@ -2251,7 +2353,8 @@ local function worldOf(uid, boss, summoned)
                     id = ok and num(v) or nil
                 end
             end
-            if id and not have[id] then
+            -- A hero who left by Last Resonance stays on this list, down. Nothing raises them.
+            if id and not have[id] and not (Fight and Fight.retired and Fight.retired[id]) then
                 local rel = nil
                 if param then
                     local ok, v = pcall(function() return param:GetRelation() end)
@@ -6274,12 +6377,21 @@ local function noteChanges(now)
             if cur.hp > 0 then standing = standing + 1 end
         end
     end
-    if (allies > 0) and (standing == 0) then Fight.wiped = true end
+    -- The party that fell is kept, so a retry (one of them standing again)
+    -- can be told from a reserve member stepping in.
+    if (allies > 0) and (standing == 0) then
+        Fight.wiped = true
+        Fight.wipedIds = Fight.wipedIds or {}
+        for id, cur in pairs(now) do
+            if cur.side == "ally" then Fight.wipedIds[id] = true end
+        end
+    end
     for id, was in pairs(Fight.prev) do
         local cur = now[id]
         -- Only a friend can be a summon. An enemy's skill list is not read here.
         local summon = (was.side == "ally") and Fight.isSummon and Fight.isSummon(id)
-        if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon then
+        local retired = Fight.retired and Fight.retired[id]
+        if was.side == "ally" and was.hp > 0 and (not cur or cur.hp <= 0) and not summon and not retired then
             Fight.fell[#Fight.fell + 1] = was.name
             appendLog("  fell: " .. was.name .. (was.raised and " (raised and down again before a menu)" or ""))
             local at = Fight.raisedRound and Fight.raisedRound[id]
@@ -6628,6 +6740,15 @@ Known.repSnap = function(extra)
         -- same id on the enemy list. The report does not call it a foe.
         if Fight.summons and Fight.summons[id] then return end
         if Fight.isSummon and Fight.isSummon(id) then return end
+        if Fight.retired and Fight.retired[id] then return end
+        -- A reserve member who just stepped in can be a target before the
+        -- friend list has them. Their relation says friend.
+        local friend = false
+        pcall(function()
+            local p = paramOf(id)
+            if p and (num(p:GetRelation()) == REL.FRIEND) then friend = true end
+        end)
+        if friend then return end
         local hp = stat(id, PARAM.HP, false)
         if hp and hp > 0 then snap.foes[id] = unitOf(id, true) end
     end
@@ -6732,8 +6853,8 @@ Known.repHandFlush = function()
             targets[#targets + 1] = t
         end
         local me = h.uid and snap.allies[h.uid]
-        R:decide({ byHand = not h.echo, echo = h.echo, who = who, uid = h.uid, phase = h.phase, round = Fight.rounds, mp = me and me.mp, maxMp = me and me.maxMp, lb = me and me.lb,
-            name = h.name, id = h.id, kind = kind, reason = h.echo and (h.echoWhy or "echo") or "sent by the player", cost = h.cost, attr = h.attr, dmgType = h.dmgType, targets = targets })
+        R:decide({ byHand = not h.echo, echo = h.echo, forced = h.forced, who = who, uid = h.uid, phase = h.phase, round = Fight.rounds, mp = me and me.mp, maxMp = me and me.maxMp, lb = me and me.lb,
+            name = h.name, id = h.id, kind = kind, reason = h.echo and (h.echoWhy or "echo") or (h.forced and "no command menu opened; the game chose it (a status such as charm, berserk or Doom)") or "sent by the player", cost = h.cost, attr = h.attr, dmgType = h.dmgType, targets = targets })
     end
 end
 
@@ -6990,6 +7111,7 @@ local function ensureBattle()
     Fight.kitOn = {}
     Fight.drawSeen, Fight.cureTry, Fight.cureMiss, Fight.drawRound = {}, {}, {}, {}
     Fight.refell, Fight.raisedRound, Fight.wiped = {}, {}, false
+    Fight.retired, Fight.wipedIds, Fight.friendSeen = nil, nil, nil
     Fight.kindMiss, Fight.kindNull, Fight.kindHit, Fight.hitProbe = {}, {}, {}, nil
     Fight.kindMissBy, Fight.skillZero = {}, {}
     Fight.learned = {}
@@ -7909,17 +8031,45 @@ local function act(serial)
         -- After a wipe nobody is left to raise anyone, so a party member
         -- standing again means the game restarted the fight: a retry, at any
         -- HP or MP.
+        -- A hero who left by Last Resonance reads down while gone, so one
+        -- standing is a retry too. A reserve member standing who was not in
+        -- the party that fell stepped in: that was no wipe, and nothing is
+        -- cleared (seen 2026-11-16: Jake and Sakura after Fina fell).
         local retry = false
         if Fight.wiped then
-            for id in pairs(Fight.seenAlly or {}) do
+            local stepIn = false
+            local look = {}
+            for _, set in ipairs({ Fight.seenAlly or {}, Fight.wipedIds or {}, Fight.retired or {} }) do
+                for id in pairs(set) do look[id] = true end
+            end
+            for id in pairs(look) do
                 local r = hpRatio(id)
-                if r and (r > 0) then retry = true end
+                if r and (r > 0) then
+                    if (Fight.wipedIds and Fight.wipedIds[id]) or (Fight.retired and Fight.retired[id]) then
+                        retry = true
+                    else
+                        stepIn = true
+                    end
+                end
+            end
+            if stepIn and (not retry) then
+                Fight.wiped = false
+                Fight.wipedIds = nil
             end
         end
         -- Most of the party back at its opening bar. The same share for any size.
         local need = math.max(1, math.ceil(party * 0.75))
         if (n < need) and (not retry) then return end
         Fight.wiped = false
+        Fight.wipedIds = nil
+        -- The fight began again: a hero who left by Last Resonance and stands
+        -- is back in the party.
+        if Fight.retired then
+            for id in pairs(Fight.retired) do
+                local r = hpRatio(id)
+                if r and (r > 0) then Fight.retired[id] = nil end
+            end
+        end
         Fight.refell, Fight.raisedRound = {}, {}
         Fight.mpBack = {}
         Fight.mpLow = {}
@@ -8462,15 +8612,18 @@ local function noteHand(v)
     -- echo, goes by the unit its command names. The hits agree with it
     -- (seen 2026-11-11: Zantetsuken named unit 0, Rain, after Jake's menu).
     if actorId and (actorId >= 0) and (Known.echoNow or onWheel or not Menu.fromMenu) then uid = actorId end
+    -- The unit's relation comes first: a reserve member was once filed as a
+    -- foe and every turn of theirs, an echo too, went unrecorded
+    -- (seen 2026-11-16, Jake).
     if uid and (uid >= 0) then
-        local foe = Fight.seenFoe and Fight.seenFoe[uid]
-        if not foe then
-            local p = paramOf(uid)
-            if p then
-                local okR, rel = pcall(function() return p:GetRelation() end)
-                if okR and (num(rel) == REL.ENEMY) then foe = true end
-            end
+        local rel = nil
+        local p = paramOf(uid)
+        if p then
+            local okR, got = pcall(function() return p:GetRelation() end)
+            if okR then rel = num(got) end
         end
+        local foe = (rel == REL.ENEMY) or ((rel ~= REL.FRIEND) and Fight.seenFoe and Fight.seenFoe[uid])
+        if rel == REL.FRIEND and Fight.seenFoe then Fight.seenFoe[uid] = nil end
         if foe then return end
     end
     if (not Known.echoNow) and Known.echoKeep then
@@ -8529,6 +8682,9 @@ local function noteHand(v)
         Fight.repHand = Fight.repHand or {}
         Fight.repHand[#Fight.repHand + 1] = { uid = uid, id = actionId, name = name, kind = kind, targets = targets, phase = phase,
             echo = Known.echoNow and true or nil, echoWhy = Known.echoWhy,
+            -- The game closes the menu before the decide arrives, so the mark
+            -- is the last menu's unit, as Echo's own tape check reads it.
+            forced = ((not Known.echoNow) and (not onWheel) and (Menu.actor ~= uid)) or nil,
             isItem = isItem, cost = skill and skill.cost, attr = skill and skill.attr, dmgType = skill and skill.dmgType }
     end
     Fight.prevHit = { who = who, skill = name, kind = kind, id = targets[1] }
@@ -8806,6 +8962,17 @@ function readRisk(hitsOnly)
             local to = actorId(d.pTargetUnit)
             local row = unwrap(d.unitParameterVariationData)
             if not from or not to or not row then return end
+            -- Last Resonance's retreat (skill 400780, the hero on themself): the
+            -- hero leaves the battle and a reserve member steps in. It is not a
+            -- fall, and nothing brings them back.
+            if (from == to) and (num(row.SkillId) == Known.retreatSkill) and Fight then
+                Fight.retired = Fight.retired or {}
+                if not Fight.retired[from] then
+                    Fight.retired[from] = true
+                    appendLog("  left the battle: " .. tostring(Fight.nameOf(from)) .. " (Last Resonance)")
+                end
+                return
+            end
             -- A body the game has removed reads as unit 0, which is a party slot.
             -- A hit from the party that isn't out of control was on that foe.
             -- The caster can read as unit 0 too, so the skill's last caster is the name.
@@ -9268,6 +9435,7 @@ local function hookMenu()
             -- the command is chosen.
             rowsAllowed = true
             queueRowWalk()
+            gameDelay(0, function() pcall(Known.devXpApply) end)
             if applyPendingOrder and Fight and Fight.orderFresh then gameDelay(0, applyPendingOrder) end
             local actor = currentActor()
             Menu.sub = (actor == Menu.actor) and (not Menu.decided)
@@ -9988,22 +10156,24 @@ local function bind(name, fn)
     end)
 end
 
-local function pressAuto()
+-- from: what was pressed. UE4SS.log names it, so a press that did not
+-- arrive can be told from one that did.
+local function pressAuto(from)
     cfg.Enabled = not cfg.Enabled
     saveState()
     local msg = cfg.Enabled and "AutoBattle On" or "AutoBattle Off"
-    log(msg)
+    log("%s (%s)", msg, tostring(from or cfg.TakeOverKey))
     if Fight and Fight.active then appendLog("  switch: " .. msg) end
     showToast(msg)
     if cfg.Enabled then scheduleAct() end
 end
 
 -- No Mercy or Echo.
-local function pressBasic()
+local function pressBasic(from)
     cfg.Echo = not cfg.Echo
     saveState()
     local msg = cfg.Echo and "AutoBattle: Echo Mode" or "AutoBattle: No Mercy!"
-    log(msg)
+    log("%s (%s)", msg, tostring(from or cfg.MenuKey))
     if Fight and Fight.active then appendLog("  switch: " .. msg) end
     showToast(msg)
 end
@@ -10060,6 +10230,7 @@ function Known.mapPoll()
 end
 
 local padTold, padLeft, padRight = false, false, false
+local padOneTold = false
 local function pollTriggers()
     local wasFront, front = Known.mapPoll()
     local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
@@ -10078,6 +10249,13 @@ local function pollTriggers()
     end
     local left = down("Gamepad_LeftTrigger")
     local right = down("Gamepad_RightTrigger")
+    -- One trigger unreadable while the other reads.
+    if (left == nil) ~= (right == nil) then
+        if not padOneTold then
+            padOneTold = true
+            log("could not read the %s trigger", (left == nil) and "left" or "right")
+        end
+    end
     if (left == nil) and (right == nil) then
         if not padTold then
             padTold = true
@@ -10098,8 +10276,14 @@ local function pollTriggers()
         if leftRose then Known.pressMapField("left trigger", wasFront, front) end
         return
     end
-    if leftRose and cfg.Enabled then pressBasic() end
-    if rightRose then pressAuto() end
+    if leftRose then
+        if cfg.Enabled then
+            pressBasic("left trigger")
+        else
+            log("left trigger in a fight: auto battle is off, so the press stays with the game")
+        end
+    end
+    if rightRose then pressAuto("right trigger") end
 end
 
 loadConfig()
@@ -10157,3 +10341,6 @@ log("loaded. planner v1.2.5. %s. %s toggles auto battle. %s switches No Mercy an
     cfg.MenuKey,
     cfg.Echo and "Echo" or "No Mercy",
     tostring(cfg.Submit))
+if Known.devXp.rate ~= 1 then
+    log("dev xp on: experience and Vision mastery points x%s from the first command menu of a fight", tostring(Known.devXp.rate))
+end
