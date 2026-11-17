@@ -7694,6 +7694,9 @@ function Known.echoTapes(d)
         local row = skillOf(e.id)
         if row and (row.attr == ATTR.SUMMON) then return nil, Known.echoName(e.id, false) end
         if row and limitSkill(row) then return nil, Known.echoName(e.id, false) end
+        -- A Last Resonance sends the hero out. Sent again on a retry or in
+        -- the next fight, it would empty the party as No Mercy once did.
+        if row and Known.lastStand(row) then return nil, Known.echoName(e.id, false) end
     end
     return true
 end
@@ -8043,7 +8046,9 @@ local function act(serial)
                 for id in pairs(set) do look[id] = true end
             end
             for id in pairs(look) do
-                local r = hpRatio(id)
+                -- A summon still on the field after the party fell is neither.
+                local summon = Fight.isSummon and Fight.isSummon(id)
+                local r = (not summon) and hpRatio(id) or nil
                 if r and (r > 0) then
                     if (Fight.wipedIds and Fight.wipedIds[id]) or (Fight.retired and Fight.retired[id]) then
                         retry = true
