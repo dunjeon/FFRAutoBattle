@@ -38,6 +38,7 @@ UE4SS is a separate program. The game does not install it, and this zip does not
 2. Download `UE4SS_v4.0.0.zip`, from the release marked Latest (November 2026, about 8.8 MB). Do not download a file whose name starts with `zDEV`. Do not download Source code.
 3. Open `FFRS\Binaries\Win64`, the folder that contains `FFRS-Win64-Shipping.exe`.
 4. Extract the UE4SS zip into that folder. If Windows asks to replace files, you already had a copy. Replacing it is fine if you are installing fresh.
+5. Open `ue4ss\UE4SS-settings.ini` in Notepad. Find the line `[EngineVersionOverride]`. Under it, change `MajorVersion =` to `MajorVersion = 5` and `MinorVersion =` to `MinorVersion = 6`. Save. The game runs Unreal Engine 5.6, and this tells UE4SS so instead of leaving it to guess.
 
 Do not use `UE4SS_v3.0.1.zip`. That is the February 2024 release. It is older than this game's engine and does not run with it. You can tell it apart because it unpacks `UE4SS.dll` straight into `Win64`, with no `ue4ss` folder.
 
@@ -83,6 +84,7 @@ Work down this list.
 - You downloaded a Source code zip. Those do not have the game folders inside them. Use `FFRAutoBattle.zip` and `UE4SS_v4.0.0.zip`.
 - `UE4SS.dll` sits directly in `Win64`, not inside `ue4ss`. That is the old `UE4SS_v3.0.1.zip`, which does not run with this game. Close the game. In `Win64`, delete `dwmapi.dll`, `UE4SS.dll`, `UE4SS-settings.ini`, `Changelog.md`, `README.md`, and the `Mods` folder that sits directly in `Win64`. Leave the `ue4ss` folder, which holds this mod. Then do step 2 again with `UE4SS_v4.0.0.zip`.
 - `UE4SS.log` does not exist. UE4SS never started. Repeat step 2.
+- `UE4SS.log` exists but has no `Starting Lua mod` lines, or the game closes at start. Check step 2, item 5: `MajorVersion = 5` and `MinorVersion = 6` in `ue4ss\UE4SS-settings.ini`.
 - `UE4SS.log` exists and does not contain `loaded. planner.` Open `FFRS\Binaries\Win64\ue4ss\Mods\mods.txt`. Under the line `; Built-in keybinds, do not move up!` and above `Keybinds : 1`, add `FFRAutoBattle : 1`. Save, quit the game fully, and start it again.
 
 ## Controls
