@@ -34,10 +34,14 @@ Everything below goes next to that shipping exe, not next to `FFRS.exe`.
 
 UE4SS is a separate program. The game does not install it, and this zip does not contain it.
 
-1. Open https://github.com/UE4SS-RE/RE-UE4SS/releases
-2. Download the basic Windows zip. Its name starts with `UE4SS_v3`. This mod was written against UE4SS 3.0.1. Do not download a file whose name starts with `zDEV`. Do not download Source code.
+1. Open https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/v4.0.0
+2. Download `UE4SS_v4.0.0.zip`. Do not download a file whose name starts with `zDEV`. Do not download Source code. Do not download `UE4SS_v3.0.1.zip`.
 3. Open `FFRS\Binaries\Win64`, the folder that contains `FFRS-Win64-Shipping.exe`.
 4. Extract the UE4SS zip into that folder. If Windows asks to replace files, you already had a copy. Replacing it is fine if you are installing fresh.
+
+`UE4SS_v3.0.1.zip` is the February 2024 release. It has no `ue4ss` folder. It drops `UE4SS.dll` and `UE4SS-settings.ini` straight into `Win64`, and it does not run on this game. This game is Unreal Engine 5.6. `UE4SS_v4.0.0.zip` is the loader that does.
+
+Windows Extract All sometimes makes a new folder named `UE4SS_v4.0.0`. If it does, open that folder and move `dwmapi.dll` and the `ue4ss` folder up into `Win64`.
 
 When this step is done, these two things are in the same folder as `FFRS-Win64-Shipping.exe`:
 
@@ -78,8 +82,10 @@ Work down this list.
 - The game was still running when you copied the files. Quit it fully and start it from Steam again.
 - `dwmapi.dll` is not in the same folder as `FFRS-Win64-Shipping.exe`. The launcher folder is the wrong place.
 - You extracted `FFRAutoBattle.zip` into `Win64` or into `Mods`, so `main.lua` is not at the path in step 3. Move the folder, or extract the zip again into the game folder.
-- You downloaded a Source code zip. Those do not have the game folders inside them. Use `FFRAutoBattle.zip` and the `UE4SS_v3` zip.
-- `UE4SS.log` does not exist. UE4SS never started. Repeat step 2.
+- You downloaded a Source code zip. Those do not have the game folders inside them. Use `FFRAutoBattle.zip` and `UE4SS_v4.0.0.zip`.
+- `UE4SS.dll` is in `Win64`, next to the exe, and the `ue4ss` folder contains only `Mods`. That is `UE4SS_v3.0.1.zip`. Close the game. In `Win64`, delete `dwmapi.dll`, `UE4SS.dll`, `UE4SS-settings.ini`, `Changelog.md`, `README.md`, and the `Mods` folder that sits directly in `Win64`. Leave the `ue4ss` folder. That folder already holds this mod. Then do step 2 again with `UE4SS_v4.0.0.zip`.
+- `UE4SS.log` does not exist. UE4SS never started. The log for this loader is `FFRS\Binaries\Win64\ue4ss\UE4SS.log`. A log sitting directly in `Win64` is the old loader. Repeat step 2.
+- `UE4SS.log` exists and the line `Using engine version` is not `5.6`. Open `ue4ss\UE4SS-settings.ini`. Under `[EngineVersionOverride]`, set `MajorVersion = 5` and `MinorVersion = 6`. Save, quit the game fully, and start it again.
 - `UE4SS.log` exists and does not contain `loaded. planner.` Open `FFRS\Binaries\Win64\ue4ss\Mods\mods.txt`. Under the line `; Built-in keybinds, do not move up!` and above `Keybinds : 1`, add `FFRAutoBattle : 1`. Save, quit the game fully, and start it again.
 
 ## Controls
