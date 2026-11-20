@@ -219,11 +219,16 @@ end
 
 function M.isOn() return state.on end
 
--- While the map is on: back to its corner when the field is not in front (a
--- menu, a fight), and large again when it is. The map is still on; the next
--- press turns it off. A menu never has the large map over it.
-function M.shade(front, fraction)
+-- While the map is on: a menu in front turns it off, so it is not large when
+-- the menu closes. A fight puts it back in its corner and it is large again
+-- on the field. A menu never has the large map over it.
+function M.shade(front, fraction, fight)
     if not state.on then return end
+    if (not front) and (not fight) then
+        restoreAll()
+        state.on, state.hidden = false, false
+        return
+    end
     if not front then
         if not state.hidden then
             restoreAll()
