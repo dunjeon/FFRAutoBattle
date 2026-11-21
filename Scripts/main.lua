@@ -10277,22 +10277,21 @@ function Known.pressMapField(what, wasFront, front)
     end
 end
 
--- Every poll, with LargeMap on: is the field HUD in front. A menu turns the
--- large map off; a fight tucks it back until the field. Returns the read before this one and this one.
+-- Every poll, with LargeMap on: is the field HUD in front, and the large map
+-- tucked back while it is not. Returns the read before this one and this one.
 function Known.mapPoll()
     local mm = Known.minimap
     if not (cfg.LargeMap and mm) then return nil, nil end
     -- A fight is never the field, so the HUD is not asked then.
     local front = false
-    local fight = inFight()
-    if not fight then
+    if not inFight() then
         local okF, active = pcall(mm.fieldActive)
         front = (okF and active) and true or false
     end
     local was = Known.mapFront
     Known.mapFront = front
     if mm.isOn() then
-        local ok, err = pcall(mm.shade, front, mm.fraction(cfg.MapSize), fight)
+        local ok, err = pcall(mm.shade, front, mm.fraction(cfg.MapSize))
         if not ok then log("large map failed: %s", tostring(err)) end
     end
     return was, front
@@ -10404,7 +10403,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v1.2.7. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v1.2.6. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
