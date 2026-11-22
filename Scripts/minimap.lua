@@ -41,8 +41,64 @@ end
 -- A pad press toggles the map only when the field HUD was in front at the
 -- read before the press and is still in front now. A press made while a menu
 -- opens or closes is the menu's, not the map's. nil (not read) is not in front.
+-- The middle mouse button uses this. The left trigger uses gesture, below.
 function M.pressCounts(wasFront, front)
     return (wasFront == true) and (front == true)
+end
+
+-- The left trigger toggles on release, not on press. g is the gesture:
+-- down, armed, ready, idle. ready starts true and idle at 2, so the first
+-- pull on the field counts. A press arms only when the field was in front
+-- before it and is in front now, and ready is set. The release toggles only
+-- if that arm is still set and the field is still in front.
+-- A menu, a fight, or an unread field clears the arm and ready. The trigger
+-- has to be seen up on the field for two polls before another press can arm,
+-- so one bad read while a hold is still down is not a new press. A real
+-- release on the field sets ready at once.
+-- down nil: unreadable. down is left as it was, but a menu, a fight, or an
+-- unread field still clears the arm and ready, so a hold across it never toggles.
+-- Returns "toggle", "ignore" (a release that does not toggle), or nil.
+function M.gesture(down, wasFront, front, g)
+    if type(g) ~= "table" then return nil end
+    if down == nil then
+        if front ~= true then
+            g.armed = false
+            g.ready = false
+            g.idle = 0
+        end
+        return nil
+    end
+    local field = (front == true)
+    local wasField = (wasFront == true)
+    local wasDown = (g.down == true)
+    g.down = down
+    if not field then
+        g.armed = false
+        g.ready = false
+        g.idle = 0
+        if wasDown and (not down) then return "ignore" end
+        return nil
+    end
+    if not down then
+        if wasDown then
+            local fire = (g.armed == true)
+            g.armed = false
+            g.ready = true
+            g.idle = 2
+            return fire and "toggle" or "ignore"
+        end
+        g.idle = (g.idle or 0) + 1
+        if g.idle >= 2 then g.ready = true end
+        g.armed = false
+        return nil
+    end
+    g.idle = 0
+    if not wasDown then
+        g.armed = wasField and (g.ready == true)
+    elseif not wasField then
+        g.armed = false
+    end
+    return nil
 end
 
 -- Game glue below. It reads UE4SS globals only when called.
@@ -239,7 +295,9 @@ end
 
 -- True while the field HUD is the screen in front. A menu opened on the field
 -- deactivates it, so a pad button that also switches menu tabs is left to the
--- menu. If the game cannot be asked, the answer is true, so the button still works.
+-- menu. No live field HUD at all, as on a loading screen, is not in front, so
+-- a hold across a load never toggles. If the HUD list cannot be read, or a live
+-- HUD cannot be asked, the answer is true, so the button still works.
 -- It is read ten times a second, so the HUD list is found again only every
 -- tenth read, or when one in it is gone. A new area's HUD is found within a second.
 function M.fieldActive()
@@ -263,10 +321,11 @@ function M.fieldActive()
         state.fields = found
     end
     local all = cached
-    local asked = false
+    local live, asked = 0, false
     for _, w in ipairs(all) do
         local okW, on = pcall(function()
             if not valid(w) or isDefault(w) then return nil end
+            live = live + 1
             return w:IsActivated()
         end)
         if okW and type(on) == "boolean" then
@@ -274,6 +333,7 @@ function M.fieldActive()
             if on then return true end
         end
     end
+    if live == 0 then return false end
     return not asked
 end
 

@@ -10,6 +10,8 @@
 -- on in a fight, the left trigger fires the F9 action. While auto battle is
 -- off, or outside a fight, the left trigger stays with the game, except that
 -- with LargeMap on, the left trigger on the field is the large map, as MapKey.
+-- That toggle happens when the trigger is let go, and only if the field stayed
+-- in front the whole time it was held. A hold that overlaps a menu does not.
 --
 -- Every fact comes from the game's own tables, read live. Saves and pak files
 -- are not touched. The command goes out through Delegate.Battle.Cmd.Decide.
@@ -10299,10 +10301,23 @@ end
 
 local padTold, padLeft, padRight = false, false, false
 local padOneTold = false
+-- See minimap.gesture. ready and idle start set so the first field pull counts.
+-- Kept on Known: the main chunk is at Lua's limit of 200 locals.
+Known.mapGesture = { down = false, armed = false, ready = true, idle = 2 }
 local function pollTriggers()
     local wasFront, front = Known.mapPoll()
+    -- A poll with the trigger unread still tells the gesture what is in front,
+    -- so a menu or fight seen only then clears a hold from the field.
+    local function unread()
+        if cfg.LargeMap and Known.minimap then
+            Known.minimap.gesture(nil, wasFront, front, Known.mapGesture)
+        end
+    end
     local okPc, pc = pcall(function() return FindFirstOf("PlayerController") end)
-    if not (okPc and pc and pc.IsValid and pc:IsValid()) then return end
+    if not (okPc and pc and pc.IsValid and pc:IsValid()) then
+        unread()
+        return
+    end
     local function down(name)
         local ok, hit = pcall(function()
             return pc:IsInputKeyDown({ KeyName = FName(name) })
@@ -10329,6 +10344,7 @@ local function pollTriggers()
             padTold = true
             log("could not read the triggers")
         end
+        unread()
         return
     end
     local function rose(now, was)
@@ -10338,12 +10354,25 @@ local function pollTriggers()
     local leftRose, rightRose
     leftRose, padLeft = rose(left, padLeft)
     rightRose, padRight = rose(right, padRight)
-    if not (leftRose or rightRose) then return end
     if not inFight() then
-        -- On the field the left trigger is the large map. In a menu it stays with the game.
-        if leftRose then Known.pressMapField("left trigger", wasFront, front) end
+        -- On the field the left trigger is the large map, when it is let go.
+        -- In a menu, or held across one, it stays with the game.
+        local mm = Known.minimap
+        if cfg.LargeMap and mm then
+            local act = mm.gesture(left, wasFront, front, Known.mapGesture)
+            if act == "toggle" then
+                Known.pressMap()
+            elseif act == "ignore" then
+                log("large map: left trigger let go without toggling")
+            end
+        end
         return
     end
+    -- A hold from the field must not toggle the map after the fight.
+    if cfg.LargeMap and Known.minimap then
+        Known.minimap.gesture(left, false, false, Known.mapGesture)
+    end
+    if not (leftRose or rightRose) then return end
     if leftRose then
         if cfg.Enabled then
             pressBasic("left trigger")
@@ -10366,7 +10395,7 @@ if cfg.LargeMap then
             ExecuteInGameThread(function() Known.pressMapField("middle mouse button") end)
         end)
     end
-    log("large map on. %s toggles it. On the field the left trigger and the middle mouse button toggle it.", tostring(cfg.MapKey))
+    log("large map on. %s toggles it. On the field the left trigger toggles it when let go, and the middle mouse button toggles it.", tostring(cfg.MapKey))
 end
 -- A conversation resets the map's scale. While the large map is on, it is
 -- read every frame and made large again. A new area's HUD is looked for less often.
@@ -10403,7 +10432,7 @@ if cfg.Turbo then
     gameLoop(16, function() if Menu.keepPace then Menu.keepPace() end end)
 end
 
-log("loaded. planner v1.2.6. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
+log("loaded. planner v1.2.8. %s. %s toggles auto battle. %s switches No Mercy and Echo; now %s. In a fight, while auto battle is on, the left trigger switches the mode. The right trigger toggles auto battle. Submit=%s.",
     cfg.Enabled and "on" or "off",
     cfg.TakeOverKey,
     cfg.MenuKey,
